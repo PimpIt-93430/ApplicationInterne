@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
-import type { ContenuCase } from '@/api/stock';
+import type { CaseGrille, ContenuCase } from '@/api/stock';
 import { CaseDetailModal } from '@/components/stock/CaseDetailModal';
 import { GrilleCases } from '@/components/stock/GrilleCases';
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
@@ -121,40 +121,43 @@ function CartePin({ pin, onPress }: { pin: StockPin; onPress: () => void }) {
   );
 }
 
-interface LigneRapport {
-  pin: StockPin;
-  entrees: { casePosition: string; quantiteRestante: number | null; pourcentageRestant: number | null }[];
+function LigneContenuRapport({ contenu }: { contenu: ContenuCase }) {
+  return (
+    <View className="mb-1 flex-row items-center justify-between rounded-lg bg-slate-50 px-2.5 py-1.5">
+      <Text numberOfLines={1} className="flex-1 text-sm text-slate-700">
+        {contenu.pin.nom}
+      </Text>
+      <Text className="ml-2 text-xs font-semibold text-slate-500">
+        {contenu.pourcentageRestant !== null
+          ? `${contenu.pourcentageRestant}%`
+          : contenu.quantiteRestante !== null
+            ? `${Math.round(contenu.quantiteRestante)} restant(s)`
+            : 'non compté'}
+      </Text>
+    </View>
+  );
 }
 
-function RapportStock({ rapport }: { rapport: LigneRapport[] }) {
-  if (rapport.length === 0) {
-    return <Text className="text-sm text-slate-400">Aucun pin compté pour l'instant sur ce pop-up.</Text>;
+function RapportStock({ grille }: { grille: CaseGrille[] }) {
+  const boitesAvecContenu = grille.filter((c) => c.contenus.length > 0);
+
+  if (boitesAvecContenu.length === 0) {
+    return <Text className="text-sm text-slate-400">Aucune boîte comptée pour l'instant sur ce pop-up.</Text>;
   }
 
   return (
     <>
-      {rapport.map((ligne) => (
-        <View key={ligne.pin.id} className="mb-2 rounded-xl bg-white p-3">
-          <View className="mb-1 flex-row items-center justify-between">
-            <Text className="flex-1 text-sm font-semibold text-slate-800">{ligne.pin.nom}</Text>
+      {boitesAvecContenu.map((c) => (
+        <View key={c.casePosition} className="mb-3 rounded-xl bg-white p-3">
+          <View className="mb-2 flex-row items-center justify-between">
+            <Text className="text-sm font-bold text-slate-800">Boîte {c.casePosition}</Text>
             <Text className="text-xs text-slate-400">
-              Seuil : {ligne.pin.seuil_cible ?? '—'} · À ramener : {ligne.pin.stock_a_ramener}
+              {c.contenus.length} pin{c.contenus.length > 1 ? 's' : ''}
             </Text>
           </View>
-          <View className="flex-row flex-wrap gap-1.5">
-            {ligne.entrees.map((e) => (
-              <View key={e.casePosition} className="rounded-md bg-slate-100 px-2 py-1">
-                <Text className="text-xs text-slate-700">
-                  {e.casePosition} :{' '}
-                  {e.pourcentageRestant !== null
-                    ? `${e.pourcentageRestant}%`
-                    : e.quantiteRestante !== null
-                      ? e.quantiteRestante
-                      : 'non compté'}
-                </Text>
-              </View>
-            ))}
-          </View>
+          {c.contenus.map((contenu) => (
+            <LigneContenuRapport key={contenu.boiteId} contenu={contenu} />
+          ))}
         </View>
       ))}
     </>
@@ -231,22 +234,6 @@ export default function StockAdminScreen() {
     const q = recherche.trim().toLowerCase();
     return q ? (pins ?? []).filter((p) => p.nom.toLowerCase().includes(q)) : (pins ?? []);
   }, [pins, recherche]);
-
-  const rapport = useMemo<LigneRapport[]>(() => {
-    const parPin = new Map<string, LigneRapport>();
-    for (const c of grille ?? []) {
-      for (const contenu of c.contenus) {
-        const ligne = parPin.get(contenu.pin.id) ?? { pin: contenu.pin, entrees: [] };
-        ligne.entrees.push({
-          casePosition: c.casePosition,
-          quantiteRestante: contenu.quantiteRestante,
-          pourcentageRestant: contenu.pourcentageRestant,
-        });
-        parPin.set(contenu.pin.id, ligne);
-      }
-    }
-    return [...parPin.values()].sort((a, b) => a.pin.nom.localeCompare(b.pin.nom));
-  }, [grille]);
 
   if (chargementPopUps) {
     return (
@@ -338,7 +325,7 @@ export default function StockAdminScreen() {
             <Text className="mb-2 text-xs font-semibold uppercase text-slate-400">
               Stock compté — {popUps?.find((p) => p.id === popUpActif)?.nom ?? ''}
             </Text>
-            {chargementGrille ? <ActivityIndicator color="#6366F1" /> : <RapportStock rapport={rapport} />}
+            {chargementGrille ? <ActivityIndicator color="#6366F1" /> : <RapportStock grille={grille ?? []} />}
           </>
         )}
       </ScrollView>

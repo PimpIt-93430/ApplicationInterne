@@ -1,10 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
   Image,
-  InputAccessoryView,
   Keyboard,
-  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -18,7 +16,22 @@ import { GlisseurPourcentage } from '@/components/ui/GlisseurPourcentage';
 import { useGererCatalogue } from '@/hooks/useStock';
 import type { StockPin } from '@/types/database.types';
 
-const ACCESSORY_ID_POIDS = 'case-detail-poids-accessory';
+/** Hauteur du clavier visible (0 si masqué). InputAccessoryView est iOS-only, donc on
+ * reconstruit une barre "OK" au-dessus du clavier qui marche aussi sur Android. */
+function useHauteurClavier() {
+  const [hauteur, setHauteur] = useState(0);
+
+  useEffect(() => {
+    const evtAffiche = Keyboard.addListener('keyboardDidShow', (e) => setHauteur(e.endCoordinates.height));
+    const evtCache = Keyboard.addListener('keyboardDidHide', () => setHauteur(0));
+    return () => {
+      evtAffiche.remove();
+      evtCache.remove();
+    };
+  }, []);
+
+  return hauteur;
+}
 
 function DerniereMesure({ contenu }: { contenu: ContenuCase }) {
   let texte = 'Jamais compté';
@@ -81,7 +94,6 @@ function LignePesee({
               keyboardType="decimal-pad"
               placeholder="Poids pesé (g)"
               editable={!enCours}
-              inputAccessoryViewID={Platform.OS === 'ios' ? ACCESSORY_ID_POIDS : undefined}
               className="flex-1 rounded-lg border border-slate-200 px-3 py-2"
             />
             <Text className="w-24 text-center text-xs font-semibold text-slate-500">
@@ -252,6 +264,7 @@ export function CaseDetailModal({
   const [onglet, setOnglet] = useState<'compter' | 'contenu'>(
     contenus.length === 0 ? 'contenu' : 'compter',
   );
+  const hauteurClavier = useHauteurClavier();
 
   return (
     <FeuilleModale onClose={onClose}>
@@ -306,14 +319,15 @@ export function CaseDetailModal({
         <Text className="font-semibold text-indigo-600">Fermer</Text>
       </Pressable>
 
-      {Platform.OS === 'ios' && (
-        <InputAccessoryView nativeID={ACCESSORY_ID_POIDS}>
-          <View className="flex-row justify-end border-t border-slate-200 bg-slate-50 px-3 py-2">
-            <Pressable onPress={() => Keyboard.dismiss()}>
-              <Text className="text-base font-semibold text-indigo-600">OK</Text>
-            </Pressable>
-          </View>
-        </InputAccessoryView>
+      {hauteurClavier > 0 && (
+        <View
+          style={{ position: 'absolute', left: 0, right: 0, bottom: hauteurClavier }}
+          className="flex-row justify-end border-t border-slate-200 bg-slate-50 px-3 py-2"
+        >
+          <Pressable onPress={() => Keyboard.dismiss()}>
+            <Text className="text-base font-semibold text-indigo-600">OK</Text>
+          </Pressable>
+        </View>
       )}
     </FeuilleModale>
   );
