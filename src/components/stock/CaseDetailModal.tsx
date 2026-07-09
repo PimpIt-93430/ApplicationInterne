@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   FlatList,
   Image,
   Keyboard,
@@ -15,23 +16,6 @@ import { FeuilleModale } from '@/components/ui/FeuilleModale';
 import { GlisseurPourcentage } from '@/components/ui/GlisseurPourcentage';
 import { useGererCatalogue } from '@/hooks/useStock';
 import type { StockPin } from '@/types/database.types';
-
-/** Hauteur du clavier visible (0 si masqué). InputAccessoryView est iOS-only, donc on
- * reconstruit une barre "OK" au-dessus du clavier qui marche aussi sur Android. */
-function useHauteurClavier() {
-  const [hauteur, setHauteur] = useState(0);
-
-  useEffect(() => {
-    const evtAffiche = Keyboard.addListener('keyboardDidShow', (e) => setHauteur(e.endCoordinates.height));
-    const evtCache = Keyboard.addListener('keyboardDidHide', () => setHauteur(0));
-    return () => {
-      evtAffiche.remove();
-      evtCache.remove();
-    };
-  }, []);
-
-  return hauteur;
-}
 
 function DerniereMesure({ contenu }: { contenu: ContenuCase }) {
   let texte = 'Jamais compté';
@@ -70,6 +54,7 @@ function LignePesee({
   const valider = () => {
     if (quantiteCalculee === null || !Number.isFinite(poidsSaisi) || enCours) return;
     onPeser(poidsSaisi);
+    setPoids('');
   };
 
   // Tant que ce champ a le focus, le bouton "OK" du clavier (partagé entre toutes les lignes)
@@ -273,9 +258,31 @@ export function CaseDetailModal({
   const [onglet, setOnglet] = useState<'compter' | 'contenu'>(
     contenus.length === 0 ? 'contenu' : 'compter',
   );
-  const hauteurClavier = useHauteurClavier();
+  const [hauteurClavier, setHauteurClavier] = useState(0);
   const validerActifRef = useRef<(() => void) | null>(null);
   const boiteComplete = contenus.length > 0 && statutCase(contenus) === 'complet';
+
+  // Enregistre la pesée en cours de saisie (celle du champ actuellement focus) puis "consomme"
+  // le validateur pour ne pas le redéclencher deux fois (OK + fermeture native du clavier).
+  const enregistrerSaisieEnCours = () => {
+    validerActifRef.current?.();
+    validerActifRef.current = null;
+  };
+
+  useEffect(() => {
+    const evtAffiche = Keyboard.addListener('keyboardDidShow', (e) => setHauteurClavier(e.endCoordinates.height));
+    // Sur Android, le clavier peut se fermer tout seul (tap en dehors du champ) avant que le
+    // onPress du bouton OK n'ait le temps de se déclencher : on enregistre donc ici, sur
+    // l'événement natif de fermeture, plutôt que de compter uniquement sur le tap du bouton.
+    const evtCache = Keyboard.addListener('keyboardDidHide', () => {
+      enregistrerSaisieEnCours();
+      setHauteurClavier(0);
+    });
+    return () => {
+      evtAffiche.remove();
+      evtCache.remove();
+    };
+  }, []);
 
   return (
     <FeuilleModale onClose={onClose}>
@@ -329,9 +336,27 @@ export function CaseDetailModal({
         <OngletContenu contenus={contenus} pins={pins} enCours={attribuerEnCours} onValider={onAttribuer} />
       )}
 
-      {onglet === 'compter' && boiteComplete ? (
-        <Pressable onPress={onClose} className="mt-3 items-center rounded-xl bg-emerald-500 py-3.5">
-          <Text className="text-base font-bold text-white">✓ Valider la boîte</Text>
+      {onglet === 'compter' && contenus.length > 0 ? (
+        <Pressable
+          onPress={() => {
+            if (boiteComplete) {
+              onClose();
+              return;
+            }
+            Alert.alert(
+              'Boîte incomplète',
+              "Vous n'avez pas pesé tous les pins de cette boîte. Voulez-vous valider quand même ou continuer le comptage ?",
+              [
+                { text: 'Continuer le comptage', style: 'cancel' },
+                { text: 'Valider quand même', onPress: onClose },
+              ],
+            );
+          }}
+          className={`mt-3 items-center rounded-xl py-3.5 ${boiteComplete ? 'bg-emerald-500' : 'bg-slate-200'}`}
+        >
+          <Text className={`text-base font-bold ${boiteComplete ? 'text-white' : 'text-slate-500'}`}>
+            ✓ Valider la boîte
+          </Text>
         </Pressable>
       ) : (
         <Pressable onPress={onClose} className="mt-3 items-center py-2">
@@ -346,7 +371,7 @@ export function CaseDetailModal({
         >
           <Pressable
             onPress={() => {
-              validerActifRef.current?.();
+              enregistrerSaisieEnCours();
               Keyboard.dismiss();
             }}
             className="items-center justify-center rounded-lg bg-indigo-600 px-8 py-3"
