@@ -102,21 +102,19 @@ function LignePesee({
               onChangeText={setPoids}
               onFocus={() => setFocus(true)}
               onBlur={() => setFocus(false)}
+              onSubmitEditing={valider}
               keyboardType="decimal-pad"
               placeholder="Poids pesé (g)"
               editable={!enCours}
               className="flex-1 rounded-lg border border-slate-200 px-3 py-2"
             />
-            <Text className="w-24 text-center text-xs font-semibold text-slate-500">
-              {quantiteCalculee !== null ? `≈ ${quantiteCalculee} restant(s)` : '—'}
+            <Text className="w-28 text-center text-xs font-semibold text-slate-500">
+              {enCours
+                ? 'Enregistrement…'
+                : quantiteCalculee !== null
+                  ? `≈ ${quantiteCalculee} restant(s)`
+                  : '—'}
             </Text>
-            <Pressable
-              onPress={valider}
-              disabled={quantiteCalculee === null || enCours}
-              className="items-center justify-center rounded-lg bg-indigo-600 px-3 py-2"
-            >
-              <Text className="text-xs font-semibold text-white">{enCours ? '…' : 'Valider'}</Text>
-            </Pressable>
           </View>
           <Pressable onPress={() => setMode('pourcentage')} className="mt-2 items-center py-1">
             <Text className="text-xs font-semibold text-slate-400">Plus de sac ? Estimer un %</Text>
