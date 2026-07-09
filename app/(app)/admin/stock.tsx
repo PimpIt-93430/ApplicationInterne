@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { format, parseISO } from 'date-fns';
+import { fr } from 'date-fns/locale';
 
-import type { CaseGrille, ContenuCase } from '@/api/stock';
+import type { ContenuCase, MouvementComptage } from '@/api/stock';
 import { CaseDetailModal } from '@/components/stock/CaseDetailModal';
 import { GrilleCases } from '@/components/stock/GrilleCases';
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
@@ -9,7 +11,14 @@ import { Dropdown } from '@/components/ui/Dropdown';
 import { FeuilleModale } from '@/components/ui/FeuilleModale';
 import { useAuthStore } from '@/store/useAuthStore';
 import { usePopUps } from '@/hooks/usePopUps';
-import { useGererCasesPopUp, useGererCatalogue, useGrillePopUp, useMouvements, usePins } from '@/hooks/useStock';
+import {
+  useGererCasesPopUp,
+  useGererCatalogue,
+  useGrillePopUp,
+  useMouvements,
+  useMouvementsComptage,
+  usePins,
+} from '@/hooks/useStock';
 import type { StockPin } from '@/types/database.types';
 
 function PanneauPin({ pin, onFermer }: { pin: StockPin; onFermer: () => void }) {
@@ -121,42 +130,83 @@ function CartePin({ pin, onPress }: { pin: StockPin; onPress: () => void }) {
   );
 }
 
-function LigneContenuRapport({ contenu }: { contenu: ContenuCase }) {
+interface GroupeBoiteJour {
+  casePosition: string;
+  mouvements: MouvementComptage[];
+}
+
+interface GroupeJour {
+  jourISO: string;
+  boites: GroupeBoiteJour[];
+}
+
+/** Regroupe l'historique des comptages par jour puis par boîte : trace complète de tout ce qui
+ * a été compté, exploitable ensuite pour préparer le réapprovisionnement. */
+function grouperRapportParJour(mouvements: MouvementComptage[]): GroupeJour[] {
+  const parJour = new Map<string, Map<string, MouvementComptage[]>>();
+
+  for (const m of mouvements) {
+    if (!m.case_position) continue;
+    const jourISO = m.created_at.slice(0, 10);
+    const parBoite = parJour.get(jourISO) ?? new Map<string, MouvementComptage[]>();
+    const liste = parBoite.get(m.case_position) ?? [];
+    liste.push(m);
+    parBoite.set(m.case_position, liste);
+    parJour.set(jourISO, parBoite);
+  }
+
+  return [...parJour.entries()]
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([jourISO, parBoite]) => ({
+      jourISO,
+      boites: [...parBoite.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([casePosition, mvts]) => ({ casePosition, mouvements: mvts })),
+    }));
+}
+
+function LigneMouvementRapport({ mouvement }: { mouvement: MouvementComptage }) {
   return (
     <View className="mb-1 flex-row items-center justify-between rounded-lg bg-slate-50 px-2.5 py-1.5">
       <Text numberOfLines={1} className="flex-1 text-sm text-slate-700">
-        {contenu.pin.nom}
+        {mouvement.pin?.nom ?? 'Pin supprimé'}
       </Text>
+      <Text className="ml-2 text-[10px] text-slate-400">{format(new Date(mouvement.created_at), 'HH:mm')}</Text>
       <Text className="ml-2 text-xs font-semibold text-slate-500">
-        {contenu.pourcentageRestant !== null
-          ? `${contenu.pourcentageRestant}%`
-          : contenu.quantiteRestante !== null
-            ? `${Math.round(contenu.quantiteRestante)} restant(s)`
-            : 'non compté'}
+        {mouvement.type === 'estimation'
+          ? `${mouvement.pourcentage_restant}%`
+          : `${Math.round(mouvement.quantite_calculee ?? 0)} restant(s)`}
       </Text>
     </View>
   );
 }
 
-function RapportStock({ grille }: { grille: CaseGrille[] }) {
-  const boitesAvecContenu = grille.filter((c) => c.contenus.length > 0);
-
-  if (boitesAvecContenu.length === 0) {
-    return <Text className="text-sm text-slate-400">Aucune boîte comptée pour l'instant sur ce pop-up.</Text>;
+function RapportStock({ rapportParJour }: { rapportParJour: GroupeJour[] }) {
+  if (rapportParJour.length === 0) {
+    return (
+      <Text className="text-sm text-slate-400">Aucun comptage enregistré pour l'instant sur ce pop-up.</Text>
+    );
   }
 
   return (
     <>
-      {boitesAvecContenu.map((c) => (
-        <View key={c.casePosition} className="mb-3 rounded-xl bg-white p-3">
-          <View className="mb-2 flex-row items-center justify-between">
-            <Text className="text-sm font-bold text-slate-800">Boîte {c.casePosition}</Text>
-            <Text className="text-xs text-slate-400">
-              {c.contenus.length} pin{c.contenus.length > 1 ? 's' : ''}
-            </Text>
-          </View>
-          {c.contenus.map((contenu) => (
-            <LigneContenuRapport key={contenu.boiteId} contenu={contenu} />
+      {rapportParJour.map((jour) => (
+        <View key={jour.jourISO} className="mb-5">
+          <Text className="mb-2 text-sm font-bold capitalize text-slate-900">
+            {format(parseISO(jour.jourISO), 'EEEE d MMMM yyyy', { locale: fr })}
+          </Text>
+          {jour.boites.map((boite) => (
+            <View key={boite.casePosition} className="mb-2 rounded-xl bg-white p-3">
+              <View className="mb-2 flex-row items-center justify-between">
+                <Text className="text-sm font-bold text-slate-800">Boîte {boite.casePosition}</Text>
+                <Text className="text-xs text-slate-400">
+                  {boite.mouvements.length} comptage{boite.mouvements.length > 1 ? 's' : ''}
+                </Text>
+              </View>
+              {boite.mouvements.map((mouvement) => (
+                <LigneMouvementRapport key={mouvement.id} mouvement={mouvement} />
+              ))}
+            </View>
           ))}
         </View>
       ))}
@@ -221,6 +271,7 @@ export default function StockAdminScreen() {
 
   const { data: grille, isLoading: chargementGrille } = useGrillePopUp(popUpActif);
   const { attribuer, peser, estimer } = useGererCasesPopUp(popUpActif);
+  const { data: mouvementsComptage, isLoading: chargementRapport } = useMouvementsComptage(popUpActif);
 
   const [vue, setVue] = useState<'boites' | 'catalogue' | 'rapport'>('boites');
   const [caseOuverte, setCaseOuverte] = useState<{ position: string; contenus: ContenuCase[] } | null>(
@@ -234,6 +285,8 @@ export default function StockAdminScreen() {
     const q = recherche.trim().toLowerCase();
     return q ? (pins ?? []).filter((p) => p.nom.toLowerCase().includes(q)) : (pins ?? []);
   }, [pins, recherche]);
+
+  const rapportParJour = useMemo(() => grouperRapportParJour(mouvementsComptage ?? []), [mouvementsComptage]);
 
   if (chargementPopUps) {
     return (
@@ -325,7 +378,11 @@ export default function StockAdminScreen() {
             <Text className="mb-2 text-xs font-semibold uppercase text-slate-400">
               Stock compté — {popUps?.find((p) => p.id === popUpActif)?.nom ?? ''}
             </Text>
-            {chargementGrille ? <ActivityIndicator color="#6366F1" /> : <RapportStock grille={grille ?? []} />}
+            {chargementRapport ? (
+              <ActivityIndicator color="#6366F1" />
+            ) : (
+              <RapportStock rapportParJour={rapportParJour} />
+            )}
           </>
         )}
       </ScrollView>

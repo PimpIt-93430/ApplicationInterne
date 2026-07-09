@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Image,
@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 
-import type { ContenuCase } from '@/api/stock';
+import { statutCase, type ContenuCase } from '@/api/stock';
 import { FeuilleModale } from '@/components/ui/FeuilleModale';
 import { GlisseurPourcentage } from '@/components/ui/GlisseurPourcentage';
 import { useGererCatalogue } from '@/hooks/useStock';
@@ -48,14 +48,17 @@ function LignePesee({
   enCours,
   onPeser,
   onEstimer,
+  onDevenirActif,
 }: {
   contenu: ContenuCase;
   enCours: boolean;
   onPeser: (poidsPese: number) => void;
   onEstimer: (pourcentage: number) => void;
+  onDevenirActif: (valider: () => void) => void;
 }) {
   const [mode, setMode] = useState<'poids' | 'pourcentage'>('poids');
   const [poids, setPoids] = useState('');
+  const [focus, setFocus] = useState(false);
   const poidsUnitaire = contenu.pin.poids_unitaire;
   const poidsSaisi = Number(poids.replace(',', '.'));
   // poidsUnitaire = poids catalogue d'un lot de 10 pins (pesé ainsi pour plus de précision).
@@ -65,9 +68,15 @@ function LignePesee({
       : null;
 
   const valider = () => {
-    if (quantiteCalculee === null || !Number.isFinite(poidsSaisi)) return;
+    if (quantiteCalculee === null || !Number.isFinite(poidsSaisi) || enCours) return;
     onPeser(poidsSaisi);
   };
+
+  // Tant que ce champ a le focus, le bouton "OK" du clavier (partagé entre toutes les lignes)
+  // doit enregistrer CETTE pesée : on republie le dernier `valider` à chaque frappe.
+  useEffect(() => {
+    if (focus) onDevenirActif(valider);
+  });
 
   return (
     <View className="mb-3 rounded-xl border border-slate-200 p-3">
@@ -91,6 +100,8 @@ function LignePesee({
             <TextInput
               value={poids}
               onChangeText={setPoids}
+              onFocus={() => setFocus(true)}
+              onBlur={() => setFocus(false)}
               keyboardType="decimal-pad"
               placeholder="Poids pesé (g)"
               editable={!enCours}
@@ -265,6 +276,8 @@ export function CaseDetailModal({
     contenus.length === 0 ? 'contenu' : 'compter',
   );
   const hauteurClavier = useHauteurClavier();
+  const validerActifRef = useRef<(() => void) | null>(null);
+  const boiteComplete = contenus.length > 0 && statutCase(contenus) === 'complet';
 
   return (
     <FeuilleModale onClose={onClose}>
@@ -307,6 +320,9 @@ export function CaseDetailModal({
                 enCours={peserEnCours === contenu.pin.id}
                 onPeser={(poidsPese) => onPeser(contenu.pin.id, poidsPese)}
                 onEstimer={(pourcentage) => onEstimer(contenu.pin.id, pourcentage)}
+                onDevenirActif={(valider) => {
+                  validerActifRef.current = valider;
+                }}
               />
             ))}
           </ScrollView>
@@ -315,17 +331,29 @@ export function CaseDetailModal({
         <OngletContenu contenus={contenus} pins={pins} enCours={attribuerEnCours} onValider={onAttribuer} />
       )}
 
-      <Pressable onPress={onClose} className="mt-3 items-center py-2">
-        <Text className="font-semibold text-indigo-600">Fermer</Text>
-      </Pressable>
+      {onglet === 'compter' && boiteComplete ? (
+        <Pressable onPress={onClose} className="mt-3 items-center rounded-xl bg-emerald-500 py-3.5">
+          <Text className="text-base font-bold text-white">✓ Valider la boîte</Text>
+        </Pressable>
+      ) : (
+        <Pressable onPress={onClose} className="mt-3 items-center py-2">
+          <Text className="font-semibold text-indigo-600">Fermer</Text>
+        </Pressable>
+      )}
 
       {hauteurClavier > 0 && (
         <View
           style={{ position: 'absolute', left: 0, right: 0, bottom: hauteurClavier }}
-          className="flex-row justify-end border-t border-slate-200 bg-slate-50 px-3 py-2"
+          className="flex-row justify-end border-t border-slate-200 bg-slate-50 px-4 py-2.5"
         >
-          <Pressable onPress={() => Keyboard.dismiss()}>
-            <Text className="text-base font-semibold text-indigo-600">OK</Text>
+          <Pressable
+            onPress={() => {
+              validerActifRef.current?.();
+              Keyboard.dismiss();
+            }}
+            className="items-center justify-center rounded-lg bg-indigo-600 px-8 py-3"
+          >
+            <Text className="text-lg font-bold text-white">OK</Text>
           </Pressable>
         </View>
       )}

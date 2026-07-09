@@ -7,6 +7,7 @@ import {
   estimerPourcentagePinDansCase,
   fetchGrillePopUp,
   fetchMouvements,
+  fetchMouvementsComptage,
   fetchPins,
   modifierPin,
   peserPinDansCase,
@@ -34,9 +35,20 @@ export function useMouvements(params: { pinId?: string; popUpId?: string }) {
   });
 }
 
+export function useMouvementsComptage(popUpId: string | undefined) {
+  return useQuery({
+    queryKey: ['stock-mouvements-comptage', popUpId],
+    queryFn: () => fetchMouvementsComptage(popUpId as string),
+    enabled: !!popUpId,
+  });
+}
+
 export function useGererCasesPopUp(popUpId: string | undefined) {
   const queryClient = useQueryClient();
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['stock-grille', popUpId] });
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['stock-grille', popUpId] });
+    queryClient.invalidateQueries({ queryKey: ['stock-mouvements-comptage', popUpId] });
+  };
 
   const attribuer = useMutation({
     mutationFn: (params: {

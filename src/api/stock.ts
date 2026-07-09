@@ -285,3 +285,22 @@ export async function fetchMouvements(params: {
   if (error) throw error;
   return data;
 }
+
+export interface MouvementComptage extends StockMouvement {
+  pin: { nom: string } | null;
+}
+
+/**
+ * Historique des comptages (pesées + estimations) d'un pop-up, pin inclus : sert de trace
+ * jour par jour / boîte par boîte pour le rapport et le futur fichier de réapprovisionnement.
+ */
+export async function fetchMouvementsComptage(popUpId: string): Promise<MouvementComptage[]> {
+  const { data, error } = await supabase
+    .from('stock_mouvements')
+    .select('*, pin:stock_pins(nom)')
+    .eq('pop_up_id', popUpId)
+    .in('type', ['pesee', 'estimation'])
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data as MouvementComptage[];
+}
