@@ -1,10 +1,10 @@
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { useNotifications } from '@/hooks/useNotifications';
-import { useAuthStore } from '@/store/useAuthStore';
+import { useProfilEffectif } from '@/hooks/useProfilEffectif';
 
 export default function NotificationsScreen() {
-  const profile = useAuthStore((s) => s.profile);
+  const profile = useProfilEffectif();
   const { data: notifications, isLoading, marquerLue } = useNotifications(profile?.id);
 
   return (

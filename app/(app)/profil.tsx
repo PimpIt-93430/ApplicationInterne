@@ -4,6 +4,7 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { signOut } from '@/api/auth';
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
 import { useNotifications } from '@/hooks/useNotifications';
+import { useProfilEffectif } from '@/hooks/useProfilEffectif';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useVueAdminStore } from '@/store/useVueAdminStore';
 
@@ -14,11 +15,16 @@ const LIBELLE_TYPE_CONTRAT: Record<string, string> = {
 };
 
 export default function ProfilScreen() {
-  const profile = useAuthStore((s) => s.profile);
+  // Profil réel : contrôle le sélecteur de vue et reste toujours visible pour qu'un admin en
+  // train de prévisualiser puisse revenir en arrière. Profil affiché : Namory en vue alternant,
+  // sinon identique au profil réel — c'est lui qui pilote tout le reste de l'écran.
+  const profileReel = useAuthStore((s) => s.profile);
+  const profile = useProfilEffectif();
   const { data: notifications } = useNotifications(profile?.id);
   const nonLues = notifications?.filter((n) => !n.lu).length ?? 0;
 
-  const estAdmin = profile?.role === 'admin';
+  const estAdminReel = profileReel?.role === 'admin';
+  const estAdminAffiche = profile?.role === 'admin';
   const estAlternant = profile?.type_contrat === 'alternant';
   const { vue, definirVue } = useVueAdminStore();
 
@@ -29,7 +35,7 @@ export default function ProfilScreen() {
 
   return (
     <View className="flex-1 bg-white">
-      <EnteteMenu titre={estAdmin ? 'Profil' : 'Paramètres'} />
+      <EnteteMenu titre={estAdminAffiche ? 'Profil' : 'Paramètres'} />
       <ScrollView className="flex-1" contentContainerStyle={{ paddingHorizontal: 24 }}>
       <View
         className="mb-4 h-16 w-16 items-center justify-center rounded-full"
@@ -45,10 +51,10 @@ export default function ProfilScreen() {
       <Text className="mb-1 text-base text-slate-500">{profile?.email}</Text>
       <Text className="mb-8 text-sm uppercase tracking-wide text-indigo-600">
         {profile ? LIBELLE_TYPE_CONTRAT[profile.type_contrat] : ''}
-        {estAdmin ? ' · Administrateur' : ''}
+        {estAdminAffiche ? ' · Administrateur' : ''}
       </Text>
 
-      {estAdmin && (
+      {estAdminReel && (
         <View className="mb-6">
           <Text className="mb-2 text-sm font-semibold text-slate-500">Mode d'affichage</Text>
           <View className="flex-row rounded-xl bg-slate-100 p-1">
@@ -73,7 +79,7 @@ export default function ProfilScreen() {
       )}
 
       <View className="mb-6 gap-2">
-        {(estAlternant || estAdmin) && (
+        {(estAlternant || estAdminReel) && (
           <Link href="/(app)/alternance" asChild>
             <Pressable className="flex-row items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3">
               <Text className="text-base text-slate-800">Calendrier d'école</Text>

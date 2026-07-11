@@ -6,7 +6,7 @@ import { createElement, useState } from 'react';
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useCongesProfile, useGererConges } from '@/hooks/useConges';
-import { useAuthStore } from '@/store/useAuthStore';
+import { useProfilEffectif } from '@/hooks/useProfilEffectif';
 import { dateEnISO, formatHeure } from '@/utils/dateUtils';
 
 type ModePicker = 'date_debut' | 'date_fin' | 'heure_debut' | 'heure_fin' | null;
@@ -22,7 +22,7 @@ function formatHeureAffichee(date: Date): string {
 }
 
 export function PanneauIndisponibilites() {
-  const profile = useAuthStore((s) => s.profile);
+  const profile = useProfilEffectif();
   const { data: conges } = useCongesProfile(profile?.id);
   const { ajouter, supprimer } = useGererConges(profile?.id);
 

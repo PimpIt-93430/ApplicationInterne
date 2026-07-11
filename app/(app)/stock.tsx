@@ -5,7 +5,7 @@ import { statutCase, type CaseGrille } from '@/api/stock';
 import { CaseDetailModal } from '@/components/stock/CaseDetailModal';
 import { GrilleCases } from '@/components/stock/GrilleCases';
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
-import { useAuthStore } from '@/store/useAuthStore';
+import { useProfilEffectif } from '@/hooks/useProfilEffectif';
 import { useGererCasesPopUp, useGrillePopUp, usePins } from '@/hooks/useStock';
 import type { StockPin } from '@/types/database.types';
 
@@ -62,7 +62,7 @@ function LignePin({ pin, boites }: { pin: StockPin; boites: string }) {
 }
 
 export default function StockScreen() {
-  const profile = useAuthStore((s) => s.profile);
+  const profile = useProfilEffectif();
   const popUpId = profile?.pop_up_id ?? undefined;
 
   const { data: grille, isLoading: chargementGrille } = useGrillePopUp(popUpId);

@@ -2,15 +2,17 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { useGererJoursEcole, useJoursEcoleProfile } from '@/hooks/useAlternance';
+import { useProfilEffectif } from '@/hooks/useProfilEffectif';
 import { useActiveProfiles } from '@/hooks/useProfiles';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useSemaineStore } from '@/store/useSemaineStore';
 import { dateEnISO, joursDeLaSemaine, libelleJourCourt, nomJourCourt, numeroJour } from '@/utils/dateUtils';
 
 export default function AlternanceScreen() {
-  const profile = useAuthStore((s) => s.profile);
+  const profileReel = useAuthStore((s) => s.profile);
+  const profile = useProfilEffectif();
   const estAlternant = profile?.type_contrat === 'alternant';
-  const estAdmin = profile?.role === 'admin';
+  const estAdmin = profileReel?.role === 'admin';
 
   const { data: profils } = useActiveProfiles();
   const alternants = (profils ?? []).filter((p) => p.type_contrat === 'alternant');
@@ -47,7 +49,7 @@ export default function AlternanceScreen() {
         Cochez les jours où la personne est en cours (elle ne sera jamais planifiée ce jour-là).
       </Text>
 
-      {estAdmin && alternants.length > 0 && (
+      {estAdmin && !estAlternant && alternants.length > 0 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-4">
           <View className="flex-row gap-2">
             {alternants.map((a) => (

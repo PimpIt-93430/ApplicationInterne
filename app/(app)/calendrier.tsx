@@ -5,11 +5,11 @@ import { AxeHeures } from '@/components/calendrier/AxeHeures';
 import { PanneauIndisponibilites } from '@/components/calendrier/PanneauIndisponibilites';
 import { TimelineJour } from '@/components/calendrier/TimelineJour';
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
+import { useProfilEffectif } from '@/hooks/useProfilEffectif';
 import { useShiftsSemaine } from '@/hooks/usePlanning';
 import { usePopUps } from '@/hooks/usePopUps';
 import { useActiveProfiles } from '@/hooks/useProfiles';
 import { useToutesHorairesOuverture } from '@/hooks/useReglesMetier';
-import { useAuthStore } from '@/store/useAuthStore';
 import { useSemaineStore } from '@/store/useSemaineStore';
 import { dateEnISO, joursDeLaSemaine, jourSemaineISO, libelleJourCourt } from '@/utils/dateUtils';
 
@@ -17,7 +17,7 @@ type Onglet = 'planning' | 'indisponibilites';
 
 export default function CalendrierScreen() {
   const [onglet, setOnglet] = useState<Onglet>('planning');
-  const profile = useAuthStore((s) => s.profile);
+  const profile = useProfilEffectif();
   const { dateReference, semaineSuivante, semainePrecedente, revenirAujourdhui } = useSemaineStore();
   const jours = joursDeLaSemaine(dateReference);
   const dateDebut = dateEnISO(jours[0]);
