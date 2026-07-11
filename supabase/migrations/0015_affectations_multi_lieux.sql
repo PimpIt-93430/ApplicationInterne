@@ -48,4 +48,57 @@ delete from public.horaires_recurrents_profil where pop_up_id is null;
 alter table public.horaires_recurrents_profil
   alter column pop_up_id set not null;
 
+-- Deux policies RLS du stock vérifiaient encore profiles.pop_up_id pour savoir qui a le droit
+-- d'écrire sur le pop-up : on les fait pointer vers profil_pop_ups avant de pouvoir supprimer
+-- la colonne (sinon Postgres refuse le drop, ces policies en dépendent).
+drop policy if exists "boites_ecriture" on public.pop_up_pin_boites;
+create policy "boites_ecriture" on public.pop_up_pin_boites
+  for all using (
+    public.is_admin()
+    or exists (
+      select 1 from public.profil_pop_ups
+      where profile_id = auth.uid() and pop_up_id = pop_up_pin_boites.pop_up_id
+    )
+  )
+  with check (
+    public.is_admin()
+    or exists (
+      select 1 from public.profil_pop_ups
+      where profile_id = auth.uid() and pop_up_id = pop_up_pin_boites.pop_up_id
+    )
+  );
+
+drop policy if exists "mouvements_insertion" on public.stock_mouvements;
+create policy "mouvements_insertion" on public.stock_mouvements
+  for insert with check (
+    public.is_admin()
+    or (
+      pop_up_id is not null
+      and exists (
+        select 1 from public.profil_pop_ups
+        where profile_id = auth.uid() and pop_up_id = stock_mouvements.pop_up_id
+      )
+    )
+  );
+
+-- Le trigger protect_profile_privileged_fields referme aussi pop_up_id dans son corps (pas
+-- détecté par Postgres comme dépendance au moment du CREATE, mais casserait toute future
+-- mise à jour de profil au moment de l'exécution) : on le redéfinit sans cette ligne.
+create or replace function public.protect_profile_privileged_fields()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is not null and not public.is_admin() then
+    new.role := old.role;
+    new.actif := old.actif;
+    new.heures_max_semaine := old.heures_max_semaine;
+  end if;
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
 alter table public.profiles drop column if exists pop_up_id;
