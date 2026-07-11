@@ -6,6 +6,28 @@ import { estAujourdhui, formatHeure, nomJourCourt, numeroJour } from '@/utils/da
 import { minutesDepuis, positionnerChevauchements } from '@/utils/timelineLayout';
 import { HAUTEUR_ENTETE, LARGEUR_JOUR, PX_PAR_HEURE } from './timelineConstants';
 
+interface GroupeCreneau {
+  cle: string;
+  heure_debut: string;
+  heure_fin: string;
+  shifts: PlanningShift[];
+}
+
+/** Regroupe les créneaux ayant exactement les mêmes heures (ex. 3 personnes au local de 10h à
+ * 19h) dans une seule colonne au lieu d'une par personne — sinon, sur un jour chargé, les
+ * colonnes deviennent trop étroites pour lire les noms. Deux créneaux à des heures différentes,
+ * même s'ils se chevauchent partiellement, restent dans des colonnes séparées comme avant. */
+function regrouperParHoraire(shifts: PlanningShift[]): GroupeCreneau[] {
+  const groupes = new Map<string, GroupeCreneau>();
+  for (const shift of shifts) {
+    const cle = `${shift.heure_debut}-${shift.heure_fin}`;
+    const groupe = groupes.get(cle);
+    if (groupe) groupe.shifts.push(shift);
+    else groupes.set(cle, { cle, heure_debut: shift.heure_debut, heure_fin: shift.heure_fin, shifts: [shift] });
+  }
+  return [...groupes.values()];
+}
+
 export function TimelineJour({
   date,
   heureOuverture,
@@ -33,7 +55,7 @@ export function TimelineJour({
   const heureFinAxe = Number(heureFermeture.split(':')[0]);
   const hauteurTimeline = (heureFinAxe - heureDebutAxe) * PX_PAR_HEURE;
 
-  const positions = positionnerChevauchements(shifts);
+  const positions = positionnerChevauchements(regrouperParHoraire(shifts));
   const gererPressBloc = onPressBloc;
 
   const handlePressTimeline = (e: GestureResponderEvent) => {
@@ -59,40 +81,55 @@ export function TimelineJour({
             <View key={i} style={[styles.ligneHeure, { top: i * PX_PAR_HEURE }]} />
           ))}
 
-          {positions.map(({ item, colIndex, colCount }) => {
-            const profil = profilParId.get(item.profile_id);
-            const popUp = popUpParId?.get(item.pop_up_id);
-            const estMoi = !!profileIdActuel && item.profile_id === profileIdActuel;
-            const top = (minutesDepuis(heureOuverture, item.heure_debut) / 60) * PX_PAR_HEURE;
-            const hauteur = (minutesDepuis(item.heure_debut, item.heure_fin) / 60) * PX_PAR_HEURE;
+          {positions.map(({ item: groupe, colIndex, colCount }) => {
+            const premier = groupe.shifts[0];
+            const profilPremier = profilParId.get(premier.profile_id);
+            const popUp = popUpParId?.get(premier.pop_up_id);
+            const estGroupe = groupe.shifts.length > 1;
+            const estMoi = !!profileIdActuel && groupe.shifts.some((s) => s.profile_id === profileIdActuel);
+            const top = (minutesDepuis(heureOuverture, groupe.heure_debut) / 60) * PX_PAR_HEURE;
+            const hauteurBrute = (minutesDepuis(groupe.heure_debut, groupe.heure_fin) / 60) * PX_PAR_HEURE;
+            const hauteur = Math.max(hauteurBrute, 20 + (groupe.shifts.length - 1) * 13);
             const largeur = (LARGEUR_JOUR - 4) / colCount;
 
             return (
               <Pressable
-                key={item.id}
-                onPress={gererPressBloc ? () => gererPressBloc(item) : undefined}
+                key={groupe.cle}
+                onPress={gererPressBloc ? () => gererPressBloc(premier) : undefined}
                 style={[
                   styles.bloc,
                   {
                     top,
-                    height: Math.max(hauteur, 20),
+                    height: hauteur,
                     left: 2 + colIndex * largeur,
                     width: largeur - 2,
-                    backgroundColor: profil?.couleur ?? '#6366F1',
-                    opacity: item.statut === 'publie' ? 1 : 0.65,
-                    borderStyle: item.statut === 'publie' ? 'solid' : 'dashed',
+                    // Calendrier perso (popUpParId fourni) : une seule personne, donc sa couleur
+                    // à elle n'apprend rien — on colore plutôt par lieu (Local, Créteil, Soleil...)
+                    // pour voir en un coup d'œil où on travaille. Vue équipe par lieu (admin) :
+                    // tout le monde est déjà au même endroit, donc on garde la couleur par personne.
+                    backgroundColor: popUpParId
+                      ? (popUp?.couleur ?? '#6366F1')
+                      : estGroupe
+                        ? '#475569'
+                        : (profilPremier?.couleur ?? '#6366F1'),
                   },
                   estMoi && styles.blocMoi,
                 ]}
               >
-                <Text style={styles.blocNom} numberOfLines={1}>
-                  {estMoi ? '★ ' : ''}
-                  {profil?.nom_complet || profil?.email || '?'}
-                </Text>
+                {groupe.shifts.map((s) => {
+                  const profil = profilParId.get(s.profile_id);
+                  const cestMoi = !!profileIdActuel && s.profile_id === profileIdActuel;
+                  return (
+                    <Text key={s.id} style={styles.blocNom} numberOfLines={1}>
+                      {cestMoi ? '★ ' : ''}
+                      {profil?.nom_complet || profil?.email || '?'}
+                    </Text>
+                  );
+                })}
                 <Text style={styles.blocHeure} numberOfLines={1}>
-                  {formatHeure(item.heure_debut)}-{formatHeure(item.heure_fin)}
+                  {formatHeure(groupe.heure_debut)}-{formatHeure(groupe.heure_fin)}
                 </Text>
-                {popUp && (
+                {!estGroupe && popUp && (
                   <Text style={styles.blocPopUp} numberOfLines={1}>
                     {popUp.nom}
                   </Text>

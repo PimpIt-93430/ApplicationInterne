@@ -6,16 +6,10 @@ import { useQueryClient } from '@tanstack/react-query';
 import { createElement, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { creerNotifications } from '@/api/notifications';
-import {
-  insererShifts,
-  publierShiftsSemaine,
-  supprimerShift,
-  supprimerShiftsGeneresAutomatiquement,
-  validerShiftsSemaine,
-} from '@/api/planning';
+import { insererShifts, supprimerShift, supprimerShiftsGeneresAutomatiquement } from '@/api/planning';
 import { supabase } from '@/api/supabaseClient';
 import { AxeHeures } from '@/components/calendrier/AxeHeures';
+import { CalendrierPersonnel } from '@/components/calendrier/CalendrierPersonnel';
 import { PanneauIndisponibilites } from '@/components/calendrier/PanneauIndisponibilites';
 import { TimelineJour } from '@/components/calendrier/TimelineJour';
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
@@ -54,10 +48,12 @@ export default function CalendrierPopUpScreen() {
   const queryClient = useQueryClient();
 
   const { data: popUps, isLoading: chargementPopUps } = usePopUps();
-  const [popUpId, setPopUpId] = useState<string | undefined>(undefined);
-  useEffect(() => {
-    if (!popUpId && popUps && popUps.length > 0) setPopUpId(popUps[0].id);
-  }, [popUps, popUpId]);
+  // "moi" (par défaut) : l'admin voit son propre planning tous lieux confondus (cf.
+  // CalendrierPersonnel), comme n'importe qui d'autre. En choisissant un pop-up dans la
+  // roulette, il bascule sur la vue équipe complète de ce lieu, éditable.
+  const [selectionId, setSelectionId] = useState<string>('moi');
+  const estMonCalendrier = selectionId === 'moi';
+  const popUpId = estMonCalendrier ? undefined : selectionId;
   const popUpActuel = popUps?.find((p) => p.id === popUpId);
 
   const { data: profils, isLoading: chargementProfils } = useActiveProfiles();
@@ -77,7 +73,6 @@ export default function CalendrierPopUpScreen() {
   const { data: joursEcole } = useJoursEcolePeriode(dateDebut, dateFin);
   const { data: horairesRecurrents } = useTousHorairesRecurrents();
 
-  const [publicationEnCours, setPublicationEnCours] = useState(false);
   const [dropdownOuvert, setDropdownOuvert] = useState(false);
 
   // Ajout d'une personne sur un jour
@@ -91,7 +86,11 @@ export default function CalendrierPopUpScreen() {
   const [heureFinChoisie, setHeureFinChoisie] = useState(new Date());
   const [pickerHeureOuvert, setPickerHeureOuvert] = useState<'debut' | 'fin' | null>(null);
 
-  const chargement = chargementPopUps || chargementProfils || chargementHoraires || chargementShifts || !popUpId;
+  const chargement =
+    chargementPopUps ||
+    chargementProfils ||
+    chargementShifts ||
+    (!estMonCalendrier && (chargementHoraires || !popUpId));
 
   const invalidateShifts = () =>
     queryClient.invalidateQueries({ queryKey: ['planning-shifts', dateDebut, dateFin] });
@@ -354,31 +353,6 @@ export default function CalendrierPopUpScreen() {
     };
   }, [dateDebut, dateFin]);
 
-  // Valide puis publie en un seul geste (plus d'étape intermédiaire manuelle) : verrouille les
-  // brouillons actuels contre la régénération automatique, les rend visibles à l'équipe et
-  // notifie tout le monde.
-  const handlePublier = async () => {
-    setPublicationEnCours(true);
-    try {
-      const profileIdsConcernes = Array.from(
-        new Set((shifts ?? []).filter((s) => s.pop_up_id === popUpId).map((s) => s.profile_id)),
-      );
-      await validerShiftsSemaine(dateDebut, dateFin);
-      await publierShiftsSemaine(dateDebut, dateFin);
-      await creerNotifications(
-        profileIdsConcernes.map((profileId) => ({
-          profile_id: profileId,
-          titre: 'Planning publié',
-          corps: `Votre planning du ${libelleJourCourt(jours[0])} au ${libelleJourCourt(jours[6])} est disponible.`,
-        })),
-      );
-      invalidateShifts();
-      Alert.alert('Publié', 'Le planning de la semaine a été publié à toute l’équipe.');
-    } finally {
-      setPublicationEnCours(false);
-    }
-  };
-
   // Seules les personnes attribuées à ce pop-up peuvent y être planifiées (les admins sont
   // considérés attribués à tous les lieux, cf. estAttribueA).
   const candidatsPourAjout = ajoutPourDate && popUpId
@@ -429,19 +403,32 @@ export default function CalendrierPopUpScreen() {
       <View style={styles.dropdownZone}>
         <Pressable onPress={() => setDropdownOuvert((v) => !v)} style={styles.dropdownBouton}>
           <View style={styles.dropdownLigne}>
-            <View style={[styles.pastille, { backgroundColor: popUpActuel?.couleur ?? '#6366F1' }]} />
-            <Text style={styles.dropdownTexte}>{popUpActuel?.nom ?? 'Choisir un pop-up'}</Text>
+            {!estMonCalendrier && (
+              <View style={[styles.pastille, { backgroundColor: popUpActuel?.couleur ?? '#6366F1' }]} />
+            )}
+            <Text style={styles.dropdownTexte}>
+              {estMonCalendrier ? 'Mon calendrier' : (popUpActuel?.nom ?? 'Choisir un pop-up')}
+            </Text>
           </View>
           <Text style={styles.dropdownFleche}>{dropdownOuvert ? '︿' : '⌄'}</Text>
         </Pressable>
 
         {dropdownOuvert && (
           <View style={styles.dropdownListe}>
+            <Pressable
+              onPress={() => {
+                setSelectionId('moi');
+                setDropdownOuvert(false);
+              }}
+              style={styles.dropdownOption}
+            >
+              <Text style={styles.dropdownOptionTexte}>Mon calendrier</Text>
+            </Pressable>
             {(popUps ?? []).map((p) => (
               <Pressable
                 key={p.id}
                 onPress={() => {
-                  setPopUpId(p.id);
+                  setSelectionId(p.id);
                   setDropdownOuvert(false);
                 }}
                 style={styles.dropdownOption}
@@ -468,51 +455,45 @@ export default function CalendrierPopUpScreen() {
         </Pressable>
       </View>
 
-      <View style={styles.rangeeActions}>
-        <Pressable
-          onPress={handlePublier}
-          disabled={publicationEnCours}
-          style={[styles.boutonAction, styles.boutonPublierSemaine]}
-        >
-          <Text style={styles.boutonActionTexte}>{publicationEnCours ? '...' : 'Publier'}</Text>
-        </Pressable>
-      </View>
+      {estMonCalendrier ? (
+        <CalendrierPersonnel profile={profile} />
+      ) : (
+        <ScrollView contentContainerStyle={{ paddingBottom: 16 }}>
+          <View style={{ flexDirection: 'row', paddingHorizontal: 12 }}>
+            <AxeHeures
+              heureOuverture={horaires?.[0]?.heure_ouverture ?? '10:00:00'}
+              heureFermeture={horaires?.[0]?.heure_fermeture ?? '20:00:00'}
+            />
 
-      <ScrollView contentContainerStyle={{ paddingBottom: 16 }}>
-        <View style={{ flexDirection: 'row', paddingHorizontal: 12 }}>
-          <AxeHeures
-            heureOuverture={horaires?.[0]?.heure_ouverture ?? '10:00:00'}
-            heureFermeture={horaires?.[0]?.heure_fermeture ?? '20:00:00'}
-          />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {jours.map((jour) => {
+                  const dateIso = dateEnISO(jour);
+                  const jourIso = jourSemaineISO(jour);
+                  const regleJour = horaires?.find((h) => h.jour_semaine === jourIso);
+                  const shiftsJour = (shifts ?? []).filter((s) => s.pop_up_id === popUpId && s.date === dateIso);
 
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              {jours.map((jour) => {
-                const dateIso = dateEnISO(jour);
-                const jourIso = jourSemaineISO(jour);
-                const regleJour = horaires?.find((h) => h.jour_semaine === jourIso);
-                const shiftsJour = (shifts ?? []).filter((s) => s.pop_up_id === popUpId && s.date === dateIso);
+                  return (
+                    <TimelineJour
+                      key={dateIso}
+                      date={jour}
+                      heureOuverture={regleJour?.heure_ouverture ?? '10:00:00'}
+                      heureFermeture={regleJour?.heure_fermeture ?? '20:00:00'}
+                      ferme={!regleJour?.actif}
+                      shifts={shiftsJour}
+                      profilParId={profilParId}
+                      onPressBloc={ouvrirAjoutDepuisBloc}
+                      onPressTimeline={(minutes) => ouvrirAjout(dateIso, regleJour, minutes)}
+                    />
+                  );
+                })}
+              </View>
+            </ScrollView>
+          </View>
+        </ScrollView>
+      )}
 
-                return (
-                  <TimelineJour
-                    key={dateIso}
-                    date={jour}
-                    heureOuverture={regleJour?.heure_ouverture ?? '10:00:00'}
-                    heureFermeture={regleJour?.heure_fermeture ?? '20:00:00'}
-                    ferme={!regleJour?.actif}
-                    shifts={shiftsJour}
-                    profilParId={profilParId}
-                    onPressBloc={ouvrirAjoutDepuisBloc}
-                    onPressTimeline={(minutes) => ouvrirAjout(dateIso, regleJour, minutes)}
-                  />
-                );
-              })}
-            </View>
-          </ScrollView>
-        </View>
-      </ScrollView>
-
-      {ajoutPourDate && (
+      {!estMonCalendrier && ajoutPourDate && (
         <Pressable style={styles.fond} onPress={fermerAjout}>
           <Pressable style={styles.feuille} onPress={() => {}}>
             <View style={styles.poignee} />
@@ -703,10 +684,6 @@ const styles = StyleSheet.create({
   navBouton: { paddingHorizontal: 8, paddingVertical: 6 },
   navFleche: { fontSize: 18, color: '#6366F1' },
   navTexte: { fontSize: 13, fontWeight: '600', color: '#1E293B' },
-  rangeeActions: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingBottom: 8 },
-  boutonAction: { flex: 1, alignItems: 'center', borderRadius: 10, paddingVertical: 10 },
-  boutonActionTexte: { fontSize: 13, fontWeight: '600', color: 'white' },
-  boutonPublierSemaine: { backgroundColor: '#059669' },
   fond: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
   feuille: { borderTopLeftRadius: 24, borderTopRightRadius: 24, backgroundColor: 'white', padding: 20, paddingBottom: 32 },
   poignee: { marginBottom: 16, height: 6, width: 48, alignSelf: 'center', borderRadius: 3, backgroundColor: '#E2E8F0' },

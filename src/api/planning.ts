@@ -25,6 +25,25 @@ export async function supprimerShiftsGeneresAutomatiquement(dateDebut: string, d
   if (error) throw error;
 }
 
+/** Même chose que `supprimerShiftsGeneresAutomatiquement`, mais limité à une seule personne —
+ * utilisé par la régénération ciblée déclenchée à la déclaration/suppression d'une indisponibilité,
+ * pour ne pas toucher au planning de tout le monde d'autre sur cette période. */
+export async function supprimerShiftsGeneresAutomatiquementPourProfil(
+  profileId: string,
+  dateDebut: string,
+  dateFin: string,
+) {
+  const { error } = await supabase
+    .from('planning_shifts')
+    .delete()
+    .eq('statut', 'brouillon')
+    .eq('genere_automatiquement', true)
+    .eq('profile_id', profileId)
+    .gte('date', dateDebut)
+    .lte('date', dateFin);
+  if (error) throw error;
+}
+
 export async function insererShifts(
   shifts: Omit<PlanningShift, 'id' | 'created_at' | 'updated_at'>[],
 ) {
@@ -40,25 +59,5 @@ export async function mettreAJourShift(id: string, changes: Partial<PlanningShif
 
 export async function supprimerShift(id: string) {
   const { error } = await supabase.from('planning_shifts').delete().eq('id', id);
-  if (error) throw error;
-}
-
-export async function validerShiftsSemaine(dateDebut: string, dateFin: string) {
-  const { error } = await supabase
-    .from('planning_shifts')
-    .update({ statut: 'valide' })
-    .gte('date', dateDebut)
-    .lte('date', dateFin)
-    .eq('statut', 'brouillon');
-  if (error) throw error;
-}
-
-export async function publierShiftsSemaine(dateDebut: string, dateFin: string) {
-  const { error } = await supabase
-    .from('planning_shifts')
-    .update({ statut: 'publie' })
-    .gte('date', dateDebut)
-    .lte('date', dateFin)
-    .eq('statut', 'valide');
   if (error) throw error;
 }

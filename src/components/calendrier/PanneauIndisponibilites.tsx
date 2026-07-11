@@ -103,7 +103,7 @@ export function PanneauIndisponibilites() {
                       : 'Toute la journée'}
                   </Text>
                 </View>
-                <Pressable onPress={() => supprimer.mutate(c.id)} style={{ paddingHorizontal: 8, paddingVertical: 8 }}>
+                <Pressable onPress={() => supprimer.mutate(c)} style={{ paddingHorizontal: 8, paddingVertical: 8 }}>
                   <Text style={styles.croix}>✕</Text>
                 </Pressable>
               </View>
