@@ -3,10 +3,11 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-nati
 
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
 import { HoraireRecurrentJourCard } from '@/components/reglages/HoraireRecurrentJourCard';
-import { useHorairesOuverture } from '@/hooks/useReglesMetier';
+import { useToutesHorairesOuverture } from '@/hooks/useReglesMetier';
 import { useEnregistrerHoraireRecurrent, useHorairesRecurrents } from '@/hooks/useHorairesRecurrents';
 import { usePopUps } from '@/hooks/usePopUps';
-import { useActiveProfiles } from '@/hooks/useProfiles';
+import { useActiveProfiles, useAffectationsPopUp } from '@/hooks/useProfiles';
+import { construireMapAffectations, popUpsAttribues } from '@/utils/affectations';
 import { JOURS_LABELS } from '@/utils/dateUtils';
 import type { PopUp, Profile } from '@/types/database.types';
 
@@ -16,21 +17,22 @@ const LIBELLE_TYPE_CONTRAT: Record<string, string> = {
   alternant: 'Alternant',
 };
 
-function CarteMembre({ profil, popUp }: { profil: Profile; popUp: PopUp | undefined }) {
+function CarteMembre({ profil, lieuxAttribues }: { profil: Profile; lieuxAttribues: PopUp[] }) {
   const [ouvert, setOuvert] = useState(false);
 
   const { data: horaires, isLoading: chargementHoraires } = useHorairesRecurrents(
     ouvert ? profil.id : undefined,
   );
-  const { data: horairesPopUp } = useHorairesOuverture(ouvert ? popUp?.id : undefined);
+  const { data: toutesHoraires } = useToutesHorairesOuverture();
   const enregistrer = useEnregistrerHoraireRecurrent();
 
-  const copierHorairesPopUp = () => {
-    if (!horairesPopUp) return;
-    for (const h of horairesPopUp) {
+  const copierHorairesPopUp = (lieu: PopUp) => {
+    const horairesLieu = (toutesHoraires ?? []).filter((h) => h.pop_up_id === lieu.id);
+    for (const h of horairesLieu) {
       if (!h.actif) continue;
       enregistrer.mutate({
         profile_id: profil.id,
+        pop_up_id: lieu.id,
         jour_semaine: h.jour_semaine,
         heure_debut: h.heure_ouverture,
         heure_fin: h.heure_fermeture,
@@ -47,7 +49,8 @@ function CarteMembre({ profil, popUp }: { profil: Profile; popUp: PopUp | undefi
       </View>
       <Text className="mb-3 text-sm text-slate-400">
         {LIBELLE_TYPE_CONTRAT[profil.type_contrat] ?? profil.type_contrat}
-        {popUp ? ` · ${popUp.nom}` : ' · Aucun pop-up attribué'}
+        {' · '}
+        {lieuxAttribues.length > 0 ? lieuxAttribues.map((p) => p.nom).join(', ') : 'Aucun lieu attribué'}
       </Text>
 
       <Pressable onPress={() => setOuvert((v) => !v)} className="mb-2">
@@ -61,17 +64,30 @@ function CarteMembre({ profil, popUp }: { profil: Profile; popUp: PopUp | undefi
           <Text className="mb-2 text-xs text-slate-400">
             L'horaire habituel de {profil.nom_complet || 'cette personne'} : la génération
             automatique du planning s'en sert chaque semaine, sauf indisponibilité déclarée.
+            Seuls les lieux attribués (dans Pop-up) sont proposés ci-dessous.
           </Text>
 
-          {popUp && (
-            <Pressable
-              onPress={copierHorairesPopUp}
-              className="mb-3 items-center rounded-lg border border-dashed border-indigo-300 py-2"
-            >
-              <Text className="text-xs font-semibold text-indigo-600">
-                Copier les horaires d'ouverture de {popUp.nom}
-              </Text>
-            </Pressable>
+          {lieuxAttribues.length === 0 && (
+            <Text className="mb-3 text-xs text-red-500">
+              Aucun lieu attribué pour l'instant — attribue d'abord cette personne à un pop-up
+              (écran Pop-up) avant de fixer son horaire.
+            </Text>
+          )}
+
+          {lieuxAttribues.length > 0 && (
+            <View className="mb-3 gap-1.5">
+              {lieuxAttribues.map((lieu) => (
+                <Pressable
+                  key={lieu.id}
+                  onPress={() => copierHorairesPopUp(lieu)}
+                  className="items-center rounded-lg border border-dashed border-indigo-300 py-2"
+                >
+                  <Text className="text-xs font-semibold text-indigo-600">
+                    Copier les horaires d'ouverture de {lieu.nom}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
           )}
 
           {chargementHoraires ? (
@@ -84,6 +100,7 @@ function CarteMembre({ profil, popUp }: { profil: Profile; popUp: PopUp | undefi
                 jourSemaine={jourSemaine}
                 label={label}
                 regle={horaires?.find((h) => h.jour_semaine === jourSemaine)}
+                popUpsDisponibles={lieuxAttribues}
                 onEnregistrer={(horaire) => enregistrer.mutate(horaire)}
               />
             ))
@@ -97,11 +114,12 @@ function CarteMembre({ profil, popUp }: { profil: Profile; popUp: PopUp | undefi
 export default function EquipeScreen() {
   const { data: profils, isLoading: chargementProfils } = useActiveProfiles();
   const { data: popUps, isLoading: chargementPopUps } = usePopUps();
+  const { data: affectations, isLoading: chargementAffectations } = useAffectationsPopUp();
 
-  const popUpParId = new Map((popUps ?? []).map((p) => [p.id, p]));
+  const mapAffectations = construireMapAffectations(affectations ?? []);
   const membres = (profils ?? []).filter((p) => p.role !== 'admin');
 
-  if (chargementProfils || chargementPopUps) {
+  if (chargementProfils || chargementPopUps || chargementAffectations) {
     return (
       <View className="flex-1 items-center justify-center bg-white">
         <ActivityIndicator size="large" color="#6366F1" />
@@ -114,8 +132,9 @@ export default function EquipeScreen() {
       <EnteteMenu titre="Équipe" />
       <ScrollView className="flex-1" contentContainerStyle={{ padding: 16 }}>
         <Text className="mb-4 text-sm text-slate-400">
-          Les admins décident toujours manuellement de leur planning. Pour tout le monde
-          d'autre, l'horaire récurrent ci-dessous pilote la génération automatique.
+          Les admins décident toujours manuellement de leur planning et sont considérés
+          attribués à tous les lieux. Pour tout le monde d'autre, l'horaire récurrent
+          ci-dessous (à l'un de ses lieux attribués) pilote la génération automatique.
         </Text>
 
         {membres.length === 0 && (
@@ -123,7 +142,11 @@ export default function EquipeScreen() {
         )}
 
         {membres.map((profil) => (
-          <CarteMembre key={profil.id} profil={profil} popUp={popUpParId.get(profil.pop_up_id ?? '')} />
+          <CarteMembre
+            key={profil.id}
+            profil={profil}
+            lieuxAttribues={popUpsAttribues(profil, mapAffectations, popUps ?? [])}
+          />
         ))}
       </ScrollView>
     </View>

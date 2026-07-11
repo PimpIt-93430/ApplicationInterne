@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import type { Profile } from '@/types/database.types';
+import type { ProfilPopUp, Profile } from '@/types/database.types';
 
 export async function fetchProfile(id: string): Promise<Profile> {
   const { data, error } = await supabase.from('profiles').select('*').eq('id', id).single();
@@ -22,7 +22,24 @@ export async function updateOwnProfile(id: string, changes: Partial<Profile>) {
   if (error) throw error;
 }
 
-export async function assignerPopUp(profileId: string, popUpId: string | null) {
-  const { error } = await supabase.from('profiles').update({ pop_up_id: popUpId }).eq('id', profileId);
+export async function fetchAffectationsPopUp(): Promise<ProfilPopUp[]> {
+  const { data, error } = await supabase.from('profil_pop_ups').select('*');
+  if (error) throw error;
+  return data;
+}
+
+export async function ajouterAffectationPopUp(profileId: string, popUpId: string) {
+  const { error } = await supabase
+    .from('profil_pop_ups')
+    .upsert({ profile_id: profileId, pop_up_id: popUpId }, { onConflict: 'profile_id,pop_up_id' });
+  if (error) throw error;
+}
+
+export async function retirerAffectationPopUp(profileId: string, popUpId: string) {
+  const { error } = await supabase
+    .from('profil_pop_ups')
+    .delete()
+    .eq('profile_id', profileId)
+    .eq('pop_up_id', popUpId);
   if (error) throw error;
 }

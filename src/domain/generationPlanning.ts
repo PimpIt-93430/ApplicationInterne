@@ -96,10 +96,11 @@ function trouverTrousCouverture(ouverture: string, fermeture: string, intervalle
 /**
  * Génère le planning de la semaine à partir de l'horaire récurrent de chaque personne (hors
  * admins, toujours gérés à la main) : pour chaque jour où son horaire habituel est actif, un
- * créneau est créé à son pop-up assigné, sauf si elle a déclaré une indisponibilité ce jour-là,
- * si c'est un jour d'école pour un alternant, ou si un créneau lui est déjà attribué (généré
- * plus tôt dans cette même génération, ou déjà présent — ex. un admin placé à la main ailleurs
- * ce jour-là, qu'on ne veut pas doubler). Signale ensuite les horaires d'ouverture non couverts.
+ * créneau est créé au lieu qu'il précise, sauf si elle a déclaré une indisponibilité ce jour-là,
+ * si c'est un jour d'école pour un alternant, si elle n'est plus attribuée à ce lieu (retirée
+ * depuis que l'horaire a été fixé), ou si un créneau lui est déjà attribué (généré plus tôt
+ * dans cette même génération, ou déjà présent — ex. un admin placé à la main ailleurs ce
+ * jour-là, qu'on ne veut pas doubler). Signale ensuite les horaires d'ouverture non couverts.
  */
 export function genererPlanning(params: {
   jours: JourDeSemaine[];
@@ -109,12 +110,22 @@ export function genererPlanning(params: {
   conges: Conge[];
   joursEcole: JourEcoleAlternant[];
   shiftsExistants: PlanningShift[];
+  mapAffectations: Map<string, Set<string>>;
   adminId: string;
 }): ResultatGeneration {
-  const { jours, profiles, horairesRecurrents, horairesOuverture, conges, joursEcole, shiftsExistants, adminId } =
-    params;
+  const {
+    jours,
+    profiles,
+    horairesRecurrents,
+    horairesOuverture,
+    conges,
+    joursEcole,
+    shiftsExistants,
+    mapAffectations,
+    adminId,
+  } = params;
 
-  const profilsEligibles = profiles.filter((p) => p.actif && p.role !== 'admin' && p.pop_up_id);
+  const profilsEligibles = profiles.filter((p) => p.actif && p.role !== 'admin');
   const shifts: ShiftGenere[] = [];
   const alertes: Alerte[] = [];
 
@@ -124,6 +135,7 @@ export function genererPlanning(params: {
         (h) => h.profile_id === profil.id && h.jour_semaine === jour.jour_semaine && h.actif,
       );
       if (!horaire) continue;
+      if (!mapAffectations.get(profil.id)?.has(horaire.pop_up_id)) continue;
       if (estEnConge(conges, profil.id, jour.date, horaire.heure_debut, horaire.heure_fin)) continue;
       if (profil.type_contrat === 'alternant' && estJourEcole(joursEcole, profil.id, jour.date)) continue;
 
@@ -136,7 +148,7 @@ export function genererPlanning(params: {
       if (dejaPresent) continue;
 
       shifts.push({
-        pop_up_id: profil.pop_up_id as string,
+        pop_up_id: horaire.pop_up_id,
         profile_id: profil.id,
         date: jour.date,
         heure_debut: horaire.heure_debut,

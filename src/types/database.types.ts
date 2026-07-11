@@ -9,7 +9,6 @@ export interface Profile {
   email: string;
   role: Role;
   type_contrat: TypeContrat;
-  pop_up_id: string | null;
   couleur: string;
   heures_max_semaine: number | null;
   actif: boolean;
@@ -25,6 +24,16 @@ export interface PopUp {
   est_local: boolean;
 }
 
+/** Attribution d'une personne à un lieu où elle peut être planifiée. Une personne peut être
+ * attribuée à plusieurs lieux. Les admins n'ont pas besoin d'y figurer : ils sont considérés
+ * attribués à tous les lieux (vérifié via profile.role === 'admin'). */
+export interface ProfilPopUp {
+  id: string;
+  profile_id: string;
+  pop_up_id: string;
+  created_at: string;
+}
+
 export interface RegleHoraireOuverture {
   id: string;
   pop_up_id: string;
@@ -34,12 +43,13 @@ export interface RegleHoraireOuverture {
   actif: boolean;
 }
 
-/** Horaire de travail par défaut d'une personne pour un jour de la semaine donné, à son
- * pop-up assigné (profile.pop_up_id) : c'est ce que la génération automatique du planning
- * utilise pour créer ses créneaux, sauf indisponibilité (table conges) ce jour-là. */
+/** Horaire de travail par défaut d'une personne pour un jour de la semaine donné, à l'un de ses
+ * lieux attribués (profil_pop_ups) : c'est ce que la génération automatique du planning utilise
+ * pour créer ses créneaux, sauf indisponibilité (table conges) ce jour-là. */
 export interface HoraireRecurrentProfil {
   id: string;
   profile_id: string;
+  pop_up_id: string;
   jour_semaine: number;
   heure_debut: string;
   heure_fin: string;

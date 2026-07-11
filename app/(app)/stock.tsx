@@ -5,8 +5,12 @@ import { statutCase, type CaseGrille } from '@/api/stock';
 import { CaseDetailModal } from '@/components/stock/CaseDetailModal';
 import { GrilleCases } from '@/components/stock/GrilleCases';
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
+import { Dropdown } from '@/components/ui/Dropdown';
 import { useProfilEffectif } from '@/hooks/useProfilEffectif';
+import { usePopUps } from '@/hooks/usePopUps';
+import { useAffectationsPopUp } from '@/hooks/useProfiles';
 import { useGererCasesPopUp, useGrillePopUp, usePins } from '@/hooks/useStock';
+import { construireMapAffectations, popUpsAttribues } from '@/utils/affectations';
 import type { StockPin } from '@/types/database.types';
 
 const COULEURS_STATUT: Record<'partiel' | 'complet', string> = {
@@ -63,7 +67,14 @@ function LignePin({ pin, boites }: { pin: StockPin; boites: string }) {
 
 export default function StockScreen() {
   const profile = useProfilEffectif();
-  const popUpId = profile?.pop_up_id ?? undefined;
+  const { data: popUps } = usePopUps();
+  const { data: affectations } = useAffectationsPopUp();
+
+  const mesLieux = profile
+    ? popUpsAttribues(profile, construireMapAffectations(affectations ?? []), popUps ?? [])
+    : [];
+  const [popUpChoisiId, setPopUpChoisiId] = useState<string | undefined>(undefined);
+  const popUpId = popUpChoisiId ?? mesLieux[0]?.id;
 
   const { data: grille, isLoading: chargementGrille } = useGrillePopUp(popUpId);
   const { data: pins, isLoading: chargementPins } = usePins();
@@ -110,7 +121,7 @@ export default function StockScreen() {
         <EnteteMenu titre="Stock" />
         <View className="flex-1 items-center justify-center px-8">
           <Text className="text-center text-slate-400">
-            Vous n'êtes pas encore rattaché à un pop-up. Demandez à un admin de vous en attribuer un pour
+            Vous n'êtes pas encore attribué à un lieu. Demandez à un admin de vous en attribuer un pour
             gérer le stock.
           </Text>
         </View>
@@ -128,6 +139,16 @@ export default function StockScreen() {
         contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
         ListHeaderComponent={
           <>
+            {mesLieux.length > 1 && (
+              <View className="mb-4">
+                <Dropdown
+                  value={popUpId}
+                  options={mesLieux.map((p) => ({ value: p.id, label: p.nom, couleur: p.couleur }))}
+                  onChange={setPopUpChoisiId}
+                />
+              </View>
+            )}
+
             {chargementGrille ? (
               <ActivityIndicator color="#6366F1" />
             ) : (

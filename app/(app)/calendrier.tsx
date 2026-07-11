@@ -8,17 +8,18 @@ import { EnteteMenu } from '@/components/nav/EnteteMenu';
 import { useProfilEffectif } from '@/hooks/useProfilEffectif';
 import { useShiftsSemaine } from '@/hooks/usePlanning';
 import { usePopUps } from '@/hooks/usePopUps';
-import { useActiveProfiles } from '@/hooks/useProfiles';
+import { useActiveProfiles, useAffectationsPopUp } from '@/hooks/useProfiles';
 import { useToutesHorairesOuverture } from '@/hooks/useReglesMetier';
 import { useSemaineStore } from '@/store/useSemaineStore';
+import { construireMapAffectations, popUpsAttribues } from '@/utils/affectations';
 import { dateEnISO, joursDeLaSemaine, jourSemaineISO, libelleJourCourt } from '@/utils/dateUtils';
 
 type Onglet = 'planning' | 'indisponibilites';
-type SousOnglet = 'moi' | 'mon-popup' | 'tous';
+type SousOnglet = 'moi' | 'mes-lieux' | 'tous';
 
 const SOUS_ONGLETS: { value: SousOnglet; label: string }[] = [
   { value: 'moi', label: 'Mon planning' },
-  { value: 'mon-popup', label: 'Mon pop-up' },
+  { value: 'mes-lieux', label: 'Mes lieux' },
   { value: 'tous', label: 'Tous les pop-ups' },
 ];
 
@@ -35,18 +36,23 @@ export default function CalendrierScreen() {
   const { data: profils, isLoading: chargementProfils } = useActiveProfiles();
   const { data: horaires, isLoading: chargementHoraires } = useToutesHorairesOuverture();
   const { data: shifts, isLoading: chargementShifts } = useShiftsSemaine(dateDebut, dateFin);
+  const { data: affectations, isLoading: chargementAffectations } = useAffectationsPopUp();
 
   const profilParId = new Map((profils ?? []).map((p) => [p.id, p]));
   const popUpParId = new Map((popUps ?? []).map((p) => [p.id, p]));
+  const mapAffectations = construireMapAffectations(affectations ?? []);
+  const mesLieux = profile ? popUpsAttribues(profile, mapAffectations, popUps ?? []) : [];
+  const mesLieuxIds = new Set(mesLieux.map((p) => p.id));
 
-  const chargement = chargementPopUps || chargementProfils || chargementHoraires || chargementShifts;
+  const chargement =
+    chargementPopUps || chargementProfils || chargementHoraires || chargementShifts || chargementAffectations;
 
-  const pasDePopUp = sousOnglet === 'mon-popup' && !profile?.pop_up_id;
+  const pasDePopUp = sousOnglet === 'mes-lieux' && mesLieux.length === 0;
 
-  // "Mon pop-up" restreint les horaires d'ouverture (et donc l'axe/les jours fermés) à ceux du
-  // pop-up assigné ; "Mon planning" et "Tous les pop-ups" gardent la vue globale tous pop-ups.
+  // "Mes lieux" restreint les horaires d'ouverture (et donc l'axe/les jours fermés) à ceux des
+  // lieux attribués ; "Mon planning" et "Tous les pop-ups" gardent la vue globale tous pop-ups.
   const horairesPourVue =
-    sousOnglet === 'mon-popup' ? (horaires ?? []).filter((h) => h.pop_up_id === profile?.pop_up_id) : (horaires ?? []);
+    sousOnglet === 'mes-lieux' ? (horaires ?? []).filter((h) => mesLieuxIds.has(h.pop_up_id)) : (horaires ?? []);
 
   const horairesActifs = horairesPourVue.filter((h) => h.actif);
   const heureOuvertureAxe = horairesActifs.length
@@ -125,7 +131,7 @@ export default function CalendrierScreen() {
           {pasDePopUp ? (
             <View className="flex-1 items-center justify-center px-8">
               <Text className="text-center text-slate-400">
-                Vous n'êtes pas encore rattaché à un pop-up. Demandez à un admin de vous en attribuer un.
+                Vous n'êtes pas encore attribué à un lieu. Demandez à un admin de vous en attribuer un.
               </Text>
             </View>
           ) : (
@@ -143,7 +149,7 @@ export default function CalendrierScreen() {
                   </View>
                 </View>
               )}
-              {sousOnglet === 'mon-popup' && (
+              {sousOnglet === 'mes-lieux' && (
                 <View className="mb-2 flex-row items-center gap-1 px-4">
                   <Text className="text-[11px] text-amber-500">★ = vos créneaux</Text>
                 </View>
@@ -170,8 +176,8 @@ export default function CalendrierScreen() {
                         const shiftsJour =
                           sousOnglet === 'moi'
                             ? shiftsJourPublies.filter((s) => s.profile_id === profile?.id)
-                            : sousOnglet === 'mon-popup'
-                              ? shiftsJourPublies.filter((s) => s.pop_up_id === profile?.pop_up_id)
+                            : sousOnglet === 'mes-lieux'
+                              ? shiftsJourPublies.filter((s) => mesLieuxIds.has(s.pop_up_id))
                               : shiftsJourPublies;
 
                         return (
@@ -183,7 +189,7 @@ export default function CalendrierScreen() {
                             ferme={!ouvert}
                             shifts={shiftsJour}
                             profilParId={profilParId}
-                            popUpParId={sousOnglet === 'tous' ? popUpParId : undefined}
+                            popUpParId={popUpParId}
                             profileIdActuel={profile?.id}
                           />
                         );

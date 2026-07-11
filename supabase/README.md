@@ -16,6 +16,7 @@ Ces migrations ne sont pas encore appliquées automatiquement (pas de CLI Supaba
 11. Pour récupérer le catalogue existant de pins depuis Airtable plutôt que de le ressaisir à la main, coller puis exécuter le contenu de `scripts/seed-stock-pins.sql` (généré depuis Airtable, aucune clé nécessaire).
 12. Pour récupérer les photos des pins (pas incluses dans l'étape précédente : les URLs Airtable expirent), exécuter une fois en local `scripts/import-stock-photos.mjs` (voir l'en-tête du script pour les variables d'environnement nécessaires — il faut un token d'accès personnel Airtable, créé sur airtable.com/create/tokens avec le scope `data.records:read` et l'accès à la base "Gestion du stock").
 13. Coller puis exécuter le contenu de `migrations/0013_pop_up_local.sql` (ajoute la notion de "local", le lieu permanent) puis `migrations/0014_horaires_recurrents_profil.sql` (ajoute l'horaire récurrent par personne utilisé par la génération automatique du planning, et supprime les anciennes tables `disponibilites`, `regles_effectifs_creneau`, `regles_globales` — jamais éditables depuis aucun écran).
+14. Coller puis exécuter le contenu de `migrations/0015_affectations_multi_lieux.sql` (une personne peut désormais être attribuée à plusieurs lieux — ex. le local ET un pop-up — au lieu d'un seul ; seules les personnes attribuées à un lieu peuvent y être planifiées, sauf les admins qui sont considérés attribués à tous les lieux).
 
 Après ça, l'app est utilisable avec un compte admin et des comptes employés/alternants sur les 3 pop-ups.
 

@@ -4,25 +4,42 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, Switch, Text, TextInpu
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
 import { JourReglageCard } from '@/components/reglages/JourReglageCard';
 import { useCreerPopUp, useDefinirLocal, usePopUps, useRenommerPopUp, useSupprimerPopUp } from '@/hooks/usePopUps';
-import { useActiveProfiles, useAssignerPopUp } from '@/hooks/useProfiles';
+import {
+  useActiveProfiles,
+  useAffectationsPopUp,
+  useAjouterAffectationPopUp,
+  useRetirerAffectationPopUp,
+} from '@/hooks/useProfiles';
 import { useEnregistrerHoraireOuverture, useHorairesOuverture } from '@/hooks/useReglesMetier';
 import { JOURS_LABELS } from '@/utils/dateUtils';
 import type { PopUp, Profile } from '@/types/database.types';
 
-function CartePopUp({ popUp, profils }: { popUp: PopUp; profils: Profile[] }) {
+function CartePopUp({
+  popUp,
+  profils,
+  mapAffectations,
+}: {
+  popUp: PopUp;
+  profils: Profile[];
+  mapAffectations: Map<string, Set<string>>;
+}) {
   const [horairesOuverts, setHorairesOuverts] = useState(false);
   const [ajoutMembreOuvert, setAjoutMembreOuvert] = useState(false);
   const [editionNom, setEditionNom] = useState(false);
   const [nom, setNom] = useState(popUp.nom);
 
-  const membres = profils.filter((p) => p.pop_up_id === popUp.id);
-  const disponibles = profils.filter((p) => p.pop_up_id !== popUp.id);
+  // Les admins sont considérés attribués à tous les lieux implicitement (cf. Équipe) : cette
+  // liste sert à gérer qui d'autre peut être planifié ici, pas les admins eux-mêmes.
+  const profilsNonAdmin = profils.filter((p) => p.role !== 'admin');
+  const membres = profilsNonAdmin.filter((p) => mapAffectations.get(p.id)?.has(popUp.id));
+  const disponibles = profilsNonAdmin.filter((p) => !mapAffectations.get(p.id)?.has(popUp.id));
 
   const { data: horaires, isLoading: chargementHoraires } = useHorairesOuverture(
     horairesOuverts ? popUp.id : undefined,
   );
   const enregistrerHoraire = useEnregistrerHoraireOuverture();
-  const assigner = useAssignerPopUp();
+  const ajouterAffectation = useAjouterAffectationPopUp();
+  const retirerAffectation = useRetirerAffectationPopUp();
   const renommer = useRenommerPopUp();
   const supprimer = useSupprimerPopUp();
   const definirLocal = useDefinirLocal();
@@ -83,7 +100,9 @@ function CartePopUp({ popUp, profils }: { popUp: PopUp; profils: Profile[] }) {
         />
       </View>
 
-      <Text className="mb-1 text-xs font-semibold uppercase text-slate-400">Effectifs</Text>
+      <Text className="mb-1 text-xs font-semibold uppercase text-slate-400">
+        Effectifs attribués (une personne peut être attribuée à plusieurs lieux)
+      </Text>
       <View className="mb-2 flex-row flex-wrap gap-2">
         {membres.length === 0 && <Text className="text-sm text-slate-400">Personne pour l'instant</Text>}
         {membres.map((m) => (
@@ -95,7 +114,7 @@ function CartePopUp({ popUp, profils }: { popUp: PopUp; profils: Profile[] }) {
                 {
                   text: 'Retirer',
                   style: 'destructive',
-                  onPress: () => assigner.mutate({ profileId: m.id, popUpId: null }),
+                  onPress: () => retirerAffectation.mutate({ profileId: m.id, popUpId: popUp.id }),
                 },
               ])
             }
@@ -108,20 +127,20 @@ function CartePopUp({ popUp, profils }: { popUp: PopUp; profils: Profile[] }) {
 
       <Pressable onPress={() => setAjoutMembreOuvert((v) => !v)} className="mb-2">
         <Text className="text-sm font-semibold text-indigo-600">
-          {ajoutMembreOuvert ? 'Fermer' : '+ Ajouter un membre'}
+          {ajoutMembreOuvert ? 'Fermer' : '+ Attribuer quelqu\'un'}
         </Text>
       </Pressable>
 
       {ajoutMembreOuvert && (
         <View className="mb-3 gap-1 rounded-xl bg-slate-50 p-2">
           {disponibles.length === 0 ? (
-            <Text className="p-2 text-sm text-slate-400">Tout le monde est déjà attribué.</Text>
+            <Text className="p-2 text-sm text-slate-400">Tout le monde est déjà attribué ici.</Text>
           ) : (
             disponibles.map((p) => (
               <Pressable
                 key={p.id}
                 onPress={() => {
-                  assigner.mutate({ profileId: p.id, popUpId: popUp.id });
+                  ajouterAffectation.mutate({ profileId: p.id, popUpId: popUp.id });
                   setAjoutMembreOuvert(false);
                 }}
                 className="rounded-lg bg-white px-3 py-2"
@@ -161,12 +180,20 @@ function CartePopUp({ popUp, profils }: { popUp: PopUp; profils: Profile[] }) {
 export default function PopUpsScreen() {
   const { data: popUps, isLoading: chargementPopUps } = usePopUps();
   const { data: profils, isLoading: chargementProfils } = useActiveProfiles();
+  const { data: affectations, isLoading: chargementAffectations } = useAffectationsPopUp();
   const creerPopUp = useCreerPopUp();
 
   const [formulaireOuvert, setFormulaireOuvert] = useState(false);
   const [nom, setNom] = useState('');
   const [ouverture, setOuverture] = useState('10:00');
   const [fermeture, setFermeture] = useState('20:00');
+
+  const mapAffectations = new Map<string, Set<string>>();
+  for (const a of affectations ?? []) {
+    const ensemble = mapAffectations.get(a.profile_id) ?? new Set<string>();
+    ensemble.add(a.pop_up_id);
+    mapAffectations.set(a.profile_id, ensemble);
+  }
 
   const handleCreer = () => {
     if (!nom.trim()) return;
@@ -181,7 +208,7 @@ export default function PopUpsScreen() {
     );
   };
 
-  if (chargementPopUps || chargementProfils) {
+  if (chargementPopUps || chargementProfils || chargementAffectations) {
     return (
       <View className="flex-1 items-center justify-center bg-white">
         <ActivityIndicator size="large" color="#6366F1" />
@@ -195,7 +222,7 @@ export default function PopUpsScreen() {
       <ScrollView className="flex-1" contentContainerStyle={{ padding: 16 }}>
 
       {(popUps ?? []).map((popUp) => (
-        <CartePopUp key={popUp.id} popUp={popUp} profils={profils ?? []} />
+        <CartePopUp key={popUp.id} popUp={popUp} profils={profils ?? []} mapAffectations={mapAffectations} />
       ))}
 
       <View className="rounded-2xl border border-dashed border-indigo-300 bg-white p-4">

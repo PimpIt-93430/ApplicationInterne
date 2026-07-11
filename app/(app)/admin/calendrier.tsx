@@ -24,10 +24,11 @@ import { useJoursEcolePeriode } from '@/hooks/useAlternance';
 import { useTousHorairesRecurrents } from '@/hooks/useHorairesRecurrents';
 import { useShiftsSemaine } from '@/hooks/usePlanning';
 import { usePopUps } from '@/hooks/usePopUps';
-import { useActiveProfiles } from '@/hooks/useProfiles';
+import { useActiveProfiles, useAffectationsPopUp } from '@/hooks/useProfiles';
 import { useHorairesOuverture, useToutesHorairesOuverture } from '@/hooks/useReglesMetier';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useSemaineStore } from '@/store/useSemaineStore';
+import { construireMapAffectations, estAttribueA } from '@/utils/affectations';
 import { dateEnISO, formatHeure, joursDeLaSemaine, jourSemaineISO, libelleJourCourt } from '@/utils/dateUtils';
 import type { PlanningShift, Profile } from '@/types/database.types';
 
@@ -65,6 +66,8 @@ export default function CalendrierPopUpScreen() {
 
   const { data: profils, isLoading: chargementProfils } = useActiveProfiles();
   const profilParId = new Map((profils ?? []).map((p) => [p.id, p]));
+  const { data: affectations } = useAffectationsPopUp();
+  const mapAffectations = construireMapAffectations(affectations ?? []);
 
   const { dateReference, semaineSuivante, semainePrecedente, revenirAujourdhui } = useSemaineStore();
   const jours = joursDeLaSemaine(dateReference);
@@ -279,6 +282,7 @@ export default function CalendrierPopUpScreen() {
     return (horairesRecurrents ?? []).some(
       (h) =>
         h.profile_id === personne.id &&
+        h.pop_up_id === popUpId &&
         h.jour_semaine === jourIso &&
         h.actif &&
         seChevauchent(h.heure_debut, h.heure_fin, heureDebut, heureFin),
@@ -312,6 +316,7 @@ export default function CalendrierPopUpScreen() {
         conges: conges ?? [],
         joursEcole: joursEcole ?? [],
         shiftsExistants,
+        mapAffectations,
         adminId: profile.id,
       });
       await supprimerShiftsGeneresAutomatiquement(dateDebut, dateFin);
@@ -360,9 +365,12 @@ export default function CalendrierPopUpScreen() {
     }
   };
 
-  const candidatsPourAjout = ajoutPourDate
+  // Seules les personnes attribuées à ce pop-up peuvent y être planifiées (les admins sont
+  // considérés attribués à tous les lieux, cf. estAttribueA).
+  const candidatsPourAjout = ajoutPourDate && popUpId
     ? (profils ?? []).filter(
         (p) =>
+          estAttribueA(p, popUpId, mapAffectations) &&
           !(conges ?? []).some(
             (c) => c.profile_id === p.id && ajoutPourDate >= c.date_debut && ajoutPourDate <= c.date_fin,
           ) &&
