@@ -11,21 +11,21 @@ import {
   insererShifts,
   publierShiftsSemaine,
   supprimerShift,
-  supprimerShiftsBrouillon,
+  supprimerShiftsGeneresAutomatiquement,
   validerShiftsSemaine,
 } from '@/api/planning';
 import { AxeHeures } from '@/components/calendrier/AxeHeures';
 import { PanneauIndisponibilites } from '@/components/calendrier/PanneauIndisponibilites';
 import { TimelineJour } from '@/components/calendrier/TimelineJour';
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
-import { construireCreneauxACouvrir, genererPlanning, type Alerte } from '@/domain/generationPlanning';
+import { genererPlanning, type Alerte } from '@/domain/generationPlanning';
 import { useCongesPeriode } from '@/hooks/useConges';
 import { useJoursEcolePeriode } from '@/hooks/useAlternance';
-import { useDisponibilitesEquipeSemaine } from '@/hooks/useDisponibilites';
+import { useTousHorairesRecurrents } from '@/hooks/useHorairesRecurrents';
 import { useShiftsSemaine } from '@/hooks/usePlanning';
 import { usePopUps } from '@/hooks/usePopUps';
 import { useActiveProfiles } from '@/hooks/useProfiles';
-import { useHorairesOuverture, useReglesGlobales, useToutesEffectifsCreneaux } from '@/hooks/useReglesMetier';
+import { useHorairesOuverture, useToutesHorairesOuverture } from '@/hooks/useReglesMetier';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useSemaineStore } from '@/store/useSemaineStore';
 import { dateEnISO, formatHeure, joursDeLaSemaine, jourSemaineISO, libelleJourCourt } from '@/utils/dateUtils';
@@ -35,12 +35,9 @@ function formatHeureAffichee(date: Date): string {
   return date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 }
 
-function libelleAlerte(a: Alerte): string {
+function libelleAlerte(a: Alerte, popUpNom: string): string {
   const creneau = `${formatHeure(a.heure_debut)}-${formatHeure(a.heure_fin)}`;
-  if (a.type === 'manager_absent') {
-    return `Aucun manager le ${a.date} (${creneau})`;
-  }
-  return `${a.manquants} ${a.type_contrat}(s) manquant(s) le ${a.date} (${creneau})`;
+  return `Personne à ${popUpNom} le ${a.date} (${creneau})`;
 }
 
 type ModeCreneau = 'matin' | 'apres-midi' | 'journee' | 'personnalise';
@@ -75,12 +72,11 @@ export default function CalendrierPopUpScreen() {
   const dateFin = dateEnISO(jours[6]);
 
   const { data: horaires, isLoading: chargementHoraires } = useHorairesOuverture(popUpId);
+  const { data: toutesHorairesOuverture } = useToutesHorairesOuverture();
   const { data: shifts, isLoading: chargementShifts } = useShiftsSemaine(dateDebut, dateFin);
   const { data: conges } = useCongesPeriode(dateDebut, dateFin);
   const { data: joursEcole } = useJoursEcolePeriode(dateDebut, dateFin);
-  const { data: disponibilitesEquipe } = useDisponibilitesEquipeSemaine(dateDebut, dateFin);
-  const { data: toutesEffectifs } = useToutesEffectifsCreneaux();
-  const { data: reglesGlobales } = useReglesGlobales();
+  const { data: horairesRecurrents } = useTousHorairesRecurrents();
 
   const [genererEnCours, setGenererEnCours] = useState(false);
   const [validationEnCours, setValidationEnCours] = useState(false);
@@ -269,49 +265,56 @@ export default function CalendrierPopUpScreen() {
     setHeureFinChoisie(fin);
   };
 
+  // Pastille verte/rouge dans "Qui travaille ?" : indique si le créneau choisi tombe dans
+  // l'horaire récurrent habituel de la personne pour ce jour de la semaine (simple indication,
+  // n'empêche pas de l'ajouter quand même — ex. renfort ponctuel hors de son horaire habituel).
   const estDisponiblePourCreneau = (personne: Profile) => {
     if (!ajoutPourDate) return false;
     if (personne.role === 'admin') return true;
     const heureDebut = formatHeureAffichee(heureDebutChoisie) + ':00';
     const heureFin = formatHeureAffichee(heureFinChoisie) + ':00';
-    return (disponibilitesEquipe ?? []).some(
-      (d) =>
-        d.profile_id === personne.id &&
-        d.date === ajoutPourDate &&
-        seChevauchent(d.heure_debut, d.heure_fin, heureDebut, heureFin),
+    const jour = jours.find((j) => dateEnISO(j) === ajoutPourDate);
+    if (!jour) return false;
+    const jourIso = jourSemaineISO(jour);
+    return (horairesRecurrents ?? []).some(
+      (h) =>
+        h.profile_id === personne.id &&
+        h.jour_semaine === jourIso &&
+        h.actif &&
+        seChevauchent(h.heure_debut, h.heure_fin, heureDebut, heureFin),
     );
   };
 
-  // Remplit automatiquement la semaine (tous pop-ups confondus, cf. genererPlanning) selon les
-  // règles d'effectifs, disponibilités, congés et jours d'école — l'admin peut ensuite encore
+  // Remplit automatiquement la semaine à partir de l'horaire récurrent de chaque personne (hors
+  // admins, toujours gérés à la main) — cf. genererPlanning. L'admin peut ensuite encore
   // ajouter/retirer des personnes à la main sur les créneaux avant de valider et publier.
   const handleGenerer = async () => {
-    if (!profile || !toutesEffectifs || !reglesGlobales || !disponibilitesEquipe || !profils) return;
+    if (!profile || !profils || !toutesHorairesOuverture) return;
 
-    const joursMap = jours.map((j) => ({ date: dateEnISO(j), jour_semaine: jourSemaineISO(j) }));
-    const popUpIdsLocal = new Set((popUps ?? []).filter((p) => p.est_local).map((p) => p.id));
-    if (construireCreneauxACouvrir(joursMap, toutesEffectifs, popUpIdsLocal).length === 0) {
+    if ((horairesRecurrents ?? []).filter((h) => h.actif).length === 0) {
       Alert.alert(
-        'Aucun effectif requis configuré',
-        'Va dans Pop-up → "Voir / modifier les effectifs requis" pour indiquer qui doit être présent et quand, avant de pouvoir générer un planning.',
+        'Aucun horaire récurrent configuré',
+        "Va dans Équipe pour indiquer l'horaire habituel de chaque personne, avant de pouvoir générer un planning.",
       );
       return;
     }
 
+    const joursMap = jours.map((j) => ({ date: dateEnISO(j), jour_semaine: jourSemaineISO(j) }));
+
     setGenererEnCours(true);
     try {
+      const shiftsExistants = (shifts ?? []).filter((s) => !(s.statut === 'brouillon' && s.genere_automatiquement));
       const resultat = genererPlanning({
         jours: joursMap,
-        disponibilites: disponibilitesEquipe,
+        profiles: profils,
+        horairesRecurrents: horairesRecurrents ?? [],
+        horairesOuverture: toutesHorairesOuverture,
         conges: conges ?? [],
         joursEcole: joursEcole ?? [],
-        reglesEffectifs: toutesEffectifs,
-        reglesGlobales,
-        profiles: profils,
+        shiftsExistants,
         adminId: profile.id,
-        popUpIdsLocal,
       });
-      await supprimerShiftsBrouillon(dateDebut, dateFin);
+      await supprimerShiftsGeneresAutomatiquement(dateDebut, dateFin);
       await insererShifts(resultat.shifts);
       invalidateShifts();
       setAlertes(resultat.alertes);
@@ -319,7 +322,7 @@ export default function CalendrierPopUpScreen() {
         'Planning généré',
         resultat.alertes.length > 0
           ? `${resultat.alertes.length} alerte(s) à vérifier ci-dessous avant validation.`
-          : 'Tous les créneaux ont été couverts.',
+          : 'Tous les horaires d\'ouverture sont couverts.',
       );
     } finally {
       setGenererEnCours(false);
@@ -472,7 +475,7 @@ export default function CalendrierPopUpScreen() {
           <Text style={styles.alertesTitre}>{alertes.length} alerte(s) de la dernière génération</Text>
           {alertes.slice(0, 5).map((a, i) => (
             <Text key={i} style={styles.alertesLigne}>
-              • {libelleAlerte(a)}
+              • {libelleAlerte(a, popUps?.find((p) => p.id === a.pop_up_id)?.nom ?? 'un lieu')}
             </Text>
           ))}
         </View>

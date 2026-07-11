@@ -25,16 +25,6 @@ export interface PopUp {
   est_local: boolean;
 }
 
-export interface Disponibilite {
-  id: string;
-  profile_id: string;
-  date: string;
-  heure_debut: string;
-  heure_fin: string;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface RegleHoraireOuverture {
   id: string;
   pop_up_id: string;
@@ -44,20 +34,17 @@ export interface RegleHoraireOuverture {
   actif: boolean;
 }
 
-export interface RegleEffectifCreneau {
+/** Horaire de travail par défaut d'une personne pour un jour de la semaine donné, à son
+ * pop-up assigné (profile.pop_up_id) : c'est ce que la génération automatique du planning
+ * utilise pour créer ses créneaux, sauf indisponibilité (table conges) ce jour-là. */
+export interface HoraireRecurrentProfil {
   id: string;
-  pop_up_id: string;
+  profile_id: string;
   jour_semaine: number;
   heure_debut: string;
   heure_fin: string;
-  nb_managers_requis: number;
-  nb_employes_requis: number;
-  nb_alternants_requis: number;
-}
-
-export interface RegleGlobale {
-  id: number;
-  heures_max_semaine_defaut: number;
+  actif: boolean;
+  updated_at: string;
 }
 
 export interface PlanningShift {

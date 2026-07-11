@@ -29,7 +29,12 @@ export function MenuLateral() {
     { label: 'Stock', route: estAdmin ? '/(app)/admin/stock' : '/(app)/stock' },
     { label: 'Calendrier', route: estAdmin ? '/(app)/admin/calendrier' : '/(app)/calendrier' },
     { label: 'Profil', route: '/(app)/profil' },
-    ...(estAdmin ? [{ label: 'Pop-up', route: '/(app)/admin/popups' }] : []),
+    ...(estAdmin
+      ? [
+          { label: 'Pop-up', route: '/(app)/admin/popups' },
+          { label: 'Équipe', route: '/(app)/admin/equipe' },
+        ]
+      : []),
   ] as const;
 
   const allerA = (route: string) => {

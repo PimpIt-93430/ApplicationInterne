@@ -11,11 +11,15 @@ export async function fetchShiftsSemaine(dateDebut: string, dateFin: string): Pr
   return data;
 }
 
-export async function supprimerShiftsBrouillon(dateDebut: string, dateFin: string) {
+/** Ne supprime que les brouillons créés par la génération automatique — jamais les créneaux
+ * ajoutés à la main (ex. un admin placé manuellement quelque part) : une nouvelle génération ne
+ * doit jamais effacer un ajout manuel encore en brouillon. */
+export async function supprimerShiftsGeneresAutomatiquement(dateDebut: string, dateFin: string) {
   const { error } = await supabase
     .from('planning_shifts')
     .delete()
     .eq('statut', 'brouillon')
+    .eq('genere_automatiquement', true)
     .gte('date', dateDebut)
     .lte('date', dateFin);
   if (error) throw error;
