@@ -49,6 +49,19 @@ export async function renommerPopUp(id: string, nom: string) {
   if (error) throw error;
 }
 
+/**
+ * Marque `id` comme le local (boutique permanente, prioritaire lors de la génération
+ * automatique du planning) et retire ce statut à tout autre lieu — un seul local à la fois.
+ */
+export async function definirLocal(id: string, estLocal: boolean) {
+  if (estLocal) {
+    const { error: errorReset } = await supabase.from('pop_ups').update({ est_local: false }).neq('id', id);
+    if (errorReset) throw errorReset;
+  }
+  const { error } = await supabase.from('pop_ups').update({ est_local: estLocal }).eq('id', id);
+  if (error) throw error;
+}
+
 export async function supprimerPopUp(id: string) {
   const { error } = await supabase.from('pop_ups').delete().eq('id', id);
   if (error) throw error;

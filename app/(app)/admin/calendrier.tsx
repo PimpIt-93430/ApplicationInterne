@@ -289,7 +289,8 @@ export default function CalendrierPopUpScreen() {
     if (!profile || !toutesEffectifs || !reglesGlobales || !disponibilitesEquipe || !profils) return;
 
     const joursMap = jours.map((j) => ({ date: dateEnISO(j), jour_semaine: jourSemaineISO(j) }));
-    if (construireCreneauxACouvrir(joursMap, toutesEffectifs).length === 0) {
+    const popUpIdsLocal = new Set((popUps ?? []).filter((p) => p.est_local).map((p) => p.id));
+    if (construireCreneauxACouvrir(joursMap, toutesEffectifs, popUpIdsLocal).length === 0) {
       Alert.alert(
         'Aucun effectif requis configuré',
         'Va dans Pop-up → "Voir / modifier les effectifs requis" pour indiquer qui doit être présent et quand, avant de pouvoir générer un planning.',
@@ -308,6 +309,7 @@ export default function CalendrierPopUpScreen() {
         reglesGlobales,
         profiles: profils,
         adminId: profile.id,
+        popUpIdsLocal,
       });
       await supprimerShiftsBrouillon(dateDebut, dateFin);
       await insererShifts(resultat.shifts);

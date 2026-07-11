@@ -69,10 +69,16 @@ const TYPES_A_REMPLIR: { type: TypeContrat; champRequis: ChampEffectifRequis }[]
   { type: 'alternant', champRequis: 'nb_alternants_requis' },
 ];
 
-/** Construit la liste des créneaux à couvrir (tous pop-ups), triés chronologiquement. */
+/**
+ * Construit la liste des créneaux à couvrir (tous pop-ups), triés chronologiquement — sauf que
+ * tous les créneaux du local (`popUpIdsLocal`) passent avant tous les créneaux des pop-ups,
+ * quelle que soit leur date : le local est ainsi toujours servi en premier sur le budget
+ * d'heures et de disponibilités de la semaine, les pop-ups ne récupèrent que ce qui reste.
+ */
 export function construireCreneauxACouvrir(
   jours: JourDeSemaine[],
   reglesEffectifs: RegleEffectifCreneau[],
+  popUpIdsLocal: Set<string> = new Set(),
 ): CreneauACouvrir[] {
   const creneaux: CreneauACouvrir[] = [];
   for (const jour of jours) {
@@ -90,12 +96,16 @@ export function construireCreneauxACouvrir(
       });
     }
   }
-  return creneaux.sort(
-    (a, b) =>
+  return creneaux.sort((a, b) => {
+    const prioriteA = popUpIdsLocal.has(a.pop_up_id) ? 0 : 1;
+    const prioriteB = popUpIdsLocal.has(b.pop_up_id) ? 0 : 1;
+    return (
+      prioriteA - prioriteB ||
       a.date.localeCompare(b.date) ||
       a.heure_debut.localeCompare(b.heure_debut) ||
-      a.pop_up_id.localeCompare(b.pop_up_id),
-  );
+      a.pop_up_id.localeCompare(b.pop_up_id)
+    );
+  });
 }
 
 function estDisponible(disponibilites: Disponibilite[], profileId: string, creneau: CreneauACouvrir): boolean {
@@ -131,8 +141,8 @@ function seChevauchent(aDebut: string, aFin: string, bDebut: string, bFin: strin
 }
 
 /**
- * Algorithme glouton multi pop-up : pour chaque créneau (chronologique), remplit
- * manager -> employé -> alternant en équilibrant les heures déjà assignées cette semaine
+ * Algorithme glouton multi pop-up : pour chaque créneau (le local d'abord, puis chronologique),
+ * remplit manager -> employé -> alternant en équilibrant les heures déjà assignées cette semaine
  * (tous pop-ups confondus), dans la limite du plafond hebdomadaire, en excluant congés,
  * jours d'école des alternants, et tout chevauchement avec un shift déjà assigné ailleurs
  * ce jour-là (un profil ne peut jamais être sur deux pop-ups en même temps).
@@ -146,11 +156,21 @@ export function genererPlanning(params: {
   reglesGlobales: RegleGlobale;
   profiles: Profile[];
   adminId: string;
+  popUpIdsLocal?: Set<string>;
 }): ResultatGeneration {
-  const { jours, disponibilites, conges, joursEcole, reglesEffectifs, reglesGlobales, profiles, adminId } =
-    params;
+  const {
+    jours,
+    disponibilites,
+    conges,
+    joursEcole,
+    reglesEffectifs,
+    reglesGlobales,
+    profiles,
+    adminId,
+    popUpIdsLocal,
+  } = params;
 
-  const creneaux = construireCreneauxACouvrir(jours, reglesEffectifs);
+  const creneaux = construireCreneauxACouvrir(jours, reglesEffectifs, popUpIdsLocal);
   const profilsActifs = new Map(profiles.filter((p) => p.actif).map((p) => [p.id, p]));
   const minutesAssignees = new Map<string, number>();
   const creneauxAssignesParProfil = new Map<string, { date: string; heure_debut: string; heure_fin: string }[]>();

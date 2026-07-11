@@ -22,6 +22,7 @@ export interface PopUp {
   nom: string;
   couleur: string;
   actif: boolean;
+  est_local: boolean;
 }
 
 export interface Disponibilite {

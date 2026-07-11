@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
 import { EffectifsJourCard } from '@/components/reglages/EffectifsJourCard';
 import { JourReglageCard } from '@/components/reglages/JourReglageCard';
-import { useCreerPopUp, usePopUps, useRenommerPopUp, useSupprimerPopUp } from '@/hooks/usePopUps';
+import { useCreerPopUp, useDefinirLocal, usePopUps, useRenommerPopUp, useSupprimerPopUp } from '@/hooks/usePopUps';
 import { useActiveProfiles, useAssignerPopUp } from '@/hooks/useProfiles';
 import {
   useEffectifsCreneaux,
@@ -38,6 +38,7 @@ function CartePopUp({ popUp, profils }: { popUp: PopUp; profils: Profile[] }) {
   const assigner = useAssignerPopUp();
   const renommer = useRenommerPopUp();
   const supprimer = useSupprimerPopUp();
+  const definirLocal = useDefinirLocal();
 
   const handleSupprimer = () => {
     Alert.alert(
@@ -82,6 +83,19 @@ function CartePopUp({ popUp, profils }: { popUp: PopUp; profils: Profile[] }) {
         <Pressable onPress={handleSupprimer} className="px-2 py-1">
           <Text className="text-sm text-red-400">Supprimer</Text>
         </Pressable>
+      </View>
+
+      <View className="mb-3 flex-row items-center justify-between rounded-xl bg-slate-50 px-3 py-2.5">
+        <View className="flex-1 pr-2">
+          <Text className="text-sm font-semibold text-slate-700">C'est le local</Text>
+          <Text className="text-xs text-slate-400">
+            Boutique permanente : prioritaire sur les pop-ups quand la génération manque de monde.
+          </Text>
+        </View>
+        <Switch
+          value={popUp.est_local}
+          onValueChange={(valeur) => definirLocal.mutate({ id: popUp.id, estLocal: valeur })}
+        />
       </View>
 
       <Text className="mb-1 text-xs font-semibold uppercase text-slate-400">Effectifs</Text>
