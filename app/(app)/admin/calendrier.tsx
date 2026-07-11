@@ -19,7 +19,7 @@ import { AxeHeures } from '@/components/calendrier/AxeHeures';
 import { PanneauIndisponibilites } from '@/components/calendrier/PanneauIndisponibilites';
 import { TimelineJour } from '@/components/calendrier/TimelineJour';
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
-import { genererPlanning, type Alerte } from '@/domain/generationPlanning';
+import { genererPlanning } from '@/domain/generationPlanning';
 import { useCongesPeriode } from '@/hooks/useConges';
 import { useJoursEcolePeriode } from '@/hooks/useAlternance';
 import { useTousHorairesRecurrents } from '@/hooks/useHorairesRecurrents';
@@ -30,16 +30,11 @@ import { useHorairesOuverture, useToutesHorairesOuverture } from '@/hooks/useReg
 import { useAuthStore } from '@/store/useAuthStore';
 import { useSemaineStore } from '@/store/useSemaineStore';
 import { construireMapAffectations, estAttribueA } from '@/utils/affectations';
-import { dateEnISO, formatHeure, joursDeLaSemaine, jourSemaineISO, libelleJourCourt } from '@/utils/dateUtils';
+import { dateEnISO, joursDeLaSemaine, jourSemaineISO, libelleJourCourt } from '@/utils/dateUtils';
 import type { PlanningShift, Profile } from '@/types/database.types';
 
 function formatHeureAffichee(date: Date): string {
   return date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-}
-
-function libelleAlerte(a: Alerte, popUpNom: string): string {
-  const creneau = `${formatHeure(a.heure_debut)}-${formatHeure(a.heure_fin)}`;
-  return `Personne à ${popUpNom} le ${a.date} (${creneau})`;
 }
 
 type ModeCreneau = 'matin' | 'apres-midi' | 'journee' | 'personnalise';
@@ -82,10 +77,7 @@ export default function CalendrierPopUpScreen() {
   const { data: joursEcole } = useJoursEcolePeriode(dateDebut, dateFin);
   const { data: horairesRecurrents } = useTousHorairesRecurrents();
 
-  const [genererEnCours, setGenererEnCours] = useState(false);
-  const [validationEnCours, setValidationEnCours] = useState(false);
   const [publicationEnCours, setPublicationEnCours] = useState(false);
-  const [alertes, setAlertes] = useState<Alerte[]>([]);
   const [dropdownOuvert, setDropdownOuvert] = useState(false);
 
   // Ajout d'une personne sur un jour
@@ -293,53 +285,28 @@ export default function CalendrierPopUpScreen() {
   // Remplit automatiquement la semaine à partir de l'horaire récurrent de chaque personne (hors
   // admins, toujours gérés à la main) — cf. genererPlanning. L'admin peut ensuite encore
   // ajouter/retirer des personnes à la main sur les créneaux avant de valider et publier.
-  // `silencieux` : utilisé pour les régénérations automatiques (ouverture d'écran, changement
-  // d'indisponibilité...) — pas de popup de confirmation, juste une mise à jour discrète.
-  const handleGenerer = async (options?: { silencieux?: boolean }) => {
-    const silencieux = options?.silencieux ?? false;
+  // Toujours silencieux : plus aucun bouton ne déclenche cette fonction manuellement, elle ne
+  // tourne qu'en arrière-plan (montage de l'écran + abonnement temps réel ci-dessous).
+  const handleGenerer = async () => {
     if (!profile || !profils || !toutesHorairesOuverture) return;
-
-    if ((horairesRecurrents ?? []).filter((h) => h.actif).length === 0) {
-      if (!silencieux) {
-        Alert.alert(
-          'Aucun horaire récurrent configuré',
-          "Va dans Équipe pour indiquer l'horaire habituel de chaque personne, avant de pouvoir générer un planning.",
-        );
-      }
-      return;
-    }
+    if ((horairesRecurrents ?? []).filter((h) => h.actif).length === 0) return;
 
     const joursMap = jours.map((j) => ({ date: dateEnISO(j), jour_semaine: jourSemaineISO(j) }));
-
-    setGenererEnCours(true);
-    try {
-      const shiftsExistants = (shifts ?? []).filter((s) => !(s.statut === 'brouillon' && s.genere_automatiquement));
-      const resultat = genererPlanning({
-        jours: joursMap,
-        profiles: profils,
-        horairesRecurrents: horairesRecurrents ?? [],
-        horairesOuverture: toutesHorairesOuverture,
-        conges: conges ?? [],
-        joursEcole: joursEcole ?? [],
-        shiftsExistants,
-        mapAffectations,
-        adminId: profile.id,
-      });
-      await supprimerShiftsGeneresAutomatiquement(dateDebut, dateFin);
-      await insererShifts(resultat.shifts);
-      invalidateShifts();
-      setAlertes(resultat.alertes);
-      if (!silencieux) {
-        Alert.alert(
-          'Planning généré',
-          resultat.alertes.length > 0
-            ? `${resultat.alertes.length} alerte(s) à vérifier ci-dessous avant validation.`
-            : 'Tous les horaires d\'ouverture sont couverts.',
-        );
-      }
-    } finally {
-      setGenererEnCours(false);
-    }
+    const shiftsExistants = (shifts ?? []).filter((s) => !(s.statut === 'brouillon' && s.genere_automatiquement));
+    const resultat = genererPlanning({
+      jours: joursMap,
+      profiles: profils,
+      horairesRecurrents: horairesRecurrents ?? [],
+      horairesOuverture: toutesHorairesOuverture,
+      conges: conges ?? [],
+      joursEcole: joursEcole ?? [],
+      shiftsExistants,
+      mapAffectations,
+      adminId: profile.id,
+    });
+    await supprimerShiftsGeneresAutomatiquement(dateDebut, dateFin);
+    await insererShifts(resultat.shifts);
+    invalidateShifts();
   };
 
   // Toujours à jour, contrairement à `handleGenerer` capturé au moment où l'effet ci-dessous
@@ -351,7 +318,7 @@ export default function CalendrierPopUpScreen() {
   // sont chargées — pas besoin d'appuyer sur "Générer" en arrivant sur l'écran.
   useEffect(() => {
     if (chargement) return;
-    handleGenererRef.current({ silencieux: true });
+    handleGenererRef.current();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateDebut, dateFin, chargement]);
 
@@ -363,7 +330,7 @@ export default function CalendrierPopUpScreen() {
     let delai: ReturnType<typeof setTimeout> | null = null;
     const regenererAvecAntiRebond = () => {
       if (delai) clearTimeout(delai);
-      delai = setTimeout(() => handleGenererRef.current({ silencieux: true }), 800);
+      delai = setTimeout(() => handleGenererRef.current(), 800);
     };
 
     const channel = supabase
@@ -387,22 +354,16 @@ export default function CalendrierPopUpScreen() {
     };
   }, [dateDebut, dateFin]);
 
-  const handleValider = async () => {
-    setValidationEnCours(true);
-    try {
-      await validerShiftsSemaine(dateDebut, dateFin);
-      invalidateShifts();
-    } finally {
-      setValidationEnCours(false);
-    }
-  };
-
+  // Valide puis publie en un seul geste (plus d'étape intermédiaire manuelle) : verrouille les
+  // brouillons actuels contre la régénération automatique, les rend visibles à l'équipe et
+  // notifie tout le monde.
   const handlePublier = async () => {
     setPublicationEnCours(true);
     try {
       const profileIdsConcernes = Array.from(
         new Set((shifts ?? []).filter((s) => s.pop_up_id === popUpId).map((s) => s.profile_id)),
       );
+      await validerShiftsSemaine(dateDebut, dateFin);
       await publierShiftsSemaine(dateDebut, dateFin);
       await creerNotifications(
         profileIdsConcernes.map((profileId) => ({
@@ -509,20 +470,6 @@ export default function CalendrierPopUpScreen() {
 
       <View style={styles.rangeeActions}>
         <Pressable
-          onPress={() => handleGenerer()}
-          disabled={genererEnCours}
-          style={[styles.boutonAction, styles.boutonGenerer]}
-        >
-          <Text style={styles.boutonActionTexte}>{genererEnCours ? '...' : 'Régénérer'}</Text>
-        </Pressable>
-        <Pressable
-          onPress={handleValider}
-          disabled={validationEnCours}
-          style={[styles.boutonAction, styles.boutonValiderSemaine]}
-        >
-          <Text style={styles.boutonActionTexte}>{validationEnCours ? '...' : 'Valider'}</Text>
-        </Pressable>
-        <Pressable
           onPress={handlePublier}
           disabled={publicationEnCours}
           style={[styles.boutonAction, styles.boutonPublierSemaine]}
@@ -530,21 +477,6 @@ export default function CalendrierPopUpScreen() {
           <Text style={styles.boutonActionTexte}>{publicationEnCours ? '...' : 'Publier'}</Text>
         </Pressable>
       </View>
-      <Text style={styles.texteAuto}>
-        Le planning se met à jour automatiquement dès qu'une indisponibilité change — inutile
-        d'appuyer sur "Régénérer" sauf pour forcer une actualisation immédiate.
-      </Text>
-
-      {alertes.length > 0 && (
-        <View style={styles.alertesZone}>
-          <Text style={styles.alertesTitre}>{alertes.length} alerte(s) de la dernière génération</Text>
-          {alertes.slice(0, 5).map((a, i) => (
-            <Text key={i} style={styles.alertesLigne}>
-              • {libelleAlerte(a, popUps?.find((p) => p.id === a.pop_up_id)?.nom ?? 'un lieu')}
-            </Text>
-          ))}
-        </View>
-      )}
 
       <ScrollView contentContainerStyle={{ paddingBottom: 16 }}>
         <View style={{ flexDirection: 'row', paddingHorizontal: 12 }}>
@@ -774,21 +706,7 @@ const styles = StyleSheet.create({
   rangeeActions: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingBottom: 8 },
   boutonAction: { flex: 1, alignItems: 'center', borderRadius: 10, paddingVertical: 10 },
   boutonActionTexte: { fontSize: 13, fontWeight: '600', color: 'white' },
-  boutonGenerer: { backgroundColor: '#4F46E5' },
-  boutonValiderSemaine: { backgroundColor: '#D97706' },
   boutonPublierSemaine: { backgroundColor: '#059669' },
-  texteAuto: { marginHorizontal: 16, marginBottom: 8, fontSize: 11, color: '#94A3B8' },
-  alertesZone: {
-    marginHorizontal: 16,
-    marginBottom: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#FCD34D',
-    backgroundColor: '#FFFBEB',
-    padding: 10,
-  },
-  alertesTitre: { marginBottom: 4, fontSize: 11, fontWeight: '600', color: '#B45309' },
-  alertesLigne: { fontSize: 11, color: '#B45309' },
   fond: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
   feuille: { borderTopLeftRadius: 24, borderTopRightRadius: 24, backgroundColor: 'white', padding: 20, paddingBottom: 32 },
   poignee: { marginBottom: 16, height: 6, width: 48, alignSelf: 'center', borderRadius: 3, backgroundColor: '#E2E8F0' },
