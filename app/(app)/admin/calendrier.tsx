@@ -7,25 +7,40 @@ import { createElement, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { creerNotifications } from '@/api/notifications';
-import { insererShifts, publierShiftsSemaine, supprimerShift, validerShiftsSemaine } from '@/api/planning';
+import {
+  insererShifts,
+  publierShiftsSemaine,
+  supprimerShift,
+  supprimerShiftsBrouillon,
+  validerShiftsSemaine,
+} from '@/api/planning';
 import { AxeHeures } from '@/components/calendrier/AxeHeures';
 import { PanneauIndisponibilites } from '@/components/calendrier/PanneauIndisponibilites';
 import { TimelineJour } from '@/components/calendrier/TimelineJour';
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
+import { genererPlanning, type Alerte } from '@/domain/generationPlanning';
 import { useCongesPeriode } from '@/hooks/useConges';
 import { useJoursEcolePeriode } from '@/hooks/useAlternance';
 import { useDisponibilitesEquipeSemaine } from '@/hooks/useDisponibilites';
 import { useShiftsSemaine } from '@/hooks/usePlanning';
 import { usePopUps } from '@/hooks/usePopUps';
 import { useActiveProfiles } from '@/hooks/useProfiles';
-import { useHorairesOuverture } from '@/hooks/useReglesMetier';
+import { useHorairesOuverture, useReglesGlobales, useToutesEffectifsCreneaux } from '@/hooks/useReglesMetier';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useSemaineStore } from '@/store/useSemaineStore';
-import { dateEnISO, joursDeLaSemaine, jourSemaineISO, libelleJourCourt } from '@/utils/dateUtils';
+import { dateEnISO, formatHeure, joursDeLaSemaine, jourSemaineISO, libelleJourCourt } from '@/utils/dateUtils';
 import type { PlanningShift, Profile } from '@/types/database.types';
 
 function formatHeureAffichee(date: Date): string {
   return date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function libelleAlerte(a: Alerte): string {
+  const creneau = `${formatHeure(a.heure_debut)}-${formatHeure(a.heure_fin)}`;
+  if (a.type === 'manager_absent') {
+    return `Aucun manager le ${a.date} (${creneau})`;
+  }
+  return `${a.manquants} ${a.type_contrat}(s) manquant(s) le ${a.date} (${creneau})`;
 }
 
 type ModeCreneau = 'matin' | 'apres-midi' | 'journee' | 'personnalise';
@@ -64,8 +79,13 @@ export default function CalendrierPopUpScreen() {
   const { data: conges } = useCongesPeriode(dateDebut, dateFin);
   const { data: joursEcole } = useJoursEcolePeriode(dateDebut, dateFin);
   const { data: disponibilitesEquipe } = useDisponibilitesEquipeSemaine(dateDebut, dateFin);
+  const { data: toutesEffectifs } = useToutesEffectifsCreneaux();
+  const { data: reglesGlobales } = useReglesGlobales();
 
+  const [genererEnCours, setGenererEnCours] = useState(false);
+  const [validationEnCours, setValidationEnCours] = useState(false);
   const [publicationEnCours, setPublicationEnCours] = useState(false);
+  const [alertes, setAlertes] = useState<Alerte[]>([]);
   const [dropdownOuvert, setDropdownOuvert] = useState(false);
 
   // Ajout d'une personne sur un jour
@@ -262,13 +282,55 @@ export default function CalendrierPopUpScreen() {
     );
   };
 
+  // Remplit automatiquement la semaine (tous pop-ups confondus, cf. genererPlanning) selon les
+  // règles d'effectifs, disponibilités, congés et jours d'école — l'admin peut ensuite encore
+  // ajouter/retirer des personnes à la main sur les créneaux avant de valider et publier.
+  const handleGenerer = async () => {
+    if (!profile || !toutesEffectifs || !reglesGlobales || !disponibilitesEquipe || !profils) return;
+    setGenererEnCours(true);
+    try {
+      const joursMap = jours.map((j) => ({ date: dateEnISO(j), jour_semaine: jourSemaineISO(j) }));
+      const resultat = genererPlanning({
+        jours: joursMap,
+        disponibilites: disponibilitesEquipe,
+        conges: conges ?? [],
+        joursEcole: joursEcole ?? [],
+        reglesEffectifs: toutesEffectifs,
+        reglesGlobales,
+        profiles: profils,
+        adminId: profile.id,
+      });
+      await supprimerShiftsBrouillon(dateDebut, dateFin);
+      await insererShifts(resultat.shifts);
+      invalidateShifts();
+      setAlertes(resultat.alertes);
+      Alert.alert(
+        'Planning généré',
+        resultat.alertes.length > 0
+          ? `${resultat.alertes.length} alerte(s) à vérifier ci-dessous avant validation.`
+          : 'Tous les créneaux ont été couverts.',
+      );
+    } finally {
+      setGenererEnCours(false);
+    }
+  };
+
+  const handleValider = async () => {
+    setValidationEnCours(true);
+    try {
+      await validerShiftsSemaine(dateDebut, dateFin);
+      invalidateShifts();
+    } finally {
+      setValidationEnCours(false);
+    }
+  };
+
   const handlePublier = async () => {
     setPublicationEnCours(true);
     try {
       const profileIdsConcernes = Array.from(
         new Set((shifts ?? []).filter((s) => s.pop_up_id === popUpId).map((s) => s.profile_id)),
       );
-      await validerShiftsSemaine(dateDebut, dateFin);
       await publierShiftsSemaine(dateDebut, dateFin);
       await creerNotifications(
         profileIdsConcernes.map((profileId) => ({
@@ -368,10 +430,42 @@ export default function CalendrierPopUpScreen() {
         <Pressable onPress={semaineSuivante} style={styles.navBouton}>
           <Text style={styles.navFleche}>›</Text>
         </Pressable>
-        <Pressable onPress={handlePublier} disabled={publicationEnCours} style={styles.boutonPublierPetit}>
-          <Text style={styles.boutonPublierPetitTexte}>{publicationEnCours ? '...' : 'Publier'}</Text>
+      </View>
+
+      <View style={styles.rangeeActions}>
+        <Pressable
+          onPress={handleGenerer}
+          disabled={genererEnCours}
+          style={[styles.boutonAction, styles.boutonGenerer]}
+        >
+          <Text style={styles.boutonActionTexte}>{genererEnCours ? '...' : 'Générer'}</Text>
+        </Pressable>
+        <Pressable
+          onPress={handleValider}
+          disabled={validationEnCours}
+          style={[styles.boutonAction, styles.boutonValiderSemaine]}
+        >
+          <Text style={styles.boutonActionTexte}>{validationEnCours ? '...' : 'Valider'}</Text>
+        </Pressable>
+        <Pressable
+          onPress={handlePublier}
+          disabled={publicationEnCours}
+          style={[styles.boutonAction, styles.boutonPublierSemaine]}
+        >
+          <Text style={styles.boutonActionTexte}>{publicationEnCours ? '...' : 'Publier'}</Text>
         </Pressable>
       </View>
+
+      {alertes.length > 0 && (
+        <View style={styles.alertesZone}>
+          <Text style={styles.alertesTitre}>{alertes.length} alerte(s) de la dernière génération</Text>
+          {alertes.slice(0, 5).map((a, i) => (
+            <Text key={i} style={styles.alertesLigne}>
+              • {libelleAlerte(a)}
+            </Text>
+          ))}
+        </View>
+      )}
 
       <ScrollView contentContainerStyle={{ paddingBottom: 16 }}>
         <View style={{ flexDirection: 'row', paddingHorizontal: 12 }}>
@@ -598,14 +692,23 @@ const styles = StyleSheet.create({
   navBouton: { paddingHorizontal: 8, paddingVertical: 6 },
   navFleche: { fontSize: 18, color: '#6366F1' },
   navTexte: { fontSize: 13, fontWeight: '600', color: '#1E293B' },
-  boutonPublierPetit: {
-    marginLeft: 'auto',
-    borderRadius: 10,
-    backgroundColor: '#059669',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+  rangeeActions: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingBottom: 8 },
+  boutonAction: { flex: 1, alignItems: 'center', borderRadius: 10, paddingVertical: 10 },
+  boutonActionTexte: { fontSize: 13, fontWeight: '600', color: 'white' },
+  boutonGenerer: { backgroundColor: '#4F46E5' },
+  boutonValiderSemaine: { backgroundColor: '#D97706' },
+  boutonPublierSemaine: { backgroundColor: '#059669' },
+  alertesZone: {
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+    backgroundColor: '#FFFBEB',
+    padding: 10,
   },
-  boutonPublierPetitTexte: { fontSize: 13, fontWeight: '600', color: 'white' },
+  alertesTitre: { marginBottom: 4, fontSize: 11, fontWeight: '600', color: '#B45309' },
+  alertesLigne: { fontSize: 11, color: '#B45309' },
   fond: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
   feuille: { borderTopLeftRadius: 24, borderTopRightRadius: 24, backgroundColor: 'white', padding: 20, paddingBottom: 32 },
   poignee: { marginBottom: 16, height: 6, width: 48, alignSelf: 'center', borderRadius: 3, backgroundColor: '#E2E8F0' },
