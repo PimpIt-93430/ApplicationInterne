@@ -49,8 +49,13 @@ function CarteMembre({ profil, lieuxAttribues }: { profil: Profile; lieuxAttribu
       </View>
       <Text className="mb-3 text-sm text-slate-400">
         {LIBELLE_TYPE_CONTRAT[profil.type_contrat] ?? profil.type_contrat}
+        {profil.role === 'admin' ? ' · Admin' : ''}
         {' · '}
-        {lieuxAttribues.length > 0 ? lieuxAttribues.map((p) => p.nom).join(', ') : 'Aucun lieu attribué'}
+        {profil.role === 'admin'
+          ? 'Attribué à tous les lieux'
+          : lieuxAttribues.length > 0
+            ? lieuxAttribues.map((p) => p.nom).join(', ')
+            : 'Aucun lieu attribué'}
       </Text>
 
       <Pressable onPress={() => setOuvert((v) => !v)} className="mb-2">
@@ -64,7 +69,9 @@ function CarteMembre({ profil, lieuxAttribues }: { profil: Profile; lieuxAttribu
           <Text className="mb-2 text-xs text-slate-400">
             L'horaire habituel de {profil.nom_complet || 'cette personne'} : la génération
             automatique du planning s'en sert chaque semaine, sauf indisponibilité déclarée.
-            Seuls les lieux attribués (dans Pop-up) sont proposés ci-dessous.
+            {profil.role === 'admin'
+              ? ' En tant qu\'admin, tous les lieux sont proposés ci-dessous.'
+              : ' Seuls les lieux attribués (dans Pop-up) sont proposés ci-dessous.'}
           </Text>
 
           {lieuxAttribues.length === 0 && (
@@ -117,7 +124,7 @@ export default function EquipeScreen() {
   const { data: affectations, isLoading: chargementAffectations } = useAffectationsPopUp();
 
   const mapAffectations = construireMapAffectations(affectations ?? []);
-  const membres = (profils ?? []).filter((p) => p.role !== 'admin');
+  const membres = profils ?? [];
 
   if (chargementProfils || chargementPopUps || chargementAffectations) {
     return (
@@ -132,14 +139,13 @@ export default function EquipeScreen() {
       <EnteteMenu titre="Équipe" />
       <ScrollView className="flex-1" contentContainerStyle={{ padding: 16 }}>
         <Text className="mb-4 text-sm text-slate-400">
-          Les admins décident toujours manuellement de leur planning et sont considérés
-          attribués à tous les lieux. Pour tout le monde d'autre, l'horaire récurrent
-          ci-dessous (à l'un de ses lieux attribués) pilote la génération automatique.
+          L'horaire récurrent de chaque personne pilote la génération automatique du planning.
+          Les admins sont attribués à tous les lieux par défaut (au local de 10h à 19h du lundi
+          au samedi), mais peuvent toujours être placés à la main sur un pop-up un jour donné —
+          ça prend le pas sur leur horaire par défaut ce jour-là.
         </Text>
 
-        {membres.length === 0 && (
-          <Text className="text-sm text-slate-400">Aucun membre (hors admins) pour l'instant.</Text>
-        )}
+        {membres.length === 0 && <Text className="text-sm text-slate-400">Aucun membre pour l'instant.</Text>}
 
         {membres.map((profil) => (
           <CarteMembre

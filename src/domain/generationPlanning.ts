@@ -94,13 +94,15 @@ function trouverTrousCouverture(ouverture: string, fermeture: string, intervalle
 }
 
 /**
- * Génère le planning de la semaine à partir de l'horaire récurrent de chaque personne (hors
- * admins, toujours gérés à la main) : pour chaque jour où son horaire habituel est actif, un
- * créneau est créé au lieu qu'il précise, sauf si elle a déclaré une indisponibilité ce jour-là,
- * si c'est un jour d'école pour un alternant, si elle n'est plus attribuée à ce lieu (retirée
- * depuis que l'horaire a été fixé), ou si un créneau lui est déjà attribué (généré plus tôt
- * dans cette même génération, ou déjà présent — ex. un admin placé à la main ailleurs ce
- * jour-là, qu'on ne veut pas doubler). Signale ensuite les horaires d'ouverture non couverts.
+ * Génère le planning de la semaine à partir de l'horaire récurrent de chaque personne — y
+ * compris les admins (par défaut au local, éditable comme n'importe qui dans Équipe) : pour
+ * chaque jour où son horaire habituel est actif, un créneau est créé au lieu qu'il précise, sauf
+ * si elle a déclaré une indisponibilité ce jour-là, si c'est un jour d'école pour un alternant,
+ * si elle n'est plus attribuée à ce lieu (retirée depuis que l'horaire a été fixé — les admins
+ * sont toujours considérés attribués à tous les lieux), ou si un créneau lui est déjà attribué
+ * (généré plus tôt dans cette même génération, ou déjà présent — ex. un admin placé à la main
+ * sur un pop-up ce jour-là, qui prend le pas sur son horaire par défaut au local et qu'on ne
+ * veut pas doubler). Signale ensuite les horaires d'ouverture non couverts.
  */
 export function genererPlanning(params: {
   jours: JourDeSemaine[];
@@ -125,7 +127,7 @@ export function genererPlanning(params: {
     adminId,
   } = params;
 
-  const profilsEligibles = profiles.filter((p) => p.actif && p.role !== 'admin');
+  const profilsEligibles = profiles.filter((p) => p.actif);
   const shifts: ShiftGenere[] = [];
   const alertes: Alerte[] = [];
 
@@ -135,7 +137,8 @@ export function genererPlanning(params: {
         (h) => h.profile_id === profil.id && h.jour_semaine === jour.jour_semaine && h.actif,
       );
       if (!horaire) continue;
-      if (!mapAffectations.get(profil.id)?.has(horaire.pop_up_id)) continue;
+      // Un admin est toujours considéré attribué à tous les lieux (cf. estAttribueA côté écrans).
+      if (profil.role !== 'admin' && !mapAffectations.get(profil.id)?.has(horaire.pop_up_id)) continue;
       if (estEnConge(conges, profil.id, jour.date, horaire.heure_debut, horaire.heure_fin)) continue;
       if (profil.type_contrat === 'alternant' && estJourEcole(joursEcole, profil.id, jour.date)) continue;
 
