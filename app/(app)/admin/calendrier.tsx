@@ -3,7 +3,7 @@
 // sélecteur de date/heure natif sur l'écran Indisponibilités, ici utilisé aussi.
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useQueryClient } from '@tanstack/react-query';
-import { createElement, useEffect, useState } from 'react';
+import { createElement, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { creerNotifications } from '@/api/notifications';
@@ -14,6 +14,7 @@ import {
   supprimerShiftsGeneresAutomatiquement,
   validerShiftsSemaine,
 } from '@/api/planning';
+import { supabase } from '@/api/supabaseClient';
 import { AxeHeures } from '@/components/calendrier/AxeHeures';
 import { PanneauIndisponibilites } from '@/components/calendrier/PanneauIndisponibilites';
 import { TimelineJour } from '@/components/calendrier/TimelineJour';
@@ -292,14 +293,19 @@ export default function CalendrierPopUpScreen() {
   // Remplit automatiquement la semaine à partir de l'horaire récurrent de chaque personne (hors
   // admins, toujours gérés à la main) — cf. genererPlanning. L'admin peut ensuite encore
   // ajouter/retirer des personnes à la main sur les créneaux avant de valider et publier.
-  const handleGenerer = async () => {
+  // `silencieux` : utilisé pour les régénérations automatiques (ouverture d'écran, changement
+  // d'indisponibilité...) — pas de popup de confirmation, juste une mise à jour discrète.
+  const handleGenerer = async (options?: { silencieux?: boolean }) => {
+    const silencieux = options?.silencieux ?? false;
     if (!profile || !profils || !toutesHorairesOuverture) return;
 
     if ((horairesRecurrents ?? []).filter((h) => h.actif).length === 0) {
-      Alert.alert(
-        'Aucun horaire récurrent configuré',
-        "Va dans Équipe pour indiquer l'horaire habituel de chaque personne, avant de pouvoir générer un planning.",
-      );
+      if (!silencieux) {
+        Alert.alert(
+          'Aucun horaire récurrent configuré',
+          "Va dans Équipe pour indiquer l'horaire habituel de chaque personne, avant de pouvoir générer un planning.",
+        );
+      }
       return;
     }
 
@@ -323,16 +329,63 @@ export default function CalendrierPopUpScreen() {
       await insererShifts(resultat.shifts);
       invalidateShifts();
       setAlertes(resultat.alertes);
-      Alert.alert(
-        'Planning généré',
-        resultat.alertes.length > 0
-          ? `${resultat.alertes.length} alerte(s) à vérifier ci-dessous avant validation.`
-          : 'Tous les horaires d\'ouverture sont couverts.',
-      );
+      if (!silencieux) {
+        Alert.alert(
+          'Planning généré',
+          resultat.alertes.length > 0
+            ? `${resultat.alertes.length} alerte(s) à vérifier ci-dessous avant validation.`
+            : 'Tous les horaires d\'ouverture sont couverts.',
+        );
+      }
     } finally {
       setGenererEnCours(false);
     }
   };
+
+  // Toujours à jour, contrairement à `handleGenerer` capturé au moment où l'effet ci-dessous
+  // s'est monté : les abonnements réagissent à un événement arrivé n'importe quand plus tard.
+  const handleGenererRef = useRef(handleGenerer);
+  handleGenererRef.current = handleGenerer;
+
+  // Régénère une première fois (silencieusement) dès que les données de la semaine affichée
+  // sont chargées — pas besoin d'appuyer sur "Générer" en arrivant sur l'écran.
+  useEffect(() => {
+    if (chargement) return;
+    handleGenererRef.current({ silencieux: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateDebut, dateFin, chargement]);
+
+  // Puis re-régénère automatiquement (silencieusement, avec un léger anti-rebond) à chaque fois
+  // qu'une indisponibilité, un horaire récurrent ou un jour d'école change — tant que cet écran
+  // reste ouvert. Ne touche jamais les créneaux déjà validés/publiés ni les ajouts manuels
+  // (cf. supprimerShiftsGeneresAutomatiquement), donc sans risque d'écraser un ajustement.
+  useEffect(() => {
+    let delai: ReturnType<typeof setTimeout> | null = null;
+    const regenererAvecAntiRebond = () => {
+      if (delai) clearTimeout(delai);
+      delai = setTimeout(() => handleGenererRef.current({ silencieux: true }), 800);
+    };
+
+    const channel = supabase
+      .channel(`auto-generation-planning-${dateDebut}-${dateFin}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'conges' }, regenererAvecAntiRebond)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'horaires_recurrents_profil' },
+        regenererAvecAntiRebond,
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'jours_ecole_alternant' },
+        regenererAvecAntiRebond,
+      )
+      .subscribe();
+
+    return () => {
+      if (delai) clearTimeout(delai);
+      supabase.removeChannel(channel);
+    };
+  }, [dateDebut, dateFin]);
 
   const handleValider = async () => {
     setValidationEnCours(true);
@@ -456,11 +509,11 @@ export default function CalendrierPopUpScreen() {
 
       <View style={styles.rangeeActions}>
         <Pressable
-          onPress={handleGenerer}
+          onPress={() => handleGenerer()}
           disabled={genererEnCours}
           style={[styles.boutonAction, styles.boutonGenerer]}
         >
-          <Text style={styles.boutonActionTexte}>{genererEnCours ? '...' : 'Générer'}</Text>
+          <Text style={styles.boutonActionTexte}>{genererEnCours ? '...' : 'Régénérer'}</Text>
         </Pressable>
         <Pressable
           onPress={handleValider}
@@ -477,6 +530,10 @@ export default function CalendrierPopUpScreen() {
           <Text style={styles.boutonActionTexte}>{publicationEnCours ? '...' : 'Publier'}</Text>
         </Pressable>
       </View>
+      <Text style={styles.texteAuto}>
+        Le planning se met à jour automatiquement dès qu'une indisponibilité change — inutile
+        d'appuyer sur "Régénérer" sauf pour forcer une actualisation immédiate.
+      </Text>
 
       {alertes.length > 0 && (
         <View style={styles.alertesZone}>
@@ -720,6 +777,7 @@ const styles = StyleSheet.create({
   boutonGenerer: { backgroundColor: '#4F46E5' },
   boutonValiderSemaine: { backgroundColor: '#D97706' },
   boutonPublierSemaine: { backgroundColor: '#059669' },
+  texteAuto: { marginHorizontal: 16, marginBottom: 8, fontSize: 11, color: '#94A3B8' },
   alertesZone: {
     marginHorizontal: 16,
     marginBottom: 8,
