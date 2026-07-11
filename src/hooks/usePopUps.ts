@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Alert } from 'react-native';
 
 import { creerPopUp, definirLocal, fetchPopUps, renommerPopUp, supprimerPopUp } from '@/api/popUps';
 
@@ -30,6 +31,7 @@ export function useDefinirLocal() {
   return useMutation({
     mutationFn: (params: { id: string; estLocal: boolean }) => definirLocal(params.id, params.estLocal),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['pop-ups'] }),
+    onError: (error: Error) => Alert.alert('Échec de l\'enregistrement', error.message),
   });
 }
 
