@@ -2,15 +2,23 @@ import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
+import { EffectifsJourCard } from '@/components/reglages/EffectifsJourCard';
 import { JourReglageCard } from '@/components/reglages/JourReglageCard';
 import { useCreerPopUp, usePopUps, useRenommerPopUp, useSupprimerPopUp } from '@/hooks/usePopUps';
 import { useActiveProfiles, useAssignerPopUp } from '@/hooks/useProfiles';
-import { useEnregistrerHoraireOuverture, useHorairesOuverture } from '@/hooks/useReglesMetier';
+import {
+  useEffectifsCreneaux,
+  useEnregistrerEffectifCreneau,
+  useEnregistrerHoraireOuverture,
+  useHorairesOuverture,
+  useSupprimerEffectifCreneau,
+} from '@/hooks/useReglesMetier';
 import { JOURS_LABELS } from '@/utils/dateUtils';
 import type { PopUp, Profile } from '@/types/database.types';
 
 function CartePopUp({ popUp, profils }: { popUp: PopUp; profils: Profile[] }) {
   const [horairesOuverts, setHorairesOuverts] = useState(false);
+  const [effectifsOuverts, setEffectifsOuverts] = useState(false);
   const [ajoutMembreOuvert, setAjoutMembreOuvert] = useState(false);
   const [editionNom, setEditionNom] = useState(false);
   const [nom, setNom] = useState(popUp.nom);
@@ -19,9 +27,14 @@ function CartePopUp({ popUp, profils }: { popUp: PopUp; profils: Profile[] }) {
   const disponibles = profils.filter((p) => p.pop_up_id !== popUp.id);
 
   const { data: horaires, isLoading: chargementHoraires } = useHorairesOuverture(
-    horairesOuverts ? popUp.id : undefined,
+    horairesOuverts || effectifsOuverts ? popUp.id : undefined,
+  );
+  const { data: effectifs, isLoading: chargementEffectifs } = useEffectifsCreneaux(
+    effectifsOuverts ? popUp.id : undefined,
   );
   const enregistrerHoraire = useEnregistrerHoraireOuverture();
+  const enregistrerEffectif = useEnregistrerEffectifCreneau();
+  const supprimerEffectif = useSupprimerEffectifCreneau();
   const assigner = useAssignerPopUp();
   const renommer = useRenommerPopUp();
   const supprimer = useSupprimerPopUp();
@@ -142,6 +155,42 @@ function CartePopUp({ popUp, profils }: { popUp: PopUp; profils: Profile[] }) {
             />
           ))
         ))}
+
+      <Pressable onPress={() => setEffectifsOuverts((v) => !v)} className="mb-2">
+        <Text className="text-sm font-semibold text-indigo-600">
+          {effectifsOuverts ? 'Masquer les effectifs requis' : 'Voir / modifier les effectifs requis'}
+        </Text>
+      </Pressable>
+
+      {effectifsOuverts && (
+        <>
+          <Text className="mb-2 text-xs text-slate-400">
+            Qui doit être présent, et quand : c'est ce que la génération automatique du planning
+            utilise pour remplir la semaine.
+          </Text>
+          {chargementHoraires || chargementEffectifs ? (
+            <ActivityIndicator color="#6366F1" />
+          ) : (
+            JOURS_LABELS.map((label, jourSemaine) => {
+              const regleJour = horaires?.find((h) => h.jour_semaine === jourSemaine);
+              if (!regleJour?.actif) return null;
+              return (
+                <EffectifsJourCard
+                  key={jourSemaine}
+                  popUpId={popUp.id}
+                  jourSemaine={jourSemaine}
+                  label={label}
+                  horaireOuverture={regleJour.heure_ouverture}
+                  horaireFermeture={regleJour.heure_fermeture}
+                  creneaux={(effectifs ?? []).filter((c) => c.jour_semaine === jourSemaine)}
+                  onEnregistrer={(creneau) => enregistrerEffectif.mutate(creneau)}
+                  onSupprimer={(id) => supprimerEffectif.mutate(id)}
+                />
+              );
+            })
+          )}
+        </>
+      )}
     </View>
   );
 }

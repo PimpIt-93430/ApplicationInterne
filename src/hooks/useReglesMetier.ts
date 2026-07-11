@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
+  deleteEffectifCreneau,
   fetchEffectifsCreneaux,
   fetchHorairesOuverture,
   fetchReglesGlobales,
@@ -54,6 +55,17 @@ export function useEnregistrerEffectifCreneau() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: upsertEffectifCreneau,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['regles-effectifs-creneau'] }).then(() =>
+        queryClient.invalidateQueries({ queryKey: ['regles-effectifs-creneau-toutes'] }),
+      ),
+  });
+}
+
+export function useSupprimerEffectifCreneau() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: deleteEffectifCreneau,
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ['regles-effectifs-creneau'] }).then(() =>
         queryClient.invalidateQueries({ queryKey: ['regles-effectifs-creneau-toutes'] }),

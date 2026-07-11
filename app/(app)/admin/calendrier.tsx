@@ -18,7 +18,7 @@ import { AxeHeures } from '@/components/calendrier/AxeHeures';
 import { PanneauIndisponibilites } from '@/components/calendrier/PanneauIndisponibilites';
 import { TimelineJour } from '@/components/calendrier/TimelineJour';
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
-import { genererPlanning, type Alerte } from '@/domain/generationPlanning';
+import { construireCreneauxACouvrir, genererPlanning, type Alerte } from '@/domain/generationPlanning';
 import { useCongesPeriode } from '@/hooks/useConges';
 import { useJoursEcolePeriode } from '@/hooks/useAlternance';
 import { useDisponibilitesEquipeSemaine } from '@/hooks/useDisponibilites';
@@ -287,9 +287,18 @@ export default function CalendrierPopUpScreen() {
   // ajouter/retirer des personnes à la main sur les créneaux avant de valider et publier.
   const handleGenerer = async () => {
     if (!profile || !toutesEffectifs || !reglesGlobales || !disponibilitesEquipe || !profils) return;
+
+    const joursMap = jours.map((j) => ({ date: dateEnISO(j), jour_semaine: jourSemaineISO(j) }));
+    if (construireCreneauxACouvrir(joursMap, toutesEffectifs).length === 0) {
+      Alert.alert(
+        'Aucun effectif requis configuré',
+        'Va dans Pop-up → "Voir / modifier les effectifs requis" pour indiquer qui doit être présent et quand, avant de pouvoir générer un planning.',
+      );
+      return;
+    }
+
     setGenererEnCours(true);
     try {
-      const joursMap = jours.map((j) => ({ date: dateEnISO(j), jour_semaine: jourSemaineISO(j) }));
       const resultat = genererPlanning({
         jours: joursMap,
         disponibilites: disponibilitesEquipe,
