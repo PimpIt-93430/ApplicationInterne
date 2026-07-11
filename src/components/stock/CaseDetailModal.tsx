@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 
-import { statutCase, type ContenuCase } from '@/api/stock';
+import { estContenuCompte, statutCase, type ContenuCase } from '@/api/stock';
 import { FeuilleModale } from '@/components/ui/FeuilleModale';
 import { GlisseurPourcentage } from '@/components/ui/GlisseurPourcentage';
 import { useGererCatalogue } from '@/hooks/useStock';
@@ -24,7 +24,7 @@ function DerniereMesure({ contenu }: { contenu: ContenuCase }) {
   } else if (contenu.quantiteRestante !== null) {
     texte = `Dernière pesée : ${contenu.quantiteRestante} restant(s) (${contenu.poidsPese} g)`;
   }
-  return <Text className="mb-2 text-xs text-slate-400">{texte}</Text>;
+  return <Text className="text-xs text-slate-400">{texte}</Text>;
 }
 
 function LignePesee({
@@ -32,16 +32,18 @@ function LignePesee({
   enCours,
   onPeser,
   onEstimer,
+  onSupprimer,
   onDevenirActif,
 }: {
   contenu: ContenuCase;
   enCours: boolean;
   onPeser: (poidsPese: number) => void;
   onEstimer: (pourcentage: number) => void;
+  onSupprimer: () => void;
   onDevenirActif: (valider: () => void) => void;
 }) {
   const [mode, setMode] = useState<'poids' | 'pourcentage'>('poids');
-  const [poids, setPoids] = useState('');
+  const [poids, setPoids] = useState(() => (contenu.poidsPese !== null ? String(contenu.poidsPese) : ''));
   const [focus, setFocus] = useState(false);
   const poidsUnitaire = contenu.pin.poids_unitaire;
   const poidsSaisi = Number(poids.replace(',', '.'));
@@ -54,8 +56,17 @@ function LignePesee({
   const valider = () => {
     if (quantiteCalculee === null || !Number.isFinite(poidsSaisi) || enCours) return;
     onPeser(poidsSaisi);
-    setPoids('');
+    // Le champ reste rempli avec le poids pesé (au lieu de se vider) : on veut le voir tant
+    // qu'on n'a pas fini de compter toute la boîte, pas juste une petite ligne "Dernière pesée".
   };
+
+  // Une fois le poids confirmé par le serveur (contenu.poidsPese à jour après la mutation), ou à
+  // la réouverture d'une case déjà pesée, le champ reprend cette valeur — sauf pendant que la
+  // personne est justement en train de la modifier (focus), pour ne pas lui couper la saisie.
+  useEffect(() => {
+    if (focus) return;
+    setPoids(contenu.poidsPese !== null ? String(contenu.poidsPese) : '');
+  }, [contenu.poidsPese, focus]);
 
   // Tant que ce champ a le focus, le bouton "OK" du clavier (partagé entre toutes les lignes)
   // doit enregistrer CETTE pesée : on republie le dernier `valider` à chaque frappe.
@@ -65,8 +76,33 @@ function LignePesee({
 
   return (
     <View className="mb-3 rounded-xl border border-slate-200 p-3">
-      <Text className="mb-0.5 text-sm font-semibold text-slate-800">{contenu.pin.nom}</Text>
-      <DerniereMesure contenu={contenu} />
+      <View className="mb-2 flex-row items-center gap-3">
+        {contenu.pin.photo_url ? (
+          <Image source={{ uri: contenu.pin.photo_url }} className="h-12 w-12 rounded-lg bg-slate-100" />
+        ) : (
+          <View className="h-12 w-12 items-center justify-center rounded-lg bg-slate-100">
+            <Text className="text-xs text-slate-300">?</Text>
+          </View>
+        )}
+        <View className="flex-1">
+          <Text className="text-sm font-semibold text-slate-800">{contenu.pin.nom}</Text>
+          <DerniereMesure contenu={contenu} />
+        </View>
+        {estContenuCompte(contenu) && !enCours && (
+          <Pressable
+            onPress={() =>
+              Alert.alert('Effacer le comptage', `Remettre "${contenu.pin.nom}" à "Jamais compté" ?`, [
+                { text: 'Annuler', style: 'cancel' },
+                { text: 'Effacer', style: 'destructive', onPress: onSupprimer },
+              ])
+            }
+            hitSlop={8}
+            className="px-1 py-1"
+          >
+            <Text className="text-xs font-semibold text-red-500">Effacer</Text>
+          </Pressable>
+        )}
+      </View>
 
       {mode === 'pourcentage' ? (
         <>
@@ -243,6 +279,7 @@ export function CaseDetailModal({
   attribuerEnCours,
   onPeser,
   onEstimer,
+  onSupprimerComptage,
   peserEnCours,
 }: {
   casePosition: string;
@@ -253,6 +290,7 @@ export function CaseDetailModal({
   attribuerEnCours: boolean;
   onPeser: (pinId: string, poidsPese: number) => void;
   onEstimer: (pinId: string, pourcentage: number) => void;
+  onSupprimerComptage: (pinId: string) => void;
   peserEnCours?: string | null;
 }) {
   const [onglet, setOnglet] = useState<'compter' | 'contenu'>(
@@ -325,6 +363,7 @@ export function CaseDetailModal({
                 enCours={peserEnCours === contenu.pin.id}
                 onPeser={(poidsPese) => onPeser(contenu.pin.id, poidsPese)}
                 onEstimer={(pourcentage) => onEstimer(contenu.pin.id, pourcentage)}
+                onSupprimer={() => onSupprimerComptage(contenu.pin.id)}
                 onDevenirActif={(valider) => {
                   validerActifRef.current = valider;
                 }}

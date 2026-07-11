@@ -35,6 +35,73 @@ export function statutCase(contenus: ContenuCase[]): StatutCase {
   return contenus.every(estContenuCompte) ? 'complet' : 'partiel';
 }
 
+export interface LigneReapprovisionnement {
+  pin: StockPin;
+  quantite: number;
+}
+
+/** Ce qu'il manque, pin par pin, sur les cases déjà comptées de CE pop-up (pas les autres — le
+ * réapprovisionnement se prépare pour un lieu précis) : seuil cible moins la dernière quantité
+ * connue de chaque case contenant ce pin, sommé sur toutes ses cases dans ce pop-up. */
+export function calculerReapprovisionnement(grille: CaseGrille[]): LigneReapprovisionnement[] {
+  const parPin = new Map<string, LigneReapprovisionnement>();
+
+  for (const caseGrille of grille) {
+    for (const contenu of caseGrille.contenus) {
+      const seuil = contenu.pin.seuil_cible;
+      if (!seuil || seuil <= 0) continue;
+
+      const quantiteActuelle =
+        contenu.quantiteRestante ??
+        (contenu.pourcentageRestant !== null ? (contenu.pourcentageRestant / 100) * seuil : null);
+      if (quantiteActuelle === null) continue;
+
+      const manque = Math.round(seuil - quantiteActuelle);
+      if (manque <= 0) continue;
+
+      const existant = parPin.get(contenu.pin.id);
+      if (existant) existant.quantite += manque;
+      else parPin.set(contenu.pin.id, { pin: contenu.pin, quantite: manque });
+    }
+  }
+
+  return [...parPin.values()].sort((a, b) => b.quantite - a.quantite);
+}
+
+/**
+ * Valide le réapprovisionnement d'un pop-up : une fois que tout a été effectivement ramené, on
+ * repart à 0 pour le prochain cycle de comptage — remet toutes les cases de ce pop-up à "Jamais
+ * compté" et efface leur historique de comptage (le rapport redevient vide pour ce lieu).
+ * `stock_a_ramener` de chaque pin concerné est recalculé : ça ne descend à 0 que si ce pin n'a
+ * pas aussi un manque dans un AUTRE pop-up (auquel cas il reste correctement dans la commande).
+ */
+export async function validerReapprovisionnement(popUpId: string) {
+  const { data: boites, error: errorBoites } = await supabase
+    .from('pop_up_pin_boites')
+    .select('id, pin_id')
+    .eq('pop_up_id', popUpId);
+  if (errorBoites) throw errorBoites;
+  if (!boites || boites.length === 0) return;
+
+  const { error: errorReset } = await supabase
+    .from('pop_up_pin_boites')
+    .update({ poids_pese: null, quantite_restante: null, pourcentage_restant: null })
+    .eq('pop_up_id', popUpId);
+  if (errorReset) throw errorReset;
+
+  const { error: errorMouvements } = await supabase
+    .from('stock_mouvements')
+    .delete()
+    .eq('pop_up_id', popUpId)
+    .in('type', ['pesee', 'estimation']);
+  if (errorMouvements) throw errorMouvements;
+
+  const pinIds = [...new Set(boites.map((b) => b.pin_id))];
+  for (const pinId of pinIds) {
+    await recalculerStockARamener(pinId);
+  }
+}
+
 export async function fetchPins(): Promise<StockPin[]> {
   const { data, error } = await supabase.from('stock_pins').select('*').eq('actif', true).order('nom');
   if (error) throw error;
@@ -114,6 +181,12 @@ export async function attribuerPinsACase(params: {
     );
     if (error) throw error;
   }
+
+  // Retirer une case comptée change ce qui manque ; en ajouter une neuve (pas encore comptée) ne
+  // change rien tout de suite, mais on recalcule quand même par simplicité et cohérence.
+  for (const pinId of new Set([...aRetirer, ...aAjouter])) {
+    await recalculerStockARamener(pinId);
+  }
 }
 
 export async function retirerPinDeCase(params: { popUpId: string; casePosition: string; pinId: string }) {
@@ -124,6 +197,152 @@ export async function retirerPinDeCase(params: { popUpId: string; casePosition: 
     .eq('pop_up_id', popUpId)
     .eq('case_position', casePosition)
     .eq('pin_id', pinId);
+  if (error) throw error;
+  await recalculerStockARamener(pinId);
+}
+
+/**
+ * Efface le comptage d'un pin dans une case (remet poids/quantité/pourcentage à null, retour à
+ * "Jamais compté") — ne touche pas à l'historique (stock_mouvements reste tel quel, trace
+ * immuable de ce qui a été compté et quand), seul l'état courant de la case est réinitialisé.
+ */
+export async function supprimerComptagePinDansCase(params: { boiteId: string; pinId: string }) {
+  const { boiteId, pinId } = params;
+  const { error } = await supabase
+    .from('pop_up_pin_boites')
+    .update({ poids_pese: null, quantite_restante: null, pourcentage_restant: null })
+    .eq('id', boiteId);
+  if (error) throw error;
+  await recalculerStockARamener(pinId);
+}
+
+/**
+ * Après suppression d'un comptage historique pour un pin dans une case, remet l'état courant de
+ * cette case (pop_up_pin_boites) en cohérence avec ce qu'il reste dans l'historique : reprend le
+ * dernier mouvement restant pour ce pin dans cette case, ou repasse à "Jamais compté" s'il n'en
+ * reste plus aucun (ex. la suppression portait bien sur le comptage le plus récent).
+ */
+async function recalculerEtatCaseDepuisHistorique(params: {
+  popUpId: string;
+  casePosition: string;
+  pinId: string;
+}) {
+  const { popUpId, casePosition, pinId } = params;
+
+  const { data: boites, error: errorBoite } = await supabase
+    .from('pop_up_pin_boites')
+    .select('id')
+    .eq('pop_up_id', popUpId)
+    .eq('case_position', casePosition)
+    .eq('pin_id', pinId)
+    .limit(1);
+  if (errorBoite) throw errorBoite;
+  const boite = boites?.[0];
+  if (!boite) return; // ce pin n'est plus (ou déjà plus) dans cette case
+
+  const { data: derniers, error: errorDernier } = await supabase
+    .from('stock_mouvements')
+    .select('type, poids_pese, quantite_calculee, pourcentage_restant')
+    .eq('pop_up_id', popUpId)
+    .eq('case_position', casePosition)
+    .eq('pin_id', pinId)
+    .in('type', ['pesee', 'estimation'])
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (errorDernier) throw errorDernier;
+  const dernier = derniers?.[0];
+
+  const changements = !dernier
+    ? { poids_pese: null, quantite_restante: null, pourcentage_restant: null }
+    : dernier.type === 'estimation'
+      ? { pourcentage_restant: dernier.pourcentage_restant, poids_pese: null, quantite_restante: null }
+      : { poids_pese: dernier.poids_pese, quantite_restante: dernier.quantite_calculee, pourcentage_restant: null };
+
+  const { error: errorMaj } = await supabase.from('pop_up_pin_boites').update(changements).eq('id', boite.id);
+  if (errorMaj) throw errorMaj;
+
+  await recalculerStockARamener(pinId);
+}
+
+/**
+ * Supprime tout l'historique de comptage d'une case pour un jour donné (ex. "le comptage de la
+ * boîte A1 du 11 juillet") — contrairement à `supprimerComptagePinDansCase`, ça touche bien
+ * l'historique (stock_mouvements), pas seulement l'état courant, puisque c'est justement cette
+ * trace-là que la personne veut faire disparaître du rapport.
+ */
+export async function supprimerComptageBoiteJour(params: {
+  popUpId: string;
+  casePosition: string;
+  jourISO: string;
+}) {
+  const { popUpId, casePosition, jourISO } = params;
+
+  const { data: mouvements, error: errorFetch } = await supabase
+    .from('stock_mouvements')
+    .select('id, pin_id, created_at')
+    .eq('pop_up_id', popUpId)
+    .eq('case_position', casePosition)
+    .in('type', ['pesee', 'estimation']);
+  if (errorFetch) throw errorFetch;
+
+  const aSupprimer = (mouvements ?? []).filter((m) => m.created_at.slice(0, 10) === jourISO);
+  if (aSupprimer.length === 0) return;
+
+  const { error: errorDelete } = await supabase
+    .from('stock_mouvements')
+    .delete()
+    .in(
+      'id',
+      aSupprimer.map((m) => m.id),
+    );
+  if (errorDelete) throw errorDelete;
+
+  const pinIds = [...new Set(aSupprimer.map((m) => m.pin_id))];
+  for (const pinId of pinIds) {
+    await recalculerEtatCaseDepuisHistorique({ popUpId, casePosition, pinId });
+  }
+}
+
+/**
+ * Recalcule `stock_a_ramener` d'un pin : la somme, sur toutes ses cases (tous pop-ups confondus),
+ * du manque par rapport au seuil cible — d'après la dernière quantité connue de chaque case
+ * (pesée, ou estimation en % ramenée au seuil comme référence de "plein"). Appelé à chaque
+ * comptage pour rester automatiquement à jour, remplaçant la saisie manuelle initialement prévue
+ * (cf. migration 0010 : "sera automatisé plus tard en fonction de ce qui est effectivement ramené").
+ */
+export async function recalculerStockARamener(pinId: string) {
+  const { data: pin, error: errorPin } = await supabase
+    .from('stock_pins')
+    .select('seuil_cible')
+    .eq('id', pinId)
+    .single();
+  if (errorPin) throw errorPin;
+
+  const seuil = pin.seuil_cible;
+  if (!seuil || seuil <= 0) {
+    const { error } = await supabase.from('stock_pins').update({ stock_a_ramener: 0 }).eq('id', pinId);
+    if (error) throw error;
+    return;
+  }
+
+  const { data: boites, error: errorBoites } = await supabase
+    .from('pop_up_pin_boites')
+    .select('quantite_restante, pourcentage_restant')
+    .eq('pin_id', pinId);
+  if (errorBoites) throw errorBoites;
+
+  const manqueTotal = (boites ?? []).reduce((total, boite) => {
+    const quantiteActuelle =
+      boite.quantite_restante ??
+      (boite.pourcentage_restant !== null ? (boite.pourcentage_restant / 100) * seuil : null);
+    if (quantiteActuelle === null) return total;
+    return total + Math.max(0, seuil - quantiteActuelle);
+  }, 0);
+
+  const { error } = await supabase
+    .from('stock_pins')
+    .update({ stock_a_ramener: Math.round(manqueTotal) })
+    .eq('id', pinId);
   if (error) throw error;
 }
 
@@ -168,6 +387,8 @@ export async function peserPinDansCase(params: {
     profile_id: profileId,
   });
   if (errorMouvement) throw errorMouvement;
+
+  await recalculerStockARamener(pinId);
 }
 
 /**
@@ -205,6 +426,8 @@ export async function estimerPourcentagePinDansCase(params: {
     profile_id: profileId,
   });
   if (errorMouvement) throw errorMouvement;
+
+  await recalculerStockARamener(pinId);
 }
 
 export async function ajusterStockGeneral(params: {
@@ -287,20 +510,39 @@ export async function fetchMouvements(params: {
 }
 
 export interface MouvementComptage extends StockMouvement {
-  pin: { nom: string } | null;
+  pin: { nom: string; seuil_cible: number | null } | null;
 }
 
 /**
- * Historique des comptages (pesées + estimations) d'un pop-up, pin inclus : sert de trace
- * jour par jour / boîte par boîte pour le rapport et le futur fichier de réapprovisionnement.
+ * Historique des comptages (pesées + estimations) d'un pop-up, pin inclus (avec son seuil cible,
+ * pour calculer le manque directement dans le rapport) : sert de trace jour par jour / boîte par
+ * boîte pour le rapport et la liste de ce qu'il faut ramener du local.
  */
 export async function fetchMouvementsComptage(popUpId: string): Promise<MouvementComptage[]> {
   const { data, error } = await supabase
     .from('stock_mouvements')
-    .select('*, pin:stock_pins(nom)')
+    .select('*, pin:stock_pins(nom, seuil_cible)')
     .eq('pop_up_id', popUpId)
     .in('type', ['pesee', 'estimation'])
     .order('created_at', { ascending: false });
   if (error) throw error;
   return data as MouvementComptage[];
+}
+
+/** Quantité restante déduite d'un mouvement de comptage : directe si pesé, sinon estimée en % du
+ * seuil cible (utilisé comme référence de "plein" en l'absence de sac à peser). */
+export function quantiteRestanteMouvement(mouvement: MouvementComptage): number | null {
+  if (mouvement.quantite_calculee !== null) return mouvement.quantite_calculee;
+  const seuil = mouvement.pin?.seuil_cible;
+  if (mouvement.pourcentage_restant !== null && seuil) return (mouvement.pourcentage_restant / 100) * seuil;
+  return null;
+}
+
+/** Manque par rapport au seuil cible pour un mouvement de comptage (0 si pas de seuil défini ou
+ * si déjà au niveau voulu) — c'est ce qui alimente la liste "à ramener du local" du rapport. */
+export function manqueMouvement(mouvement: MouvementComptage): number {
+  const seuil = mouvement.pin?.seuil_cible;
+  const quantite = quantiteRestanteMouvement(mouvement);
+  if (!seuil || quantite === null) return 0;
+  return Math.max(0, Math.round(seuil - quantite));
 }

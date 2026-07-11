@@ -1,6 +1,6 @@
 import { Pressable, Text, View } from 'react-native';
 
-import { statutCase, type CaseGrille, type ContenuCase, type StatutCase } from '@/api/stock';
+import { statutCase, type CaseGrille, type StatutCase } from '@/api/stock';
 
 const COLONNES = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
 const LIGNES = [1, 2, 3];
@@ -16,7 +16,7 @@ export function GrilleCases({
   onPressCase,
 }: {
   grille: CaseGrille[];
-  onPressCase: (casePosition: string, contenus: ContenuCase[]) => void;
+  onPressCase: (casePosition: string) => void;
 }) {
   const parPosition = new Map(grille.map((c) => [c.casePosition, c]));
 
@@ -33,7 +33,7 @@ export function GrilleCases({
             return (
               <Pressable
                 key={position}
-                onPress={() => onPressCase(position, contenus)}
+                onPress={() => onPressCase(position)}
                 style={{ flex: 1 / COLONNES.length }}
                 className="aspect-square justify-between overflow-hidden rounded-lg border border-slate-200 bg-white p-1"
               >
