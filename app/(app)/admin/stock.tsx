@@ -1,6 +1,6 @@
 import { ActivityIndicator, View } from 'react-native';
 
-import { StockScreen } from '@/components/stock/StockScreen';
+import { StockAccueil } from '@/components/stock/StockAccueil';
 import { useAuthStore } from '@/store/useAuthStore';
 
 export default function StockAdminRoute() {
@@ -14,5 +14,5 @@ export default function StockAdminRoute() {
     );
   }
 
-  return <StockScreen profile={profile} />;
+  return <StockAccueil profile={profile} />;
 }

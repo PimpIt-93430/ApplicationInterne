@@ -1,21 +1,30 @@
-import { Link, router } from 'expo-router';
-import { useState } from 'react';
+import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View } from 'react-native';
 
 import { signInWithEmail } from '@/api/auth';
+import { useAuthStore } from '@/store/useAuthStore';
 
 export default function LoginScreen() {
+  const session = useAuthStore((s) => s.session);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [erreur, setErreur] = useState<string | null>(null);
   const [chargement, setChargement] = useState(false);
+
+  // Navigue une fois que le store d'auth global est vraiment à jour (écouteur
+  // onAuthStateChange), pas juste après que signInWithEmail ait techniquement réussi : sinon
+  // index.tsx pouvait relire un `session` encore null et renvoyer directement sur cet écran,
+  // obligeant à se connecter une seconde fois pour que ça "prenne".
+  useEffect(() => {
+    if (session) router.replace('/');
+  }, [session]);
 
   const handleLogin = async () => {
     setErreur(null);
     setChargement(true);
     try {
       await signInWithEmail(email.trim(), password);
-      router.replace('/');
     } catch (e) {
       setErreur(e instanceof Error ? e.message : 'Connexion impossible');
     } finally {
@@ -60,12 +69,6 @@ export default function LoginScreen() {
           </Text>
         </Pressable>
 
-        <View className="mt-6 flex-row justify-center">
-          <Text className="text-slate-500">Pas encore de compte ? </Text>
-          <Link href="/(auth)/signup" className="font-semibold text-indigo-600">
-            Créer un compte
-          </Link>
-        </View>
       </View>
     </KeyboardAvoidingView>
   );

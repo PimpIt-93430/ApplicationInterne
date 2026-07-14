@@ -2,6 +2,7 @@ import 'react-native-url-polyfill/auto';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
+import { AppState } from 'react-native';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
@@ -23,4 +24,14 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     persistSession: true,
     detectSessionInUrl: false,
   },
+});
+
+// Sans ça, le rafraîchissement automatique du jeton continue de tourner (inutilement) pendant que
+// l'app est en arrière-plan, et surtout ne redémarre pas forcément au premier plan sur certains
+// appareils : le jeton d'accès stocké peut alors être expiré au moment où l'app se rouvre, ce qui
+// oblige à se reconnecter alors qu'une session valide existait pourtant. Recommandation officielle
+// Supabase pour Expo/React Native.
+AppState.addEventListener('change', (state) => {
+  if (state === 'active') supabase.auth.startAutoRefresh();
+  else supabase.auth.stopAutoRefresh();
 });

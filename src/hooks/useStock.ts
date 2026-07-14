@@ -4,18 +4,19 @@ import { useEffect, useRef } from 'react';
 import {
   ajusterStockGeneral,
   attribuerPinsACase,
+  basculerCommandePin,
   creerPin,
-  estimerPourcentagePinDansCase,
+  fetchAttributionsPins,
+  fetchDerniersRemplissages,
   fetchGrillePopUp,
   fetchMouvements,
-  fetchMouvementsComptage,
   fetchPins,
+  fetchRemplissages,
   modifierPin,
-  peserPinDansCase,
   retirerPinDeCase,
-  supprimerComptageBoiteJour,
-  supprimerComptagePinDansCase,
-  validerReapprovisionnement,
+  supprimerRemplissage as supprimerRemplissageApi,
+  validerCommandesRecues,
+  validerRemplissageBoite,
 } from '@/api/stock';
 import { supabase } from '@/api/supabaseClient';
 import type { StockPin } from '@/types/database.types';
@@ -62,18 +63,19 @@ export function useMouvements(params: { pinId?: string; popUpId?: string }) {
   });
 }
 
-export function useMouvementsComptage(popUpId: string | undefined) {
+// Dernier remplissage connu par case (affiché sous "Valider le remplissage" dans l'écran de case).
+export function useDerniersRemplissages(popUpId: string | undefined) {
   const queryClient = useQueryClient();
-  const queryKey = ['stock-mouvements-comptage', popUpId];
+  const queryKey = ['stock-remplissages', popUpId];
   const instanceId = useRef(Math.random().toString(36).slice(2)).current;
 
   useEffect(() => {
     if (!popUpId) return;
     const channel = supabase
-      .channel(`stock-mouvements-comptage-${popUpId}-${instanceId}`)
+      .channel(`stock-remplissages-${popUpId}-${instanceId}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'stock_mouvements', filter: `pop_up_id=eq.${popUpId}` },
+        { event: 'INSERT', schema: 'public', table: 'pop_up_boite_remplissages', filter: `pop_up_id=eq.${popUpId}` },
         () => queryClient.invalidateQueries({ queryKey }),
       )
       .subscribe();
@@ -84,17 +86,45 @@ export function useMouvementsComptage(popUpId: string | undefined) {
 
   return useQuery({
     queryKey,
-    queryFn: () => fetchMouvementsComptage(popUpId as string),
+    queryFn: () => fetchDerniersRemplissages(popUpId as string),
     enabled: !!popUpId,
   });
 }
 
+// Historique complet (pas juste le dernier par case) pour l'onglet Rapport, groupé par jour côté UI.
+export function useRemplissages(popUpId: string | undefined) {
+  return useQuery({
+    queryKey: ['stock-remplissages-historique', popUpId],
+    queryFn: () => fetchRemplissages(popUpId as string),
+    enabled: !!popUpId,
+  });
+}
+
+// Vue d'ensemble (catalogue) : quelles cases contiennent déjà chaque pin, tous pop-ups confondus.
+// Sans filtre de pop-up, donc abonnement realtime global sur la table plutôt que par lieu.
+export function useAttributionsPins() {
+  const queryClient = useQueryClient();
+  const queryKey = ['stock-attributions-pins'];
+  const instanceId = useRef(Math.random().toString(36).slice(2)).current;
+
+  useEffect(() => {
+    const channel = supabase
+      .channel(`stock-attributions-pins-${instanceId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pop_up_pin_boites' }, () =>
+        queryClient.invalidateQueries({ queryKey }),
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient, instanceId]);
+
+  return useQuery({ queryKey, queryFn: fetchAttributionsPins });
+}
+
 export function useGererCasesPopUp(popUpId: string | undefined) {
   const queryClient = useQueryClient();
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['stock-grille', popUpId] });
-    queryClient.invalidateQueries({ queryKey: ['stock-mouvements-comptage', popUpId] });
-  };
+  const invalidateGrille = () => queryClient.invalidateQueries({ queryKey: ['stock-grille', popUpId] });
 
   const attribuer = useMutation({
     mutationFn: (params: {
@@ -103,63 +133,63 @@ export function useGererCasesPopUp(popUpId: string | undefined) {
       pinIdsVoulus: string[];
       profileId: string;
     }) => attribuerPinsACase({ popUpId: popUpId as string, ...params }),
-    onSuccess: invalidate,
+    onSuccess: invalidateGrille,
   });
 
   const retirer = useMutation({
     mutationFn: (params: { casePosition: string; pinId: string }) =>
       retirerPinDeCase({ popUpId: popUpId as string, ...params }),
-    onSuccess: invalidate,
+    onSuccess: invalidateGrille,
   });
 
-  const peser = useMutation({
-    mutationFn: (params: {
-      boiteId: string;
-      pinId: string;
-      casePosition: string;
-      poidsUnitaire: number;
-      poidsPese: number;
-      profileId: string;
-    }) => peserPinDansCase({ popUpId: popUpId as string, ...params }),
-    onSuccess: invalidate,
+  const basculerCommande = useMutation({
+    mutationFn: (params: { boiteId: string; aCommander: boolean; profileId: string }) =>
+      basculerCommandePin(params),
+    onSuccess: invalidateGrille,
   });
 
-  const estimer = useMutation({
-    mutationFn: (params: {
-      boiteId: string;
-      pinId: string;
-      casePosition: string;
-      pourcentage: number;
-      profileId: string;
-    }) => estimerPourcentagePinDansCase({ popUpId: popUpId as string, ...params }),
-    onSuccess: invalidate,
-  });
-
-  const supprimerComptage = useMutation({
-    mutationFn: (params: { boiteId: string; pinId: string }) => supprimerComptagePinDansCase(params),
-    onSuccess: invalidate,
-  });
-
-  const supprimerComptageJour = useMutation({
-    mutationFn: (params: { casePosition: string; jourISO: string }) =>
-      supprimerComptageBoiteJour({ popUpId: popUpId as string, ...params }),
-    onSuccess: invalidate,
-  });
-
-  const validerReappro = useMutation({
-    mutationFn: () => validerReapprovisionnement(popUpId as string),
+  const validerRemplissage = useMutation({
+    mutationFn: (params: { casePosition: string; profileId: string }) =>
+      validerRemplissageBoite({ popUpId: popUpId as string, ...params }),
     onSuccess: () => {
-      invalidate();
-      queryClient.invalidateQueries({ queryKey: ['stock-pins'] });
+      queryClient.invalidateQueries({ queryKey: ['stock-remplissages', popUpId] });
+      queryClient.invalidateQueries({ queryKey: ['stock-remplissages-historique', popUpId] });
     },
   });
 
-  return { attribuer, retirer, peser, estimer, supprimerComptage, supprimerComptageJour, validerReappro };
+  const validerCommandes = useMutation({
+    mutationFn: () => validerCommandesRecues(popUpId as string),
+    onSuccess: invalidateGrille,
+  });
+
+  const supprimerRemplissage = useMutation({
+    mutationFn: (id: string) => supprimerRemplissageApi(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['stock-remplissages', popUpId] });
+      queryClient.invalidateQueries({ queryKey: ['stock-remplissages-historique', popUpId] });
+    },
+  });
+
+  return {
+    attribuer,
+    retirer,
+    basculerCommande,
+    validerRemplissage,
+    validerCommandes,
+    supprimerRemplissage,
+  };
 }
 
 export function useGererCatalogue() {
   const queryClient = useQueryClient();
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['stock-pins'] });
+  // Le catalogue (stock-pins) n'est pas la seule vue à contenir les pins : la grille des boîtes
+  // (stock-grille) embarque le pin complet dans chaque case (contenu.pin) — sans cette
+  // invalidation, éditer le poids/seuil/taille depuis le catalogue laisse l'écran de pesée avec
+  // les anciennes valeurs tant que la grille n'est pas rechargée par un autre moyen.
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['stock-pins'] });
+    queryClient.invalidateQueries({ queryKey: ['stock-grille'] });
+  };
 
   const creer = useMutation({
     mutationFn: (params: Parameters<typeof creerPin>[0]) => creerPin(params),

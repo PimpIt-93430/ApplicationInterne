@@ -1,14 +1,14 @@
 import { Pressable, Text, View } from 'react-native';
 
-import { statutCase, type CaseGrille, type StatutCase } from '@/api/stock';
+import { statutBoiteCommande, type CaseGrille, type StatutBoiteCommande } from '@/api/stock';
 
 const COLONNES = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
 const LIGNES = [1, 2, 3];
 
-const COULEURS_STATUT: Record<StatutCase, string> = {
+const COULEURS_STATUT: Record<StatutBoiteCommande, string> = {
   vide: '#E2E8F0',
-  partiel: '#FBBF24',
-  complet: '#34D399',
+  ok: '#34D399',
+  a_commander: '#EF4444',
 };
 
 export function GrilleCases({
@@ -28,7 +28,7 @@ export function GrilleCases({
             const position = `${colonne}${ligne}`;
             const c = parPosition.get(position);
             const contenus = c?.contenus ?? [];
-            const statut = statutCase(contenus);
+            const statut = statutBoiteCommande(contenus);
 
             return (
               <Pressable

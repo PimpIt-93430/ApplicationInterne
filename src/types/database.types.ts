@@ -102,6 +102,8 @@ export interface Notification {
 
 export type TypeMouvementStock = 'reception' | 'ajustement' | 'pesee' | 'estimation';
 
+export type TaillePin = 'petit' | 'moyen' | 'gros';
+
 export interface StockPin {
   id: string;
   nom: string;
@@ -115,10 +117,22 @@ export interface StockPin {
   stock_general: number;
   stock_a_ramener: number;
   seuil_cible: number | null;
+  taille: TaillePin | null;
   prix_revente_ht: number | null;
   actif: boolean;
   airtable_record_id: string | null;
   created_at: string;
+  updated_at: string;
+}
+
+export type CouleurChaussure = 'Noir' | 'Kaki' | 'Rose' | 'Gris';
+export type TailleChaussure = '36-37' | '38-39' | '40-41' | '41-42' | '43-44' | '45-46';
+
+export interface ChaussureStock {
+  id: string;
+  couleur: CouleurChaussure;
+  taille: TailleChaussure;
+  quantite_a_ramener: number;
   updated_at: string;
 }
 
@@ -127,11 +141,21 @@ export interface PopUpPinBoite {
   pop_up_id: string;
   pin_id: string;
   case_position: string;
+  a_commander: boolean;
   poids_pese: number | null;
   quantite_restante: number | null;
   pourcentage_restant: number | null;
   maj_par: string | null;
   updated_at: string;
+}
+
+/** Trace "qui a rempli quelle boîte, quand" — indépendante des flags a_commander. */
+export interface PopUpBoiteRemplissage {
+  id: string;
+  pop_up_id: string;
+  case_position: string;
+  profile_id: string;
+  created_at: string;
 }
 
 export interface StockMouvement {
