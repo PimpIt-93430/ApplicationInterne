@@ -19,6 +19,7 @@ import {
   calculerCommandes,
   POSITIONS_GRILLE,
   uploaderPhotoPin,
+  type CommandeResume,
   type DernierRemplissage,
   type LigneCommande,
   type LigneHistoriqueCommande,
@@ -33,9 +34,14 @@ import { usePopUps } from '@/hooks/usePopUps';
 import { useAffectationsPopUp } from '@/hooks/useProfiles';
 import {
   useAttributionsPins,
+  useCommandeActivePopUp,
+  useCommandeDetail,
+  useCommandesEnAttenteLocal,
   useDerniersRemplissages,
   useGererCasesPopUp,
   useGererCatalogue,
+  useGererCommandePopUp,
+  useGererPreparationCommande,
   useGrillePopUp,
   useHistoriqueCommandes,
   useMouvements,
@@ -830,45 +836,29 @@ function PanneauHistoriqueCommandes({
   );
 }
 
+/** Aperçu de la commande avant envoi : pins signalés "à commander" sur les boîtes de ce pop-up,
+ * tant que rien n'a encore été envoyé au local. Une fois envoyée, c'est le local qui décide pin
+ * par pin ce qu'il a effectivement préparé (plus de coche "trouvé" ici). */
 function PanneauCommande({
   lignes,
   popUpNom,
   enCours,
-  onValider,
+  onEnvoyer,
   onFermer,
 }: {
   lignes: LigneCommande[];
   popUpNom: string;
   enCours: boolean;
-  onValider: (resultats: { pinId: string; trouve: boolean }[]) => void;
+  onEnvoyer: (pinIds: string[]) => void;
   onFermer: () => void;
 }) {
-  // Coché = "trouvé/commandé pendant cette tournée" — envoyé à la validation, ça alimente
-  // l'historique et le cron hebdomadaire qui ajuste seuil_cible (pin souvent trouvé → seuil monte,
-  // jamais trouvé → seuil baisse).
-  const [coches, setCoches] = useState<Set<string>>(new Set());
-
-  const basculer = (pinId: string) => {
-    setCoches((precedente) => {
-      const suivante = new Set(precedente);
-      if (suivante.has(pinId)) suivante.delete(pinId);
-      else suivante.add(pinId);
-      return suivante;
-    });
-  };
-
-  const confirmerValidation = () => {
+  const confirmerEnvoi = () => {
     Alert.alert(
-      'Valider la commande reçue',
-      `Une fois les pins ramenés, ça retire "à commander" de toutes les boîtes de ${popUpNom}. Cette action est irréversible.`,
+      'Envoyer la commande au local',
+      `Le local va préparer ces pins pour ${popUpNom}. Tu ne pourras pas envoyer de nouvelle commande tant que celle-ci n'est pas reçue.`,
       [
         { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Valider',
-          style: 'destructive',
-          onPress: () =>
-            onValider(lignes.map((l) => ({ pinId: l.pin.id, trouve: coches.has(l.pin.id) }))),
-        },
+        { text: 'Envoyer', onPress: () => onEnvoyer(lignes.map((l) => l.pin.id)) },
       ],
     );
   };
@@ -877,56 +867,39 @@ function PanneauCommande({
     <FeuilleModale onClose={onFermer}>
       <Text className="mb-1 text-lg font-bold text-slate-900">Commande — {popUpNom}</Text>
       <Text className="mb-4 text-sm text-slate-400">
-        Pins signalés "à commander" sur les boîtes de ce pop-up. Coche ceux que tu as
-        trouvés/commandés : ça sert à ajuster automatiquement leur seuil cible dans le temps.
+        Pins signalés "à commander" sur les boîtes de ce pop-up. Envoie la commande au local dès
+        qu'elle est prête — il la préparera et te préviendra quand elle sera prête à récupérer.
       </Text>
 
       <ScrollView style={{ maxHeight: 480 }}>
         {lignes.length === 0 ? (
           <Text className="text-sm text-slate-400">Rien à commander pour l'instant.</Text>
         ) : (
-          lignes.map((ligne) => {
-            const coche = coches.has(ligne.pin.id);
-            return (
-              <Pressable
-                key={ligne.pin.id}
-                onPress={() => basculer(ligne.pin.id)}
-                className={`mb-2 flex-row items-center gap-3 rounded-xl p-2 ${coche ? 'bg-emerald-50' : 'bg-slate-50'}`}
-              >
-                {ligne.pin.photo_url ? (
-                  <Image source={{ uri: ligne.pin.photo_url }} className="h-14 w-14 rounded-lg bg-slate-100" />
-                ) : (
-                  <View className="h-14 w-14 items-center justify-center rounded-lg bg-slate-100">
-                    <Text className="text-lg text-slate-300">?</Text>
-                  </View>
-                )}
-                <Text
-                  numberOfLines={2}
-                  className={`flex-1 text-sm ${coche ? 'text-slate-400 line-through' : 'font-semibold text-slate-800'}`}
-                >
-                  {ligne.pin.nom}
-                </Text>
-                <Text className="text-base font-bold text-amber-700">{ligne.pin.seuil_cible ?? '—'}</Text>
-                <View
-                  className={`h-6 w-6 items-center justify-center rounded-md border-2 ${
-                    coche ? 'border-emerald-600 bg-emerald-600' : 'border-slate-300'
-                  }`}
-                >
-                  {coche && <Text className="text-xs font-bold text-white">✓</Text>}
+          lignes.map((ligne) => (
+            <View key={ligne.pin.id} className="mb-2 flex-row items-center gap-3 rounded-xl bg-slate-50 p-2">
+              {ligne.pin.photo_url ? (
+                <Image source={{ uri: ligne.pin.photo_url }} className="h-14 w-14 rounded-lg bg-slate-100" />
+              ) : (
+                <View className="h-14 w-14 items-center justify-center rounded-lg bg-slate-100">
+                  <Text className="text-lg text-slate-300">?</Text>
                 </View>
-              </Pressable>
-            );
-          })
+              )}
+              <Text numberOfLines={2} className="flex-1 text-sm font-semibold text-slate-800">
+                {ligne.pin.nom}
+              </Text>
+              <Text className="text-xs text-slate-400">{ligne.nbBoites} boîte(s)</Text>
+            </View>
+          ))
         )}
       </ScrollView>
 
       <Pressable
-        onPress={confirmerValidation}
+        onPress={confirmerEnvoi}
         disabled={enCours || lignes.length === 0}
         className={`mt-4 items-center rounded-xl py-3.5 ${lignes.length === 0 ? 'bg-slate-200' : 'bg-emerald-500'}`}
       >
         <Text className={`text-base font-bold ${lignes.length === 0 ? 'text-slate-500' : 'text-white'}`}>
-          {enCours ? 'Validation…' : 'Valider la commande reçue'}
+          {enCours ? 'Envoi…' : 'Envoyer la commande'}
         </Text>
       </Pressable>
       <Pressable onPress={onFermer} className="mt-3 items-center py-2">
@@ -1252,11 +1225,13 @@ function PanneauPesee({
   popUpLocalId,
   profile,
   onFermer,
+  onApresPesee,
 }: {
   pin: StockPin;
   popUpLocalId: string;
   profile: Profile;
   onFermer: () => void;
+  onApresPesee?: () => void;
 }) {
   const { peser } = useGererCatalogue();
   const [poids, setPoids] = useState('');
@@ -1272,7 +1247,10 @@ function PanneauPesee({
     peser.mutate(
       { pinId: pin.id, popUpLocalId, poidsPese: poidsNum, profileId: profile.id },
       {
-        onSuccess: onFermer,
+        onSuccess: () => {
+          onApresPesee?.();
+          onFermer();
+        },
         onError: (e) =>
           Alert.alert('Erreur', e instanceof Error ? e.message : 'Impossible d\'enregistrer la pesée.'),
       },
@@ -1334,6 +1312,216 @@ function PanneauPesee({
   );
 }
 
+function BadgeStatutCommande({ statut }: { statut: 'envoyee' | 'prete' }) {
+  if (statut === 'envoyee') {
+    return (
+      <View className="self-start rounded-full bg-amber-100 px-2 py-0.5">
+        <Text className="text-[10px] font-semibold text-amber-700">À préparer</Text>
+      </View>
+    );
+  }
+  return (
+    <View className="self-start rounded-full bg-emerald-100 px-2 py-0.5">
+      <Text className="text-[10px] font-semibold text-emerald-700">Prête</Text>
+    </View>
+  );
+}
+
+function LigneCommandeLocal({ resume, onOuvrir }: { resume: CommandeResume; onOuvrir: () => void }) {
+  return (
+    <Pressable
+      onPress={onOuvrir}
+      className="mb-2.5 flex-row items-center justify-between rounded-xl bg-white p-3"
+    >
+      <View className="flex-1">
+        <Text className="text-sm font-semibold text-slate-800">{resume.popUpNom}</Text>
+        <Text className="text-xs text-slate-400">
+          {resume.nbFaites}/{resume.nbLignes} pin(s) prêt(s) · envoyée{' '}
+          {format(new Date(resume.commande.envoyee_at), 'dd/MM HH:mm')}
+        </Text>
+      </View>
+      <BadgeStatutCommande statut={resume.commande.statut === 'prete' ? 'prete' : 'envoyee'} />
+      <Text className="ml-2 text-lg text-indigo-400">›</Text>
+    </Pressable>
+  );
+}
+
+/** Onglet "Commandes" du Local : toutes les commandes envoyées par les pop-ups, à préparer puis
+ * valider comme prêtes. */
+function VueCommandesLocal({ onOuvrirCommande }: { onOuvrirCommande: (commandeId: string) => void }) {
+  const { data: commandes, isLoading } = useCommandesEnAttenteLocal();
+
+  return (
+    <FlatList
+      className="flex-1"
+      contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+      data={commandes ?? []}
+      keyExtractor={(c) => c.commande.id}
+      renderItem={({ item }) => (
+        <LigneCommandeLocal resume={item} onOuvrir={() => onOuvrirCommande(item.commande.id)} />
+      )}
+      ListHeaderComponent={
+        <>
+          <Text className="mb-1 text-xs font-semibold uppercase text-slate-400">Commandes</Text>
+          <Text className="mb-3 text-xs text-slate-400">
+            Commandes envoyées par les pop-ups. Pèse chaque pin (ça coche automatiquement la case),
+            puis valide la commande comme prête — le pop-up sera prévenu qu'il peut venir la
+            récupérer.
+          </Text>
+        </>
+      }
+      ListEmptyComponent={
+        !isLoading ? <Text className="text-sm text-slate-400">Aucune commande en attente.</Text> : null
+      }
+    />
+  );
+}
+
+function LignePreparationCommande({
+  ligne,
+  onPeser,
+  onBasculerFait,
+}: {
+  ligne: { id: string; fait: boolean; pin: StockPin };
+  onPeser: () => void;
+  onBasculerFait: (fait: boolean) => void;
+}) {
+  return (
+    <View
+      className={`mb-2 flex-row items-center gap-3 rounded-xl p-2 ${ligne.fait ? 'bg-emerald-50' : 'bg-slate-50'}`}
+    >
+      {ligne.pin.photo_url ? (
+        <Image source={{ uri: ligne.pin.photo_url }} className="h-14 w-14 rounded-lg bg-slate-100" />
+      ) : (
+        <View className="h-14 w-14 items-center justify-center rounded-lg bg-slate-100">
+          <Text className="text-lg text-slate-300">?</Text>
+        </View>
+      )}
+      <View className="flex-1">
+        <Text
+          numberOfLines={1}
+          className={`text-sm font-semibold ${ligne.fait ? 'text-slate-400 line-through' : 'text-slate-800'}`}
+        >
+          {ligne.pin.nom}
+        </Text>
+        <Text className="text-xs text-slate-400">
+          SKU {ligne.pin.sku_pimpit ?? ligne.pin.sku_fournisseur ?? '—'} · Restant{' '}
+          {ligne.pin.stock_general}
+          {ligne.pin.poids_unitaire !== null ? ` · ${ligne.pin.poids_unitaire} g/10` : ''}
+        </Text>
+      </View>
+      <Pressable onPress={onPeser} className="items-center justify-center rounded-lg bg-indigo-600 px-3 py-2">
+        <Text className="text-xs font-bold text-white">Peser</Text>
+      </Pressable>
+      <Pressable
+        onPress={() => onBasculerFait(!ligne.fait)}
+        className={`h-7 w-7 items-center justify-center rounded-md border-2 ${
+          ligne.fait ? 'border-emerald-600 bg-emerald-600' : 'border-slate-300'
+        }`}
+      >
+        {ligne.fait && <Text className="text-xs font-bold text-white">✓</Text>}
+      </Pressable>
+    </View>
+  );
+}
+
+/** Écran de préparation d'une commande (Local) : peser chaque pin (coche automatiquement la case
+ * "fait") ou cocher manuellement, puis valider comme prête — historise trouvé/pas trouvé pin par
+ * pin (alimente l'ajustement auto de seuil_cible) et prévient le pop-up. La pesée elle-même
+ * s'ouvre au niveau de l'écran parent (StockScreen), pas ici, pour rester une feuille modale
+ * indépendante plutôt qu'imbriquée (une FeuilleModale imbriquée dans une autre ne couvrirait que
+ * la zone de la première, pas tout l'écran). */
+function PanneauPreparationCommande({
+  commandeId,
+  profile,
+  basculerFait,
+  validerPrete,
+  onPeser,
+  onFermer,
+}: {
+  commandeId: string;
+  profile: Profile;
+  basculerFait: ReturnType<typeof useGererPreparationCommande>['basculerFait'];
+  validerPrete: ReturnType<typeof useGererPreparationCommande>['validerPrete'];
+  onPeser: (pin: StockPin, ligneId: string) => void;
+  onFermer: () => void;
+}) {
+  const { data } = useCommandeDetail(commandeId);
+
+  if (!data) {
+    return (
+      <FeuilleModale onClose={onFermer}>
+        <ActivityIndicator color="#6366F1" />
+      </FeuilleModale>
+    );
+  }
+
+  const { commande, popUpNom, lignes } = data;
+  const dejaPrete = commande.statut === 'prete';
+
+  const confirmerValidation = () => {
+    Alert.alert(
+      'Valider la commande comme prête',
+      `${popUpNom} sera prévenu que la commande est prête à récupérer. Les pins non cochés seront enregistrés comme non trouvés.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Valider',
+          onPress: () =>
+            validerPrete.mutate(
+              {
+                commandeId,
+                popUpId: commande.pop_up_id,
+                profileId: profile.id,
+                lignes: lignes.map((l) => ({ pinId: l.pin_id, fait: l.fait })),
+              },
+              {
+                onSuccess: onFermer,
+                onError: (e) =>
+                  Alert.alert('Erreur', e instanceof Error ? e.message : 'Impossible de valider.'),
+              },
+            ),
+        },
+      ],
+    );
+  };
+
+  return (
+    <FeuilleModale onClose={onFermer}>
+      <Text className="mb-1 text-lg font-bold text-slate-900">Commande — {popUpNom}</Text>
+      <Text className="mb-4 text-sm text-slate-400">
+        Prends une poignée, pèse ce qu'il reste pour chaque pin — ça coche automatiquement la case.
+      </Text>
+
+      <ScrollView style={{ maxHeight: 420 }}>
+        {lignes.map((ligne) => (
+          <LignePreparationCommande
+            key={ligne.id}
+            ligne={ligne}
+            onPeser={() => onPeser(ligne.pin, ligne.id)}
+            onBasculerFait={(fait) => basculerFait.mutate({ ligneId: ligne.id, commandeId, fait })}
+          />
+        ))}
+      </ScrollView>
+
+      {!dejaPrete && (
+        <Pressable
+          onPress={confirmerValidation}
+          disabled={validerPrete.isPending}
+          className="mt-4 items-center rounded-xl bg-emerald-500 py-3.5"
+        >
+          <Text className="text-base font-bold text-white">
+            {validerPrete.isPending ? 'Validation…' : 'Valider la commande'}
+          </Text>
+        </Pressable>
+      )}
+      <Pressable onPress={onFermer} className="mt-3 items-center py-2">
+        <Text className="font-semibold text-indigo-600">Fermer</Text>
+      </Pressable>
+    </FeuilleModale>
+  );
+}
+
 /** Écran Stock complet (Boîtes / Catalogue / Rapport, + Local) — identique pour tout le monde côté
  * Boîtes/Catalogue/Rapport. Seule différence, imposée par les droits en base (RLS, écriture sur
  * stock_pins réservée aux admins) : créer un pin, modifier son seuil cible ou ajuster le stock
@@ -1364,13 +1552,21 @@ export function StockScreen({ profile, onRetour }: { profile: Profile; onRetour:
   const popUpActif = popUpId ?? popUps[0]?.id;
 
   const { data: grille, isLoading: chargementGrille } = useGrillePopUp(popUpActif);
-  const { attribuer, basculerCommande, validerRemplissage, validerCommandes, supprimerRemplissage } =
+  const { attribuer, basculerCommande, validerRemplissage, supprimerRemplissage } =
     useGererCasesPopUp(popUpActif);
   const { data: derniersRemplissages } = useDerniersRemplissages(popUpActif);
   const { data: remplissages, isLoading: chargementRapport } = useRemplissages(popUpActif);
   const { data: historiqueCommandes } = useHistoriqueCommandes(popUpActif);
+  const { data: commandeActive } = useCommandeActivePopUp(popUpActif);
+  const { envoyer: envoyerCommandeMutation, marquerRecue } = useGererCommandePopUp(popUpActif);
+  const { basculerFait, validerPrete } = useGererPreparationCommande();
 
   const [vue, setVue] = useState<'boites' | 'catalogue' | 'rapport' | 'local'>('boites');
+  const [sousOngletLocal, setSousOngletLocal] = useState<'commandes' | 'stock'>('commandes');
+  const [commandeLocaleOuverte, setCommandeLocaleOuverte] = useState<string | null>(null);
+  const [preparationPesee, setPreparationPesee] = useState<{ pin: StockPin; ligneId: string } | null>(
+    null,
+  );
   const [rechercheLocal, setRechercheLocal] = useState('');
   const [pinAPeser, setPinAPeser] = useState<StockPin | null>(null);
   // Seule la position est mémorisée — le contenu est relu à chaque rendu depuis `grille` (source
@@ -1558,14 +1754,42 @@ export function StockScreen({ profile, onRetour }: { profile: Profile; onRetour:
           />
         )
       ) : vue === 'local' ? (
-        <VueLocal
-          pins={pins ?? []}
-          chargement={chargementPins}
-          recherche={rechercheLocal}
-          onChangeRecherche={setRechercheLocal}
-          demandesParPin={demandesParPin}
-          onPeser={setPinAPeser}
-        />
+        <View className="flex-1">
+          <View className="flex-row gap-2 px-4 pt-4">
+            <Pressable
+              onPress={() => setSousOngletLocal('commandes')}
+              className={`flex-1 items-center rounded-lg py-2 ${
+                sousOngletLocal === 'commandes' ? 'bg-indigo-600' : 'bg-slate-100'
+              }`}
+            >
+              <Text className={sousOngletLocal === 'commandes' ? 'font-semibold text-white' : 'text-slate-600'}>
+                Commandes
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setSousOngletLocal('stock')}
+              className={`flex-1 items-center rounded-lg py-2 ${
+                sousOngletLocal === 'stock' ? 'bg-indigo-600' : 'bg-slate-100'
+              }`}
+            >
+              <Text className={sousOngletLocal === 'stock' ? 'font-semibold text-white' : 'text-slate-600'}>
+                Stock local
+              </Text>
+            </Pressable>
+          </View>
+          {sousOngletLocal === 'commandes' ? (
+            <VueCommandesLocal onOuvrirCommande={setCommandeLocaleOuverte} />
+          ) : (
+            <VueLocal
+              pins={pins ?? []}
+              chargement={chargementPins}
+              recherche={rechercheLocal}
+              onChangeRecherche={setRechercheLocal}
+              demandesParPin={demandesParPin}
+              onPeser={setPinAPeser}
+            />
+          )}
+        </View>
       ) : (
         <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
           {vue === 'boites' && (
@@ -1596,17 +1820,59 @@ export function StockScreen({ profile, onRetour }: { profile: Profile; onRetour:
                 <Text className="text-xs font-semibold uppercase text-slate-400">
                   Remplissages — {popUps.find((p) => p.id === popUpActif)?.nom ?? ''}
                 </Text>
-                {estAdmin && popUpActif && (
-                  <View className="flex-row gap-2">
+                {popUpActif && (
+                  <View className="flex-row items-center gap-2">
                     <Pressable
                       onPress={() => setHistoriqueOuvert(true)}
                       className="rounded-lg bg-slate-100 px-3 py-1.5"
                     >
                       <Text className="text-xs font-semibold text-slate-600">Historique</Text>
                     </Pressable>
-                    <Pressable onPress={() => setCommandeOuverte(true)} className="rounded-lg bg-indigo-600 px-3 py-1.5">
-                      <Text className="text-xs font-semibold text-white">Voir la commande</Text>
-                    </Pressable>
+                    {!commandeActive ? (
+                      <Pressable
+                        onPress={() => setCommandeOuverte(true)}
+                        className="rounded-lg bg-indigo-600 px-3 py-1.5"
+                      >
+                        <Text className="text-xs font-semibold text-white">Voir la commande</Text>
+                      </Pressable>
+                    ) : commandeActive.commande.statut === 'envoyee' ? (
+                      <View className="rounded-lg bg-amber-100 px-3 py-1.5">
+                        <Text className="text-xs font-semibold text-amber-700">
+                          Commande envoyée — en préparation
+                        </Text>
+                      </View>
+                    ) : (
+                      <Pressable
+                        onPress={() =>
+                          Alert.alert(
+                            'Commande reçue',
+                            'Confirmer que la commande a bien été récupérée au local ?',
+                            [
+                              { text: 'Annuler', style: 'cancel' },
+                              {
+                                text: 'Confirmer',
+                                onPress: () =>
+                                  marquerRecue.mutate(
+                                    { commandeId: commandeActive.commande.id, profileId: profile.id },
+                                    {
+                                      onError: (e) =>
+                                        Alert.alert(
+                                          'Erreur',
+                                          e instanceof Error ? e.message : 'Impossible de valider.',
+                                        ),
+                                    },
+                                  ),
+                              },
+                            ],
+                          )
+                        }
+                        className="rounded-lg bg-emerald-600 px-3 py-1.5"
+                      >
+                        <Text className="text-xs font-semibold text-white">
+                          {marquerRecue.isPending ? 'Validation…' : 'Commande prête — Reçue ?'}
+                        </Text>
+                      </Pressable>
+                    )}
                   </View>
                 )}
               </View>
@@ -1683,19 +1949,47 @@ export function StockScreen({ profile, onRetour }: { profile: Profile; onRetour:
         />
       )}
 
+      {commandeLocaleOuverte && (
+        <PanneauPreparationCommande
+          commandeId={commandeLocaleOuverte}
+          profile={profile}
+          basculerFait={basculerFait}
+          validerPrete={validerPrete}
+          onPeser={(pin, ligneId) => setPreparationPesee({ pin, ligneId })}
+          onFermer={() => setCommandeLocaleOuverte(null)}
+        />
+      )}
+
+      {preparationPesee && popUpLocal && (
+        <PanneauPesee
+          pin={preparationPesee.pin}
+          popUpLocalId={popUpLocal.id}
+          profile={profile}
+          onFermer={() => setPreparationPesee(null)}
+          onApresPesee={() => {
+            if (!commandeLocaleOuverte) return;
+            basculerFait.mutate({
+              ligneId: preparationPesee.ligneId,
+              commandeId: commandeLocaleOuverte,
+              fait: true,
+            });
+          }}
+        />
+      )}
+
       {pinPhotoOuvert && <ModalePhotoPin pin={pinPhotoOuvert} onFermer={() => setPinPhotoOuvert(null)} />}
 
       {commandeOuverte && popUpActif && (
         <PanneauCommande
           lignes={commandeLignes}
           popUpNom={popUps.find((p) => p.id === popUpActif)?.nom ?? ''}
-          enCours={validerCommandes.isPending}
-          onValider={(resultats) =>
-            validerCommandes.mutate(
-              { profileId: profile.id, resultats },
+          enCours={envoyerCommandeMutation.isPending}
+          onEnvoyer={(pinIds) =>
+            envoyerCommandeMutation.mutate(
+              { profileId: profile.id, pinIds },
               {
                 onSuccess: () => setCommandeOuverte(false),
-                onError: (e) => Alert.alert('Erreur', e instanceof Error ? e.message : 'Impossible de valider.'),
+                onError: (e) => Alert.alert('Erreur', e instanceof Error ? e.message : "Impossible d'envoyer."),
               },
             )
           }

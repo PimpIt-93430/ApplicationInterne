@@ -5,20 +5,26 @@ import {
   ajusterStockGeneral,
   attribuerPinsACase,
   basculerCommandePin,
+  basculerLigneCommandeFaite,
   creerPin,
+  envoyerCommande,
   fetchAttributionsPins,
+  fetchCommandeActivePopUp,
+  fetchCommandeDetail,
+  fetchCommandesEnAttenteLocal,
   fetchDerniersRemplissages,
   fetchGrillePopUp,
   fetchHistoriqueCommandes,
   fetchMouvements,
   fetchPins,
   fetchRemplissages,
+  marquerCommandeRecue,
   modifierPin,
   peserStockGeneral,
   retirerPinDeCase,
   signalerPinInconnu,
   supprimerRemplissage as supprimerRemplissageApi,
-  validerCommandesRecuesEtHistoriser,
+  validerCommandePrete,
   validerRemplissageBoite,
 } from '@/api/stock';
 import { supabase } from '@/api/supabaseClient';
@@ -113,6 +119,86 @@ export function useHistoriqueCommandes(popUpId: string | undefined) {
   });
 }
 
+// Commande en cours (pas encore reçue) de ce pop-up — sert au statut affiché dans Rapport
+// (envoyée / prête à récupérer). Realtime sur commandes_pop_up filtré par pop-up : le pop-up voit
+// le passage à "prête" dès que le local valide, sans recharger l'écran.
+export function useCommandeActivePopUp(popUpId: string | undefined) {
+  const queryClient = useQueryClient();
+  const queryKey = ['stock-commande-active', popUpId];
+  const instanceId = useRef(Math.random().toString(36).slice(2)).current;
+
+  useEffect(() => {
+    if (!popUpId) return;
+    const channel = supabase
+      .channel(`stock-commande-active-${popUpId}-${instanceId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'commandes_pop_up', filter: `pop_up_id=eq.${popUpId}` },
+        () => queryClient.invalidateQueries({ queryKey }),
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [popUpId, queryClient, instanceId]);
+
+  return useQuery({
+    queryKey,
+    queryFn: () => fetchCommandeActivePopUp(popUpId as string),
+    enabled: !!popUpId,
+  });
+}
+
+// Onglet "Commandes" du Local : toutes les commandes envoyées ou prêtes, tous pop-ups confondus.
+export function useCommandesEnAttenteLocal() {
+  const queryClient = useQueryClient();
+  const queryKey = ['stock-commandes-local'];
+  const instanceId = useRef(Math.random().toString(36).slice(2)).current;
+
+  useEffect(() => {
+    const channel = supabase
+      .channel(`stock-commandes-local-${instanceId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'commandes_pop_up' }, () =>
+        queryClient.invalidateQueries({ queryKey }),
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient, instanceId]);
+
+  return useQuery({ queryKey, queryFn: fetchCommandesEnAttenteLocal });
+}
+
+// Détail d'une commande en préparation (écran du local) : photo/sku/poids/stock restant par pin,
+// coché "fait" au fil des pesées.
+export function useCommandeDetail(commandeId: string | undefined) {
+  const queryClient = useQueryClient();
+  const queryKey = ['stock-commande-detail', commandeId];
+  const instanceId = useRef(Math.random().toString(36).slice(2)).current;
+
+  useEffect(() => {
+    if (!commandeId) return;
+    const channel = supabase
+      .channel(`stock-commande-detail-${commandeId}-${instanceId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'commande_lignes', filter: `commande_id=eq.${commandeId}` },
+        () => queryClient.invalidateQueries({ queryKey }),
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [commandeId, queryClient, instanceId]);
+
+  return useQuery({
+    queryKey,
+    queryFn: () => fetchCommandeDetail(commandeId as string),
+    enabled: !!commandeId,
+  });
+}
+
 // Vue d'ensemble (catalogue) : quelles cases contiennent déjà chaque pin, tous pop-ups confondus.
 // Sans filtre de pop-up, donc abonnement realtime global sur la table plutôt que par lieu.
 export function useAttributionsPins() {
@@ -170,15 +256,6 @@ export function useGererCasesPopUp(popUpId: string | undefined) {
     },
   });
 
-  const validerCommandes = useMutation({
-    mutationFn: (params: { profileId: string; resultats: { pinId: string; trouve: boolean }[] }) =>
-      validerCommandesRecuesEtHistoriser({ popUpId: popUpId as string, ...params }),
-    onSuccess: () => {
-      invalidateGrille();
-      queryClient.invalidateQueries({ queryKey: ['stock-historique-commandes', popUpId] });
-    },
-  });
-
   const supprimerRemplissage = useMutation({
     mutationFn: (id: string) => supprimerRemplissageApi(id),
     onSuccess: () => {
@@ -192,9 +269,63 @@ export function useGererCasesPopUp(popUpId: string | undefined) {
     retirer,
     basculerCommande,
     validerRemplissage,
-    validerCommandes,
     supprimerRemplissage,
   };
+}
+
+// Côté pop-up (onglet Rapport) : envoyer une commande au local, puis confirmer sa réception une
+// fois récupérée.
+export function useGererCommandePopUp(popUpId: string | undefined) {
+  const queryClient = useQueryClient();
+  const invalidateActive = () =>
+    queryClient.invalidateQueries({ queryKey: ['stock-commande-active', popUpId] });
+
+  const envoyer = useMutation({
+    mutationFn: (params: { profileId: string; pinIds: string[] }) =>
+      envoyerCommande({ popUpId: popUpId as string, ...params }),
+    onSuccess: invalidateActive,
+  });
+
+  const marquerRecue = useMutation({
+    mutationFn: (params: { commandeId: string; profileId: string }) =>
+      marquerCommandeRecue({ popUpId: popUpId as string, ...params }),
+    onSuccess: () => {
+      invalidateActive();
+      queryClient.invalidateQueries({ queryKey: ['stock-grille', popUpId] });
+    },
+  });
+
+  return { envoyer, marquerRecue };
+}
+
+// Côté local : préparer une commande (cocher/peser pin par pin), puis la valider comme prête.
+export function useGererPreparationCommande() {
+  const queryClient = useQueryClient();
+
+  const basculerFait = useMutation({
+    mutationFn: (params: { ligneId: string; commandeId: string; fait: boolean }) =>
+      basculerLigneCommandeFaite(params.ligneId, params.fait),
+    onSuccess: (_data, params) => {
+      queryClient.invalidateQueries({ queryKey: ['stock-commande-detail', params.commandeId] });
+    },
+  });
+
+  const validerPrete = useMutation({
+    mutationFn: (params: {
+      commandeId: string;
+      popUpId: string;
+      profileId: string;
+      lignes: { pinId: string; fait: boolean }[];
+    }) => validerCommandePrete(params),
+    onSuccess: (_data, params) => {
+      queryClient.invalidateQueries({ queryKey: ['stock-commandes-local'] });
+      queryClient.invalidateQueries({ queryKey: ['stock-commande-detail', params.commandeId] });
+      queryClient.invalidateQueries({ queryKey: ['stock-commande-active', params.popUpId] });
+      queryClient.invalidateQueries({ queryKey: ['stock-historique-commandes', params.popUpId] });
+    },
+  });
+
+  return { basculerFait, validerPrete };
 }
 
 export function useGererCatalogue() {

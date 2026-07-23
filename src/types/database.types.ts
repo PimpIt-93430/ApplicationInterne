@@ -266,6 +266,33 @@ export interface CommandeHistorique {
   created_at: string;
 }
 
+export type StatutCommandePopUp = 'envoyee' | 'prete' | 'recue';
+
+/** Cycle de vie d'une commande envoyée par un pop-up au local : envoyée (par le pop-up) → prête
+ * (préparée/pesée par le local) → reçue (par le pop-up, une fois récupérée). Une seule commande
+ * pas encore reçue à la fois par pop-up (contrainte en base, migration 0037). */
+export interface CommandePopUp {
+  id: string;
+  pop_up_id: string;
+  statut: StatutCommandePopUp;
+  envoyee_par: string | null;
+  envoyee_at: string;
+  preparee_par: string | null;
+  preparee_at: string | null;
+  recue_par: string | null;
+  recue_at: string | null;
+  created_at: string;
+}
+
+/** Un pin de la commande — "fait" = le local a pesé/préparé ce pin pour cette commande. */
+export interface CommandeLigne {
+  id: string;
+  commande_id: string;
+  pin_id: string;
+  fait: boolean;
+  updated_at: string;
+}
+
 export type StatutVenteSumup = 'SUCCESSFUL' | 'CANCELLED' | 'FAILED' | 'REFUNDED' | 'CHARGE_BACK';
 
 /** Vente SumUp synchronisée chez nous (cf. supabase/functions/sync-ventes-sumup) — pop_up_id et

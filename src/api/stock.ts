@@ -3,6 +3,8 @@ import { decode } from 'base64-arraybuffer';
 import { supabase } from './supabaseClient';
 import type {
   CommandeHistorique,
+  CommandeLigne,
+  CommandePopUp,
   PopUpBoiteRemplissage,
   PopUpPinBoite,
   StockMouvement,
@@ -59,22 +61,128 @@ export function calculerCommandes(grille: CaseGrille[]): LigneCommande[] {
   return [...parPin.values()].sort((a, b) => b.nbBoites - a.nbBoites);
 }
 
-/** Valide la réception d'une commande pour un pop-up : logue dans commandes_historique quel pin a
- * été trouvé ou pas (sert de base au cron hebdomadaire qui ajuste seuil_cible, migration 0029),
- * puis repart à zéro pour ce lieu — retire le flag "à commander" de toutes ses cases. */
-export async function validerCommandesRecuesEtHistoriser(params: {
+/** Crée une commande à partir des pins actuellement "à commander" sur ce pop-up et l'envoie au
+ * local — une seule commande "en vol" (pas encore reçue) à la fois par pop-up (contrainte en
+ * base, migration 0037) : échoue si une commande précédente n'a pas encore été marquée reçue. */
+export async function envoyerCommande(params: {
   popUpId: string;
   profileId: string;
-  resultats: { pinId: string; trouve: boolean }[];
-}) {
-  const { popUpId, profileId, resultats } = params;
+  pinIds: string[];
+}): Promise<string> {
+  const { popUpId, profileId, pinIds } = params;
+  const { data: commande, error: errorCommande } = await supabase
+    .from('commandes_pop_up')
+    .insert({ pop_up_id: popUpId, envoyee_par: profileId })
+    .select('id')
+    .single();
+  if (errorCommande) throw errorCommande;
 
-  if (resultats.length > 0) {
+  const { error: errorLignes } = await supabase
+    .from('commande_lignes')
+    .insert(pinIds.map((pinId) => ({ commande_id: commande.id, pin_id: pinId })));
+  if (errorLignes) throw errorLignes;
+
+  return commande.id;
+}
+
+export interface CommandeAvecLignes {
+  commande: CommandePopUp;
+  lignes: (CommandeLigne & { pin: StockPin })[];
+}
+
+/** Commande en cours (pas encore reçue) pour ce pop-up, avec ses lignes — sert à afficher le
+ * statut dans l'onglet Rapport (envoyée / prête à récupérer). null si aucune commande en vol. */
+export async function fetchCommandeActivePopUp(popUpId: string): Promise<CommandeAvecLignes | null> {
+  const { data, error } = await supabase
+    .from('commandes_pop_up')
+    .select('*, lignes:commande_lignes(*, pin:stock_pins(*))')
+    .eq('pop_up_id', popUpId)
+    .neq('statut', 'recue')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  const { lignes, ...commande } = data as unknown as CommandePopUp & {
+    lignes: (CommandeLigne & { pin: StockPin })[];
+  };
+  return { commande, lignes };
+}
+
+export interface CommandeResume {
+  commande: CommandePopUp;
+  popUpNom: string;
+  nbLignes: number;
+  nbFaites: number;
+}
+
+/** Toutes les commandes en attente de préparation ou prêtes (tous pop-ups confondus) — sert à
+ * l'onglet "Commandes" du Local. */
+export async function fetchCommandesEnAttenteLocal(): Promise<CommandeResume[]> {
+  const { data, error } = await supabase
+    .from('commandes_pop_up')
+    .select('*, pop_up:pop_ups(nom), lignes:commande_lignes(fait)')
+    .in('statut', ['envoyee', 'prete'])
+    .order('envoyee_at', { ascending: true });
+  if (error) throw error;
+  return (
+    data as unknown as (CommandePopUp & { pop_up: { nom: string } | null; lignes: { fait: boolean }[] })[]
+  ).map((c) => {
+    const { pop_up, lignes, ...commande } = c;
+    return {
+      commande,
+      popUpNom: pop_up?.nom ?? '?',
+      nbLignes: lignes.length,
+      nbFaites: lignes.filter((l) => l.fait).length,
+    };
+  });
+}
+
+/** Détail d'une commande pour l'écran de préparation du local : chaque ligne avec son pin complet
+ * (photo, sku, poids, stock général restant). */
+export async function fetchCommandeDetail(
+  commandeId: string,
+): Promise<CommandeAvecLignes & { popUpNom: string }> {
+  const { data, error } = await supabase
+    .from('commandes_pop_up')
+    .select('*, pop_up:pop_ups(nom), lignes:commande_lignes(*, pin:stock_pins(*))')
+    .eq('id', commandeId)
+    .single();
+  if (error) throw error;
+  const { pop_up, lignes, ...commande } = data as unknown as CommandePopUp & {
+    pop_up: { nom: string } | null;
+    lignes: (CommandeLigne & { pin: StockPin })[];
+  };
+  return { commande, popUpNom: pop_up?.nom ?? '?', lignes };
+}
+
+/** Coche/décoche manuellement "fait" pour une ligne — utilisé quand le local prépare sans passer
+ * par la pesée (ex. pin sans poids_unitaire renseigné, ou correction). */
+export async function basculerLigneCommandeFaite(ligneId: string, fait: boolean) {
+  const { error } = await supabase
+    .from('commande_lignes')
+    .update({ fait, updated_at: new Date().toISOString() })
+    .eq('id', ligneId);
+  if (error) throw error;
+}
+
+/** Le local valide la commande comme prête : historise trouvé/pas trouvé pin par pin (même table
+ * que l'ancien flux, alimente le cron d'ajustement de seuil, migration 0029), puis passe la
+ * commande au statut "prête" — le pop-up la voit alors comme prête à récupérer. */
+export async function validerCommandePrete(params: {
+  commandeId: string;
+  popUpId: string;
+  profileId: string;
+  lignes: { pinId: string; fait: boolean }[];
+}) {
+  const { commandeId, popUpId, profileId, lignes } = params;
+
+  if (lignes.length > 0) {
     const { error: errorHistorique } = await supabase.from('commandes_historique').insert(
-      resultats.map((r) => ({
+      lignes.map((l) => ({
         pop_up_id: popUpId,
-        pin_id: r.pinId,
-        trouve: r.trouve,
+        pin_id: l.pinId,
+        trouve: l.fait,
         profile_id: profileId,
       })),
     );
@@ -82,10 +190,33 @@ export async function validerCommandesRecuesEtHistoriser(params: {
   }
 
   const { error } = await supabase
+    .from('commandes_pop_up')
+    .update({ statut: 'prete', preparee_par: profileId, preparee_at: new Date().toISOString() })
+    .eq('id', commandeId);
+  if (error) throw error;
+}
+
+/** Le pop-up confirme avoir récupéré la commande : clôt la commande et retire "à commander" de
+ * toutes les cases de ce pop-up (même comportement que l'ancien flux, juste déclenché ici plutôt
+ * qu'à la validation de réception à l'ancienne). */
+export async function marquerCommandeRecue(params: {
+  commandeId: string;
+  popUpId: string;
+  profileId: string;
+}) {
+  const { commandeId, popUpId, profileId } = params;
+
+  const { error: errorCommande } = await supabase
+    .from('commandes_pop_up')
+    .update({ statut: 'recue', recue_par: profileId, recue_at: new Date().toISOString() })
+    .eq('id', commandeId);
+  if (errorCommande) throw errorCommande;
+
+  const { error: errorBoites } = await supabase
     .from('pop_up_pin_boites')
     .update({ a_commander: false })
     .eq('pop_up_id', popUpId);
-  if (error) throw error;
+  if (errorBoites) throw errorBoites;
 }
 
 export interface LigneHistoriqueCommande {
