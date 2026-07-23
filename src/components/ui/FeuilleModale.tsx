@@ -1,10 +1,13 @@
 import { useRef } from 'react';
 import type { ReactNode } from 'react';
 import type { GestureResponderEvent, PanResponderGestureState } from 'react-native';
-import { Animated, PanResponder, Pressable, View } from 'react-native';
+import { Animated, PanResponder, Platform, Pressable, Text, View } from 'react-native';
 
-/** Feuille modale ancrée en bas d'écran : se ferme en tapant le fond assombri ou en glissant
- * la poignée vers le bas (au lieu de forcer à passer par un bouton "Fermer"/"Annuler"). */
+/** Sur mobile : feuille ancrée en bas d'écran, se ferme en tapant le fond assombri ou en glissant
+ * la poignée vers le bas. Sur ordinateur, une feuille pleine largeur ancrée en bas d'un écran de
+ * 1500+ px de large n'a plus aucun sens (ça donne une barre étirée collée en bas) — dialogue
+ * centré classique à la place, avec une croix pour fermer (pas de geste de glissement à la
+ * souris). */
 export function FeuilleModale({ onClose, children }: { onClose: () => void; children: ReactNode }) {
   const translateY = useRef(new Animated.Value(0)).current;
 
@@ -29,6 +32,24 @@ export function FeuilleModale({ onClose, children }: { onClose: () => void; chil
       },
     }),
   ).current;
+
+  if (Platform.OS === 'web') {
+    return (
+      <View className="absolute inset-0 items-center justify-center p-6">
+        <Pressable onPress={onClose} className="absolute inset-0 bg-black/40" />
+        <View className="max-h-[85vh] w-full max-w-[560px] rounded-2xl bg-white p-6 shadow-xl">
+          <Pressable
+            onPress={onClose}
+            hitSlop={8}
+            className="absolute right-4 top-4 z-10 h-8 w-8 items-center justify-center rounded-full hover:bg-slate-100"
+          >
+            <Text className="text-lg text-slate-400">×</Text>
+          </Pressable>
+          {children}
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View className="absolute inset-0 justify-end">

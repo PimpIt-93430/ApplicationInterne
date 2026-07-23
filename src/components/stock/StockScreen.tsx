@@ -1029,16 +1029,6 @@ interface PopUpDemandeur {
   popUpNom: string;
 }
 
-/** Urgence d'un pin pour le tri de l'onglet Local : 2 = en rupture (sous son seuil cible), 1 =
- * demandé par au moins un pop-up (a_commander), 0 = rien à signaler. Sert uniquement à faire
- * remonter les pins qui comptent en haut de la liste, sans les cacher pour autant — n'importe quel
- * pin reste pesable à tout moment (recherche). */
-function urgencePin(pin: StockPin, demandeurs: PopUpDemandeur[] | undefined): number {
-  if (pin.seuil_cible !== null && pin.stock_general < pin.seuil_cible) return 2;
-  if (demandeurs && demandeurs.length > 0) return 1;
-  return 0;
-}
-
 function LigneLocalPin({
   pin,
   demandeurs,
@@ -1066,6 +1056,9 @@ function LigneLocalPin({
       <View className="flex-1">
         <Text numberOfLines={1} className="text-sm font-semibold text-slate-800">
           {pin.nom}
+        </Text>
+        <Text className="text-[11px] text-slate-400">
+          SKU {pin.sku_pimpit ?? pin.sku_fournisseur ?? '—'}
         </Text>
         <Text className={`text-xs ${enRupture ? 'font-bold text-red-600' : 'text-slate-400'}`}>
           {pin.stock_general} en stock{pin.seuil_cible !== null ? ` · seuil ${pin.seuil_cible}` : ''}
@@ -1104,13 +1097,18 @@ function VueLocal({
   const pinsTries = useMemo(() => {
     const q = recherche.trim().toLowerCase();
     const liste = q ? pins.filter((p) => p.nom.toLowerCase().includes(q)) : pins;
+    // Trié par SKU (pas par urgence) — l'ordre suit le classement physique du local, plus facile
+    // à parcourir pin en main. Sans SKU, la ligne passe en fin de liste plutôt que de perturber
+    // l'ordre des autres.
     return [...liste].sort((a, b) => {
-      const urgenceA = urgencePin(a, demandesParPin.get(a.id));
-      const urgenceB = urgencePin(b, demandesParPin.get(b.id));
-      if (urgenceA !== urgenceB) return urgenceB - urgenceA;
+      const skuA = a.sku_pimpit ?? a.sku_fournisseur;
+      const skuB = b.sku_pimpit ?? b.sku_fournisseur;
+      if (skuA && skuB) return skuA.localeCompare(skuB, undefined, { numeric: true });
+      if (skuA) return -1;
+      if (skuB) return 1;
       return a.nom.localeCompare(b.nom);
     });
-  }, [pins, recherche, demandesParPin]);
+  }, [pins, recherche]);
 
   return (
     <FlatList
@@ -1118,7 +1116,7 @@ function VueLocal({
       contentContainerStyle={{
         padding: 16,
         paddingBottom: 40,
-        maxWidth: 760,
+        maxWidth: 960,
         width: '100%',
         alignSelf: 'center',
       }}
@@ -1294,7 +1292,7 @@ function VueCommandesLocal({ onOuvrirCommande }: { onOuvrirCommande: (commandeId
       contentContainerStyle={{
         padding: 16,
         paddingBottom: 40,
-        maxWidth: 760,
+        maxWidth: 960,
         width: '100%',
         alignSelf: 'center',
       }}
@@ -1698,7 +1696,7 @@ export function StockScreen({ profile, onRetour }: { profile: Profile; onRetour:
           className="flex-1"
           contentContainerStyle={{ padding: 16, paddingBottom: 40, alignItems: 'center' }}
         >
-        <View className="w-full max-w-[760px]">
+        <View className="w-full max-w-[960px]">
           {vue === 'boites' && (
             <>
               <Text className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Pop-up</Text>
