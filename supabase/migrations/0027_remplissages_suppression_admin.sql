@@ -5,3 +5,4 @@
 drop policy if exists "remplissages_suppression" on public.pop_up_boite_remplissages;
 create policy "remplissages_suppression" on public.pop_up_boite_remplissages
   for delete using (public.is_admin());
+

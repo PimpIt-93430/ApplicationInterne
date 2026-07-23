@@ -9,13 +9,16 @@ import {
   fetchAttributionsPins,
   fetchDerniersRemplissages,
   fetchGrillePopUp,
+  fetchHistoriqueCommandes,
   fetchMouvements,
   fetchPins,
   fetchRemplissages,
   modifierPin,
+  peserStockGeneral,
   retirerPinDeCase,
+  signalerPinInconnu,
   supprimerRemplissage as supprimerRemplissageApi,
-  validerCommandesRecues,
+  validerCommandesRecuesEtHistoriser,
   validerRemplissageBoite,
 } from '@/api/stock';
 import { supabase } from '@/api/supabaseClient';
@@ -100,6 +103,16 @@ export function useRemplissages(popUpId: string | undefined) {
   });
 }
 
+// Historique des commandes validées (qui a été trouvé ou pas) — sert aussi de base au cron
+// hebdomadaire qui ajuste seuil_cible côté base (migration 0029).
+export function useHistoriqueCommandes(popUpId: string | undefined) {
+  return useQuery({
+    queryKey: ['stock-historique-commandes', popUpId],
+    queryFn: () => fetchHistoriqueCommandes(popUpId as string),
+    enabled: !!popUpId,
+  });
+}
+
 // Vue d'ensemble (catalogue) : quelles cases contiennent déjà chaque pin, tous pop-ups confondus.
 // Sans filtre de pop-up, donc abonnement realtime global sur la table plutôt que par lieu.
 export function useAttributionsPins() {
@@ -158,8 +171,12 @@ export function useGererCasesPopUp(popUpId: string | undefined) {
   });
 
   const validerCommandes = useMutation({
-    mutationFn: () => validerCommandesRecues(popUpId as string),
-    onSuccess: invalidateGrille,
+    mutationFn: (params: { profileId: string; resultats: { pinId: string; trouve: boolean }[] }) =>
+      validerCommandesRecuesEtHistoriser({ popUpId: popUpId as string, ...params }),
+    onSuccess: () => {
+      invalidateGrille();
+      queryClient.invalidateQueries({ queryKey: ['stock-historique-commandes', popUpId] });
+    },
   });
 
   const supprimerRemplissage = useMutation({
@@ -207,5 +224,16 @@ export function useGererCatalogue() {
     onSuccess: invalidate,
   });
 
-  return { creer, modifier, ajusterStock };
+  const peser = useMutation({
+    mutationFn: (params: { pinId: string; popUpLocalId: string; poidsPese: number; profileId: string }) =>
+      peserStockGeneral(params),
+    onSuccess: invalidate,
+  });
+
+  const signaler = useMutation({
+    mutationFn: (params: { photoUrl: string; note?: string }) => signalerPinInconnu(params),
+    onSuccess: invalidate,
+  });
+
+  return { creer, modifier, ajusterStock, peser, signaler };
 }

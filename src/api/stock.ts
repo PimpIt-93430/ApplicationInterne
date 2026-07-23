@@ -2,6 +2,7 @@ import { decode } from 'base64-arraybuffer';
 
 import { supabase } from './supabaseClient';
 import type {
+  CommandeHistorique,
   PopUpBoiteRemplissage,
   PopUpPinBoite,
   StockMouvement,
@@ -58,14 +59,63 @@ export function calculerCommandes(grille: CaseGrille[]): LigneCommande[] {
   return [...parPin.values()].sort((a, b) => b.nbBoites - a.nbBoites);
 }
 
-/** Valide la réception d'une commande pour un pop-up : une fois les pins effectivement ramenés,
- * on repart à zéro pour ce lieu — retire le flag "à commander" de toutes ses cases. */
-export async function validerCommandesRecues(popUpId: string) {
+/** Valide la réception d'une commande pour un pop-up : logue dans commandes_historique quel pin a
+ * été trouvé ou pas (sert de base au cron hebdomadaire qui ajuste seuil_cible, migration 0029),
+ * puis repart à zéro pour ce lieu — retire le flag "à commander" de toutes ses cases. */
+export async function validerCommandesRecuesEtHistoriser(params: {
+  popUpId: string;
+  profileId: string;
+  resultats: { pinId: string; trouve: boolean }[];
+}) {
+  const { popUpId, profileId, resultats } = params;
+
+  if (resultats.length > 0) {
+    const { error: errorHistorique } = await supabase.from('commandes_historique').insert(
+      resultats.map((r) => ({
+        pop_up_id: popUpId,
+        pin_id: r.pinId,
+        trouve: r.trouve,
+        profile_id: profileId,
+      })),
+    );
+    if (errorHistorique) throw errorHistorique;
+  }
+
   const { error } = await supabase
     .from('pop_up_pin_boites')
     .update({ a_commander: false })
     .eq('pop_up_id', popUpId);
   if (error) throw error;
+}
+
+export interface LigneHistoriqueCommande {
+  id: string;
+  pinNom: string;
+  trouve: boolean;
+  profileNom: string;
+  createdAt: string;
+}
+
+/** Historique complet des commandes validées d'un pop-up, du plus récent au plus ancien. */
+export async function fetchHistoriqueCommandes(popUpId: string): Promise<LigneHistoriqueCommande[]> {
+  const { data, error } = await supabase
+    .from('commandes_historique')
+    .select('id, trouve, created_at, pin:stock_pins(nom), profile:profiles(nom_complet)')
+    .eq('pop_up_id', popUpId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (
+    data as unknown as (CommandeHistorique & {
+      pin: { nom: string } | null;
+      profile: { nom_complet: string } | null;
+    })[]
+  ).map((r) => ({
+    id: r.id,
+    pinNom: r.pin?.nom ?? '?',
+    trouve: r.trouve,
+    profileNom: r.profile?.nom_complet ?? '?',
+    createdAt: r.created_at,
+  }));
 }
 
 /** Bascule le flag "à commander" d'un pin dans une case précise — décision manuelle ("le sac a
@@ -157,13 +207,16 @@ export interface AttributionPin {
   pin_id: string;
   pop_up_id: string;
   case_position: string;
+  a_commander: boolean;
 }
 
-/** Toutes les cases (tous pop-ups confondus) où chaque pin est actuellement attribué — sert
- * uniquement à afficher "déjà attribué ou pas" dans le catalogue, indépendamment du pop-up choisi
- * dans l'onglet Boîtes. */
+/** Toutes les cases (tous pop-ups confondus) où chaque pin est actuellement attribué — sert à
+ * afficher "déjà attribué ou pas" dans le catalogue (indépendamment du pop-up choisi dans l'onglet
+ * Boîtes) et à agréger, pour l'onglet Local, quels pop-ups ont actuellement ce pin "à commander". */
 export async function fetchAttributionsPins(): Promise<AttributionPin[]> {
-  const { data, error } = await supabase.from('pop_up_pin_boites').select('pin_id, pop_up_id, case_position');
+  const { data, error } = await supabase
+    .from('pop_up_pin_boites')
+    .select('pin_id, pop_up_id, case_position, a_commander');
   if (error) throw error;
   return data;
 }
@@ -282,6 +335,50 @@ export async function ajusterStockGeneral(params: {
   if (errorMouvement) throw errorMouvement;
 }
 
+/**
+ * Pesée du stock local : on pèse ce qu'il reste d'un pin après avoir servi une ou plusieurs
+ * commandes pop-up, et la quantité est recalculée à partir du poids d'un lot de référence de 10
+ * (`poids_unitaire`) plutôt que saisie à la main. `popUpId` est celui du pop-up "local"
+ * (`pop_ups.est_local`) — pas null — pour que la policy RLS existante sur `stock_mouvements`
+ * (admin OU personne attribuée à ce pop-up) laisse un non-admin du local peser sans nouvelle
+ * migration ; ça sert aussi de traçabilité cohérente avec le reste du stock (chaque mouvement
+ * rattaché à un lieu). `quantite_delta` volontairement laissé à null (comme l'ancien système de
+ * pesée par boîte) : l'historique affiche alors `quantite_calculee` plutôt qu'un delta, cf.
+ * PanneauPin.
+ */
+export async function peserStockGeneral(params: {
+  pinId: string;
+  popUpLocalId: string;
+  poidsPese: number;
+  profileId: string;
+}): Promise<number> {
+  const { pinId, popUpLocalId, poidsPese, profileId } = params;
+  const pin = await fetchPin(pinId);
+  if (!pin.poids_unitaire || pin.poids_unitaire <= 0) {
+    throw new Error('Poids (g/10) manquant pour ce pin — renseigne-le dans le Catalogue avant de peser.');
+  }
+
+  const quantiteCalculee = Math.max(0, Math.round((poidsPese / pin.poids_unitaire) * 10));
+
+  const { error: errorMaj } = await supabase
+    .from('stock_pins')
+    .update({ stock_general: quantiteCalculee, updated_at: new Date().toISOString() })
+    .eq('id', pinId);
+  if (errorMaj) throw errorMaj;
+
+  const { error: errorMouvement } = await supabase.from('stock_mouvements').insert({
+    pin_id: pinId,
+    pop_up_id: popUpLocalId,
+    type: 'pesee' as TypeMouvementStock,
+    poids_pese: poidsPese,
+    quantite_calculee: quantiteCalculee,
+    profile_id: profileId,
+  });
+  if (errorMouvement) throw errorMouvement;
+
+  return quantiteCalculee;
+}
+
 export async function creerPin(params: {
   nom: string;
   fournisseur?: string;
@@ -303,6 +400,24 @@ export async function creerPin(params: {
       poids_unitaire: params.poidsUnitaire ?? null,
       prix_revente_ht: params.prixRevente ?? null,
       photo_url: params.photoUrl ?? null,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+/** Signale un pin trouvé physiquement mais absent du catalogue : juste une photo (+ note libre),
+ * nom provisoire — reste marqué `a_completer` jusqu'à ce qu'un admin renseigne son vrai nom, seuil
+ * et poids depuis la fiche détail (qui affiche alors un bandeau "à compléter"). */
+export async function signalerPinInconnu(params: { photoUrl: string; note?: string }): Promise<StockPin> {
+  const { data, error } = await supabase
+    .from('stock_pins')
+    .insert({
+      nom: 'Pin à identifier',
+      photo_url: params.photoUrl,
+      description: params.note?.trim() || null,
+      a_completer: true,
     })
     .select()
     .single();
