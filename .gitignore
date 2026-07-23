@@ -40,3 +40,14 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Projet Shopify séparé (repo Git imbriqué, gardé à part pour l'instant)
+/Shopify Pimp IT/
+
+# Supabase CLI (état local lié à la machine, pas au projet)
+/supabase/.temp/
+
+# Dossiers locaux de debug/perso, pas des assets du projet
+/Log_Apple/
+/Screen/
+/assets/Calendrier/

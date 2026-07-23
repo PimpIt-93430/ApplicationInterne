@@ -3,7 +3,7 @@
     "name": "Pimp It",
     "slug": "pimp-it-app",
     "scheme": "pimpitapp",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -24,7 +24,9 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "name": "Pimp It"
     },
     "plugins": [
       "expo-router",
