@@ -21,9 +21,9 @@ export function GrilleCases({
   const parPosition = new Map(grille.map((c) => [c.casePosition, c]));
 
   return (
-    <View className="gap-1.5">
+    <View className="gap-2">
       {LIGNES.map((ligne) => (
-        <View key={ligne} className="flex-row gap-1.5">
+        <View key={ligne} className="flex-row gap-2">
           {COLONNES.map((colonne) => {
             const position = `${colonne}${ligne}`;
             const c = parPosition.get(position);
@@ -35,9 +35,15 @@ export function GrilleCases({
                 key={position}
                 onPress={() => onPressCase(position)}
                 style={{ flex: 1 / COLONNES.length }}
-                className="aspect-square justify-between overflow-hidden rounded-lg border border-slate-200 bg-white p-1"
+                className={`aspect-square justify-between overflow-hidden rounded-xl border p-1.5 shadow-sm hover:border-indigo-300 ${
+                  statut === 'a_commander'
+                    ? 'border-red-200 bg-red-50'
+                    : contenus.length > 0
+                      ? 'border-slate-100 bg-white'
+                      : 'border-dashed border-slate-200 bg-slate-50'
+                }`}
               >
-                <Text className="text-[10px] font-semibold text-slate-300">{position}</Text>
+                <Text className="text-[10px] font-semibold text-slate-400">{position}</Text>
                 {contenus.length > 0 ? (
                   <>
                     <Text numberOfLines={2} className="text-[11px] font-semibold text-slate-800">
@@ -46,13 +52,13 @@ export function GrilleCases({
                     <View className="flex-row items-center justify-between">
                       <Text className="text-[9px] text-slate-400">{contenus.length} pin(s)</Text>
                       <View
-                        className="h-1.5 w-1.5 rounded-full"
+                        className="h-2 w-2 rounded-full"
                         style={{ backgroundColor: COULEURS_STATUT[statut] }}
                       />
                     </View>
                   </>
                 ) : (
-                  <Text className="self-center text-lg text-slate-200">+</Text>
+                  <Text className="self-center text-lg text-slate-300">+</Text>
                 )}
               </Pressable>
             );

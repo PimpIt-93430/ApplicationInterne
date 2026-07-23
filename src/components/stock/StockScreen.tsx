@@ -57,6 +57,45 @@ const TAILLES: { valeur: TaillePin; label: string }[] = [
   { valeur: 'gros', label: 'G' },
 ];
 
+/** Barre d'onglets en "segmented control" (piste grise, pastille blanche + ombre sur l'onglet
+ * actif) — remplace les anciens onglets en blocs pleins indigo, plus proche des standards web/
+ * desktop tout en restant identique en confort tactile sur mobile. */
+function BarreOnglets<T extends string>({
+  options,
+  valeur,
+  onChange,
+}: {
+  options: { valeur: T; label: string; badge?: number }[];
+  valeur: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <View className="flex-row gap-1 rounded-2xl bg-slate-100 p-1">
+      {options.map((option) => {
+        const actif = option.valeur === valeur;
+        return (
+          <Pressable
+            key={option.valeur}
+            onPress={() => onChange(option.valeur)}
+            className={`flex-1 flex-row items-center justify-center gap-1.5 rounded-xl py-2.5 ${
+              actif ? 'bg-white shadow-sm' : 'hover:bg-slate-200'
+            }`}
+          >
+            <Text className={`text-sm font-semibold ${actif ? 'text-indigo-600' : 'text-slate-500'}`}>
+              {option.label}
+            </Text>
+            {!!option.badge && option.badge > 0 && (
+              <View className="h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1">
+                <Text className="text-[10px] font-bold text-white">{option.badge}</Text>
+              </View>
+            )}
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 function PanneauPin({ pin, profile, onFermer }: { pin: StockPin; profile: Profile; onFermer: () => void }) {
   const { modifier, ajusterStock } = useGererCatalogue();
   const { data: mouvements } = useMouvements({ pinId: pin.id });
@@ -304,7 +343,7 @@ function FiltreCase({ valeur, onChange }: { valeur: string | null; onChange: (v:
       <Pressable
         onPress={() => onChange(null)}
         className={`items-center justify-center rounded-full px-3 py-2 ${
-          valeur === null ? 'bg-indigo-600' : 'bg-slate-100'
+          valeur === null ? 'bg-indigo-600' : 'bg-slate-100 hover:bg-slate-200'
         }`}
       >
         <Text className={`text-xs font-semibold ${valeur === null ? 'text-white' : 'text-slate-600'}`}>
@@ -316,7 +355,7 @@ function FiltreCase({ valeur, onChange }: { valeur: string | null; onChange: (v:
           key={pos}
           onPress={() => onChange(pos === valeur ? null : pos)}
           className={`items-center justify-center rounded-full px-3 py-2 ${
-            valeur === pos ? 'bg-indigo-600' : 'bg-slate-100'
+            valeur === pos ? 'bg-indigo-600' : 'bg-slate-100 hover:bg-slate-200'
           }`}
         >
           <Text className={`text-xs font-semibold ${valeur === pos ? 'text-white' : 'text-slate-600'}`}>
@@ -452,7 +491,7 @@ function FiltreAttribution({
           key={o.valeur}
           onPress={() => onChange(o.valeur)}
           className={`items-center justify-center rounded-full px-3 py-2 ${
-            valeur === o.valeur ? 'bg-indigo-600' : 'bg-slate-100'
+            valeur === o.valeur ? 'bg-indigo-600' : 'bg-slate-100 hover:bg-slate-200'
           }`}
         >
           <Text className={`text-xs font-semibold ${valeur === o.valeur ? 'text-white' : 'text-slate-600'}`}>
@@ -491,20 +530,20 @@ function TuileCataloguePin({
 
   return (
     <View className="w-[10%] p-1.5">
-      <View className="overflow-hidden rounded-xl border border-slate-100 bg-white">
-        <Pressable onPress={onOuvrirPhoto} className="aspect-square w-full items-center justify-center bg-slate-100">
+      <View className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm hover:border-indigo-200 hover:shadow-md">
+        <Pressable onPress={onOuvrirPhoto} className="aspect-square w-full items-center justify-center bg-slate-50">
           {pin.photo_url ? (
             <Image source={{ uri: pin.photo_url }} className="h-full w-full" resizeMode="cover" />
           ) : (
             <Text className="text-xs text-slate-400">?</Text>
           )}
         </Pressable>
-        <Pressable onPress={onOuvrirDetail} className="px-2 pt-2">
+        <Pressable onPress={onOuvrirDetail} className="px-2.5 pt-2.5">
           <Text numberOfLines={1} className="text-xs font-semibold text-slate-800">
             {pin.nom}
           </Text>
         </Pressable>
-        <View className="flex-row items-center gap-1 px-2 pb-1 pt-1.5">
+        <View className="flex-row items-center gap-1.5 px-2.5 pb-1.5 pt-2">
           <Text className="text-[10px] text-slate-400">Seuil</Text>
           <TextInput
             value={seuil}
@@ -512,19 +551,27 @@ function TuileCataloguePin({
             onEndEditing={enregistrerSeuil}
             keyboardType="numeric"
             placeholder="—"
-            className="flex-1 rounded-md border border-slate-200 px-1.5 py-1 text-xs"
+            className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs focus:border-indigo-400 focus:bg-white"
           />
         </View>
-        <View className="px-2 pb-2">
-          <Text
-            numberOfLines={1}
-            className={`text-[10px] font-semibold ${attributions.length > 0 ? 'text-emerald-700' : 'text-slate-400'}`}
+        <View className="px-2.5 pb-2.5 pt-0.5">
+          <View
+            className={`self-start rounded-full px-2 py-0.5 ${
+              attributions.length > 0 ? 'bg-emerald-50' : 'bg-slate-100'
+            }`}
           >
-            {attributions.length > 0
-              ? attributions.map((a) => `${a.popUpNom} ${a.casePosition}`).join(' · ')
-              : 'Non attribué'}
-          </Text>
-          {pin.a_completer && <Text className="mt-0.5 text-[10px] font-bold text-amber-600">À compléter</Text>}
+            <Text
+              numberOfLines={1}
+              className={`text-[10px] font-semibold ${
+                attributions.length > 0 ? 'text-emerald-700' : 'text-slate-400'
+              }`}
+            >
+              {attributions.length > 0
+                ? attributions.map((a) => `${a.popUpNom} ${a.casePosition}`).join(' · ')
+                : 'Non attribué'}
+            </Text>
+          </View>
+          {pin.a_completer && <Text className="mt-1 text-[10px] font-bold text-amber-600">À compléter</Text>}
         </View>
       </View>
     </View>
@@ -591,11 +638,11 @@ function VueCatalogueWeb({
       )}
       ListHeaderComponent={
         <>
-          <View className="mb-3 flex-row items-center justify-between">
-            <Text className="text-xs font-semibold uppercase text-slate-400">Catalogue</Text>
+          <View className="mb-4 flex-row items-center justify-between">
+            <Text className="text-xl font-bold text-slate-900">Catalogue</Text>
             <Pressable
               onPress={() => onToggleSignalement(!signalementOuvert)}
-              className="rounded-lg border border-dashed border-amber-300 bg-white px-3 py-2"
+              className="rounded-xl border border-dashed border-amber-300 bg-white px-3.5 py-2.5 shadow-sm hover:bg-amber-50"
             >
               <Text className="text-xs font-semibold text-amber-600">📷 Signaler un pin inconnu</Text>
             </Pressable>
@@ -606,7 +653,7 @@ function VueCatalogueWeb({
           {estAdmin && nbACompleter > 0 && (
             <Pressable
               onPress={onToggleFiltreACompleter}
-              className={`mb-3 flex-row items-center justify-between rounded-xl px-3 py-2.5 ${
+              className={`mb-4 flex-row items-center justify-between rounded-2xl px-4 py-3 shadow-sm ${
                 filtreACompleter ? 'bg-amber-600' : 'bg-amber-50'
               }`}
             >
@@ -619,20 +666,28 @@ function VueCatalogueWeb({
             </Pressable>
           )}
 
-          <TextInput
-            value={recherche}
-            onChangeText={onChangeRecherche}
-            placeholder={chargement ? 'Chargement…' : 'Rechercher un pin…'}
-            className="mb-3 rounded-xl border border-slate-200 bg-white px-4 py-3"
-          />
+          <View className="mb-5 gap-4 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+            <TextInput
+              value={recherche}
+              onChangeText={onChangeRecherche}
+              placeholder={chargement ? 'Chargement…' : 'Rechercher un pin…'}
+              className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 focus:border-indigo-400 focus:bg-white"
+            />
 
-          <View className="mb-3 flex-row items-center justify-between">
-            <Text className="text-xs font-semibold uppercase text-slate-400">Attribution</Text>
-            <FiltreAttribution valeur={filtreAttribution} onChange={onChangeFiltreAttribution} />
+            <View className="flex-row items-center justify-between">
+              <Text className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Attribution
+              </Text>
+              <FiltreAttribution valeur={filtreAttribution} onChange={onChangeFiltreAttribution} />
+            </View>
+
+            <View>
+              <Text className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Filtrer par case
+              </Text>
+              <FiltreCase valeur={caseFiltre} onChange={onChangeCaseFiltre} />
+            </View>
           </View>
-
-          <Text className="mb-1.5 text-xs font-semibold uppercase text-slate-400">Filtrer par case</Text>
-          <FiltreCase valeur={caseFiltre} onChange={onChangeCaseFiltre} />
         </>
       }
       ListEmptyComponent={
@@ -687,44 +742,49 @@ function RapportRemplissages({
   return (
     <>
       {remplissagesParJour.map((jour) => (
-        <View key={jour.jourISO} className="mb-5">
-          <Text className="mb-2 text-sm font-bold capitalize text-slate-900">
+        <View key={jour.jourISO} className="mb-6">
+          <Text className="mb-2.5 text-sm font-bold capitalize text-slate-900">
             {format(parseISO(jour.jourISO), 'EEEE d MMMM yyyy', { locale: fr })}
           </Text>
-          {jour.lignes.map((ligne) => (
-            <View key={ligne.id} className="mb-2 flex-row items-center rounded-xl bg-white p-3">
-              <Pressable
-                onPress={() => onPressBoite(ligne.casePosition)}
-                className="flex-1 flex-row items-center justify-between"
+          <View className="gap-2">
+            {jour.lignes.map((ligne) => (
+              <View
+                key={ligne.id}
+                className="flex-row items-center rounded-2xl border border-slate-100 bg-white p-3.5 shadow-sm"
               >
-                <Text className="text-sm font-bold text-slate-800">Boîte {ligne.casePosition}</Text>
-                <View className="flex-row items-center gap-2">
-                  <Text className="text-xs text-slate-400">
-                    {ligne.profileNom} · {format(new Date(ligne.createdAt), 'HH:mm')}
-                  </Text>
-                  <Text className="text-lg text-indigo-400">›</Text>
-                </View>
-              </Pressable>
-              {estAdmin && (
                 <Pressable
-                  onPress={() =>
-                    Alert.alert(
-                      'Supprimer ce remplissage',
-                      `Supprimer le remplissage de la boîte ${ligne.casePosition} par ${ligne.profileNom} ? Cette action est irréversible.`,
-                      [
-                        { text: 'Annuler', style: 'cancel' },
-                        { text: 'Supprimer', style: 'destructive', onPress: () => onSupprimer(ligne.id) },
-                      ],
-                    )
-                  }
-                  hitSlop={8}
-                  className="ml-3 px-1 py-1"
+                  onPress={() => onPressBoite(ligne.casePosition)}
+                  className="flex-1 flex-row items-center justify-between"
                 >
-                  <Text className="text-xs font-semibold text-red-500">Supprimer</Text>
+                  <Text className="text-sm font-bold text-slate-800">Boîte {ligne.casePosition}</Text>
+                  <View className="flex-row items-center gap-2">
+                    <Text className="text-xs text-slate-400">
+                      {ligne.profileNom} · {format(new Date(ligne.createdAt), 'HH:mm')}
+                    </Text>
+                    <Text className="text-lg text-indigo-400">›</Text>
+                  </View>
                 </Pressable>
-              )}
-            </View>
-          ))}
+                {estAdmin && (
+                  <Pressable
+                    onPress={() =>
+                      Alert.alert(
+                        'Supprimer ce remplissage',
+                        `Supprimer le remplissage de la boîte ${ligne.casePosition} par ${ligne.profileNom} ? Cette action est irréversible.`,
+                        [
+                          { text: 'Annuler', style: 'cancel' },
+                          { text: 'Supprimer', style: 'destructive', onPress: () => onSupprimer(ligne.id) },
+                        ],
+                      )
+                    }
+                    hitSlop={8}
+                    className="ml-3 rounded-lg px-2 py-1 hover:bg-red-50"
+                  >
+                    <Text className="text-xs font-semibold text-red-500">Supprimer</Text>
+                  </Pressable>
+                )}
+              </View>
+            ))}
+          </View>
         </View>
       ))}
     </>
@@ -992,14 +1052,14 @@ function LigneLocalPin({
 
   return (
     <View
-      className={`mb-2.5 flex-row items-center gap-3 rounded-xl p-3 ${
-        enRupture ? 'border border-red-200 bg-red-50' : 'bg-white'
+      className={`mb-2.5 flex-row items-center gap-3 rounded-2xl p-3 shadow-sm ${
+        enRupture ? 'border border-red-200 bg-red-50' : 'border border-slate-100 bg-white'
       }`}
     >
       {pin.photo_url ? (
-        <Image source={{ uri: pin.photo_url }} className="h-12 w-12 rounded-lg bg-slate-100" />
+        <Image source={{ uri: pin.photo_url }} className="h-12 w-12 rounded-xl bg-slate-100" />
       ) : (
-        <View className="h-12 w-12 items-center justify-center rounded-lg bg-slate-100">
+        <View className="h-12 w-12 items-center justify-center rounded-xl bg-slate-100">
           <Text className="text-xs text-slate-300">?</Text>
         </View>
       )}
@@ -1016,7 +1076,10 @@ function LigneLocalPin({
           </Text>
         )}
       </View>
-      <Pressable onPress={onPeser} className="items-center justify-center rounded-lg bg-indigo-600 px-3.5 py-2.5">
+      <Pressable
+        onPress={onPeser}
+        className="items-center justify-center rounded-xl bg-indigo-600 px-4 py-2.5 hover:bg-indigo-500"
+      >
         <Text className="text-xs font-bold text-white">Peser</Text>
       </Pressable>
     </View>
@@ -1052,7 +1115,13 @@ function VueLocal({
   return (
     <FlatList
       className="flex-1"
-      contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+      contentContainerStyle={{
+        padding: 16,
+        paddingBottom: 40,
+        maxWidth: 760,
+        width: '100%',
+        alignSelf: 'center',
+      }}
       keyboardShouldPersistTaps="handled"
       data={pinsTries}
       keyExtractor={(p) => p.id}
@@ -1065,7 +1134,9 @@ function VueLocal({
       )}
       ListHeaderComponent={
         <>
-          <Text className="mb-1 text-xs font-semibold uppercase text-slate-400">Stock local</Text>
+          <Text className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Stock local
+          </Text>
           <Text className="mb-3 text-xs text-slate-400">
             En rouge : sous le seuil cible. "Demandé par" : au moins une case pop-up a coché
             "Commander" pour ce pin. Pèse ce qu'il reste après avoir servi une commande pour
@@ -1075,7 +1146,7 @@ function VueLocal({
             value={recherche}
             onChangeText={onChangeRecherche}
             placeholder={chargement ? 'Chargement…' : 'Rechercher un pin à peser…'}
-            className="mb-3 rounded-xl border border-slate-200 bg-white px-4 py-3"
+            className="mb-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm"
           />
         </>
       }
@@ -1181,13 +1252,13 @@ function PanneauPesee({
 function BadgeStatutCommande({ statut }: { statut: 'envoyee' | 'prete' }) {
   if (statut === 'envoyee') {
     return (
-      <View className="self-start rounded-full bg-amber-100 px-2 py-0.5">
+      <View className="self-start rounded-full bg-amber-100 px-2.5 py-1">
         <Text className="text-[10px] font-semibold text-amber-700">À préparer</Text>
       </View>
     );
   }
   return (
-    <View className="self-start rounded-full bg-emerald-100 px-2 py-0.5">
+    <View className="self-start rounded-full bg-emerald-100 px-2.5 py-1">
       <Text className="text-[10px] font-semibold text-emerald-700">Prête</Text>
     </View>
   );
@@ -1197,17 +1268,17 @@ function LigneCommandeLocal({ resume, onOuvrir }: { resume: CommandeResume; onOu
   return (
     <Pressable
       onPress={onOuvrir}
-      className="mb-2.5 flex-row items-center justify-between rounded-xl bg-white p-3"
+      className="mb-2.5 flex-row items-center justify-between rounded-2xl border border-slate-100 bg-white p-4 shadow-sm hover:border-indigo-200"
     >
       <View className="flex-1">
         <Text className="text-sm font-semibold text-slate-800">{resume.popUpNom}</Text>
-        <Text className="text-xs text-slate-400">
+        <Text className="mt-0.5 text-xs text-slate-400">
           {resume.nbFaites}/{resume.nbLignes} pin(s) prêt(s) · envoyée{' '}
           {format(new Date(resume.commande.envoyee_at), 'dd/MM HH:mm')}
         </Text>
       </View>
       <BadgeStatutCommande statut={resume.commande.statut === 'prete' ? 'prete' : 'envoyee'} />
-      <Text className="ml-2 text-lg text-indigo-400">›</Text>
+      <Text className="ml-3 text-lg text-indigo-400">›</Text>
     </Pressable>
   );
 }
@@ -1220,7 +1291,13 @@ function VueCommandesLocal({ onOuvrirCommande }: { onOuvrirCommande: (commandeId
   return (
     <FlatList
       className="flex-1"
-      contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+      contentContainerStyle={{
+        padding: 16,
+        paddingBottom: 40,
+        maxWidth: 760,
+        width: '100%',
+        alignSelf: 'center',
+      }}
       data={commandes ?? []}
       keyExtractor={(c) => c.commande.id}
       renderItem={({ item }) => (
@@ -1228,7 +1305,9 @@ function VueCommandesLocal({ onOuvrirCommande }: { onOuvrirCommande: (commandeId
       )}
       ListHeaderComponent={
         <>
-          <Text className="mb-1 text-xs font-semibold uppercase text-slate-400">Commandes</Text>
+          <Text className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Commandes
+          </Text>
           <Text className="mb-3 text-xs text-slate-400">
             Commandes envoyées par les pop-ups. Pèse chaque pin (ça coche automatiquement la case),
             puis valide la commande comme prête — le pop-up sera prévenu qu'il peut venir la
@@ -1237,7 +1316,11 @@ function VueCommandesLocal({ onOuvrirCommande }: { onOuvrirCommande: (commandeId
         </>
       }
       ListEmptyComponent={
-        !isLoading ? <Text className="text-sm text-slate-400">Aucune commande en attente.</Text> : null
+        !isLoading ? (
+          <Text className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-center text-sm text-slate-400">
+            Aucune commande en attente.
+          </Text>
+        ) : null
       }
     />
   );
@@ -1530,46 +1613,17 @@ export function StockScreen({ profile, onRetour }: { profile: Profile; onRetour:
     <View className="flex-1 bg-slate-50">
       <EnteteRetour titre="Pin's" onRetour={onRetour} />
 
-      <View className="flex-row gap-2 px-4 pt-4">
-        <Pressable
-          onPress={() => setVue('boites')}
-          className={`flex-1 items-center rounded-lg py-2.5 ${vue === 'boites' ? 'bg-indigo-600' : 'bg-slate-100'}`}
-        >
-          <Text className={vue === 'boites' ? 'font-semibold text-white' : 'text-slate-600'}>Boîtes</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => setVue('catalogue')}
-          className={`flex-1 flex-row items-center justify-center gap-1.5 rounded-lg py-2.5 ${
-            vue === 'catalogue' ? 'bg-indigo-600' : 'bg-slate-100'
-          }`}
-        >
-          <Text className={vue === 'catalogue' ? 'font-semibold text-white' : 'text-slate-600'}>
-            Catalogue
-          </Text>
-          {estAdmin && nbACompleter > 0 && (
-            <View className="h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1">
-              <Text className="text-[10px] font-bold text-white">{nbACompleter}</Text>
-            </View>
-          )}
-        </Pressable>
-        <Pressable
-          onPress={() => setVue('rapport')}
-          className={`flex-1 items-center rounded-lg py-2.5 ${vue === 'rapport' ? 'bg-indigo-600' : 'bg-slate-100'}`}
-        >
-          <Text className={vue === 'rapport' ? 'font-semibold text-white' : 'text-slate-600'}>
-            Rapport
-          </Text>
-        </Pressable>
-        {montrerOngletLocal && (
-          <Pressable
-            onPress={() => setVue('local')}
-            className={`flex-1 items-center rounded-lg py-2.5 ${vue === 'local' ? 'bg-indigo-600' : 'bg-slate-100'}`}
-          >
-            <Text className={vue === 'local' ? 'font-semibold text-white' : 'text-slate-600'}>
-              Local
-            </Text>
-          </Pressable>
-        )}
+      <View className="px-4 pt-4">
+        <BarreOnglets
+          valeur={vue}
+          onChange={setVue}
+          options={[
+            { valeur: 'boites', label: 'Boîtes' },
+            { valeur: 'catalogue', label: 'Catalogue', badge: estAdmin ? nbACompleter : 0 },
+            { valeur: 'rapport', label: 'Rapport' },
+            ...(montrerOngletLocal ? [{ valeur: 'local' as const, label: 'Local' }] : []),
+          ]}
+        />
       </View>
 
       {vue === 'catalogue' ? (
@@ -1616,27 +1670,15 @@ export function StockScreen({ profile, onRetour }: { profile: Profile; onRetour:
         )
       ) : vue === 'local' ? (
         <View className="flex-1">
-          <View className="flex-row gap-2 px-4 pt-4">
-            <Pressable
-              onPress={() => setSousOngletLocal('commandes')}
-              className={`flex-1 items-center rounded-lg py-2 ${
-                sousOngletLocal === 'commandes' ? 'bg-indigo-600' : 'bg-slate-100'
-              }`}
-            >
-              <Text className={sousOngletLocal === 'commandes' ? 'font-semibold text-white' : 'text-slate-600'}>
-                Commandes
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => setSousOngletLocal('stock')}
-              className={`flex-1 items-center rounded-lg py-2 ${
-                sousOngletLocal === 'stock' ? 'bg-indigo-600' : 'bg-slate-100'
-              }`}
-            >
-              <Text className={sousOngletLocal === 'stock' ? 'font-semibold text-white' : 'text-slate-600'}>
-                Stock local
-              </Text>
-            </Pressable>
+          <View className="px-4 pt-4">
+            <BarreOnglets
+              valeur={sousOngletLocal}
+              onChange={setSousOngletLocal}
+              options={[
+                { valeur: 'commandes', label: 'Commandes' },
+                { valeur: 'stock', label: 'Stock local' },
+              ]}
+            />
           </View>
           {sousOngletLocal === 'commandes' ? (
             <VueCommandesLocal onOuvrirCommande={setCommandeLocaleOuverte} />
@@ -1652,11 +1694,15 @@ export function StockScreen({ profile, onRetour }: { profile: Profile; onRetour:
           )}
         </View>
       ) : (
-        <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+        <ScrollView
+          className="flex-1"
+          contentContainerStyle={{ padding: 16, paddingBottom: 40, alignItems: 'center' }}
+        >
+        <View className="w-full max-w-[760px]">
           {vue === 'boites' && (
             <>
-              <Text className="mb-2 text-xs font-semibold uppercase text-slate-400">Pop-up</Text>
-              <View className="mb-4">
+              <Text className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Pop-up</Text>
+              <View className="mb-5">
                 <Dropdown
                   value={popUpActif}
                   options={popUps.map((p) => ({ value: p.id, label: p.nom, couleur: p.couleur }))}
@@ -1758,6 +1804,7 @@ export function StockScreen({ profile, onRetour }: { profile: Profile; onRetour:
               )}
             </>
           )}
+        </View>
         </ScrollView>
       )}
 
