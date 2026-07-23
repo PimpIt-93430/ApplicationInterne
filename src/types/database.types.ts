@@ -2,6 +2,9 @@ export type Role = 'admin' | 'employe';
 export type TypeContrat = 'manager' | 'employe' | 'alternant';
 export type StatutShift = 'brouillon' | 'valide' | 'publie';
 export type TypeConge = 'conge' | 'indisponibilite';
+// Finance reste strictement réservé aux admins (décision explicite, migration 0035) : pas de droit
+// pour ça, uniquement "calendrier" peut être accordé à un non-admin.
+export type Fonctionnalite = 'calendrier';
 
 export interface Profile {
   id: string;
@@ -22,6 +25,13 @@ export interface PopUp {
   couleur: string;
   actif: boolean;
   est_local: boolean;
+  /** Date d'ouverture / fermeture prévue — nullable (inconnue, ou non pertinent pour le local). */
+  date_debut: string | null;
+  date_fin: string | null;
+  /** Coordonnées GPS du pop-up, saisies à la main — sert à retrouver quel lieu a fait une vente
+   * SumUp par proximité (cf. src/api/ventesSumup.ts), aucun autre champ fiable pour ça. */
+  lat: number | null;
+  lon: number | null;
 }
 
 /** Attribution d'une personne à un lieu où elle peut être planifiée. Une personne peut être
@@ -31,6 +41,19 @@ export interface ProfilPopUp {
   id: string;
   profile_id: string;
   pop_up_id: string;
+  created_at: string;
+}
+
+/** Accès élargi accordé à un employé non-admin sur Calendrier (responsable d'un pop-up),
+ * éventuellement limité à un seul pop-up (`pop_up_id: null` = tous les pop-ups) — cf.
+ * `a_droit`/`a_droit_sur_profil` en RLS (migration 0034). Le Stock n'a pas de droit dédié : il
+ * continue de suivre `ProfilPopUp`. Finance reste strictement réservé aux admins (migration 0035,
+ * décision explicite — pas de droit possible pour ça). */
+export interface DroitEmploye {
+  id: string;
+  profile_id: string;
+  fonctionnalite: Fonctionnalite;
+  pop_up_id: string | null;
   created_at: string;
 }
 
@@ -69,6 +92,11 @@ export interface PlanningShift {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  /** Étiquette libre affichée sur le bloc (ex. "Ouverture", "Fermeture"...), liste fixe côté
+   * client (cf. ETIQUETTES_SHIFT dans PanneauCreationShift.tsx). Nullable = pas d'étiquette.
+   * Optionnelle (et non juste nullable) pour que les inserts existants qui ne la renseignent pas
+   * (génération auto du planning, cf. domain/generationPlanning.ts) restent valides tels quels. */
+  etiquette?: string | null;
 }
 
 export interface Conge {
@@ -100,6 +128,74 @@ export interface Notification {
   created_at: string;
 }
 
+/** Informations RH sensibles d'un collaborateur (écran Équipe, web uniquement) — séparées de
+ * `Profile` car ce dernier est lisible par tout utilisateur connecté (cf. policy
+ * "profils_lecture") : ces champs ne doivent être visibles que par l'admin et la personne
+ * concernée (cf. policies "informations_rh_*" dans la migration 0030). */
+export interface InformationsRh {
+  profile_id: string;
+
+  genre: string | null;
+  nationalite: string | null;
+  date_naissance: string | null;
+  pays_naissance: string | null;
+  departement_naissance: string | null;
+  commune_naissance: string | null;
+  situation_familiale: string | null;
+  nombre_personnes_charge: number | null;
+
+  tel_mobile: string | null;
+  tel_fixe: string | null;
+  notifications_sms: boolean;
+  adresse: string | null;
+  complement_adresse: string | null;
+  code_postal: string | null;
+  ville: string | null;
+  pays: string | null;
+
+  contact_urgence_prenom: string | null;
+  contact_urgence_nom: string | null;
+  contact_urgence_lien: string | null;
+  contact_urgence_tel_mobile: string | null;
+  contact_urgence_tel_fixe: string | null;
+
+  nom_titulaire_compte: string | null;
+  iban: string | null;
+  bic: string | null;
+
+  numero_secu: string | null;
+  handicap: boolean;
+  type_handicap: string | null;
+  date_derniere_visite_medicale: string | null;
+  visite_medicale_renforcee: boolean;
+  prochaine_visite_medicale: string | null;
+
+  matricule: string | null;
+  date_debut_contrat: string | null;
+  heure_debut_contrat: string | null;
+  responsable_hierarchique_id: string | null;
+  etablissement_par_defaut_id: string | null;
+
+  travailleur_etranger: boolean;
+  autorisation_travail: string | null;
+
+  /** Email utilisé par ce salarié pour se connecter à SumUp — sert à rattacher ses ventes (champ
+   * `user` d'une transaction SumUp). Ici et pas sur `profiles` : ce dernier est lisible/modifiable
+   * par tout employé connecté, ce qui en ferait un champ non fiable pour l'attribution financière. */
+  sumup_email: string | null;
+
+  updated_at: string;
+}
+
+export interface DocumentEmploye {
+  id: string;
+  profile_id: string;
+  nom_fichier: string;
+  chemin_stockage: string;
+  uploaded_by: string;
+  created_at: string;
+}
+
 export type TypeMouvementStock = 'reception' | 'ajustement' | 'pesee' | 'estimation';
 
 export type TaillePin = 'petit' | 'moyen' | 'gros';
@@ -119,6 +215,7 @@ export interface StockPin {
   seuil_cible: number | null;
   taille: TaillePin | null;
   prix_revente_ht: number | null;
+  a_completer: boolean;
   actif: boolean;
   airtable_record_id: string | null;
   created_at: string;
@@ -156,6 +253,43 @@ export interface PopUpBoiteRemplissage {
   case_position: string;
   profile_id: string;
   created_at: string;
+}
+
+/** Une ligne par pin à chaque validation de commande reçue : sert d'historique visible et de
+ * base au cron hebdomadaire qui ajuste seuil_cible (voir migration 0029). */
+export interface CommandeHistorique {
+  id: string;
+  pop_up_id: string;
+  pin_id: string;
+  trouve: boolean;
+  profile_id: string | null;
+  created_at: string;
+}
+
+export type StatutVenteSumup = 'SUCCESSFUL' | 'CANCELLED' | 'FAILED' | 'REFUNDED' | 'CHARGE_BACK';
+
+/** Vente SumUp synchronisée chez nous (cf. supabase/functions/sync-ventes-sumup) — pop_up_id et
+ * profile_id sont déduits automatiquement (proximité GPS / email SumUp mappé dans
+ * informations_rh.sumup_email) et peuvent rester null si non résolus (cf. écran Finance, section
+ * "Ventes non attribuées"). */
+export interface VenteSumup {
+  id: string;
+  sumup_transaction_id: string;
+  pop_up_id: string | null;
+  profile_id: string | null;
+  montant: number;
+  devise: string;
+  frais_montant: number | null;
+  pourboire_montant: number | null;
+  statut: StatutVenteSumup;
+  moyen_paiement: string | null;
+  horodatage: string;
+  lat: number | null;
+  lon: number | null;
+  distance_pop_up_metres: number | null;
+  sumup_email: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface StockMouvement {
