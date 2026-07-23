@@ -254,8 +254,6 @@ function LigneCataloguePin({
   onOuvrirDetail: () => void;
   onOuvrirPhoto: () => void;
 }) {
-  const enRupture = pin.seuil_cible !== null && pin.stock_general < pin.seuil_cible;
-
   return (
     <View className="mb-2.5 flex-row items-center gap-3 rounded-xl bg-white p-3">
       <Pressable
@@ -277,9 +275,6 @@ function LigneCataloguePin({
           <BadgeAttribution attributions={attributions} />
           <Text className="text-xs text-slate-400">Seuil : {pin.seuil_cible ?? '—'}</Text>
         </View>
-        {enRupture && (
-          <Text className="mt-1 text-[10px] font-semibold text-red-600">Rupture locale</Text>
-        )}
         {pin.a_completer && (
           <Text className="mt-1 text-[10px] font-semibold text-amber-600">À compléter (signalé)</Text>
         )}
@@ -334,6 +329,8 @@ function VueCatalogue({
   onChangeRecherche,
   caseFiltre,
   onChangeCaseFiltre,
+  filtreAttribution,
+  onChangeFiltreAttribution,
   attributionsParPin,
   onOuvrirDetail,
   onOuvrirPhoto,
@@ -352,6 +349,8 @@ function VueCatalogue({
   onChangeRecherche: (v: string) => void;
   caseFiltre: string | null;
   onChangeCaseFiltre: (v: string | null) => void;
+  filtreAttribution: FiltreAttributionValeur;
+  onChangeFiltreAttribution: (v: FiltreAttributionValeur) => void;
   attributionsParPin: Map<string, AttributionAffichage[]>;
   onOuvrirDetail: (pin: StockPin) => void;
   onOuvrirPhoto: (pin: StockPin) => void;
@@ -403,6 +402,10 @@ function VueCatalogue({
             placeholder={chargement ? 'Chargement…' : 'Rechercher un pin…'}
             className="mb-3 rounded-xl border border-slate-200 bg-white px-4 py-3"
           />
+          <Text className="mb-1.5 text-xs font-semibold uppercase text-slate-400">Attribution</Text>
+          <View className="mb-3">
+            <FiltreAttribution valeur={filtreAttribution} onChange={onChangeFiltreAttribution} />
+          </View>
           <Text className="mb-1.5 text-xs font-semibold uppercase text-slate-400">Filtrer par case</Text>
           <FiltreCase valeur={caseFiltre} onChange={onChangeCaseFiltre} />
         </>
@@ -494,11 +497,9 @@ function TuileCataloguePin({
     modifier.mutate({ id: pin.id, params: { seuil_cible: valeur } });
   };
 
-  const enRupture = pin.seuil_cible !== null && pin.stock_general < pin.seuil_cible;
-
   return (
     <View className="w-[10%] p-1.5">
-      <View className={`overflow-hidden rounded-xl border bg-white ${enRupture ? 'border-red-300' : 'border-slate-100'}`}>
+      <View className="overflow-hidden rounded-xl border border-slate-100 bg-white">
         <Pressable onPress={onOuvrirPhoto} className="aspect-square w-full items-center justify-center bg-slate-100">
           {pin.photo_url ? (
             <Image source={{ uri: pin.photo_url }} className="h-full w-full" resizeMode="cover" />
@@ -531,7 +532,6 @@ function TuileCataloguePin({
               ? attributions.map((a) => `${a.popUpNom} ${a.casePosition}`).join(' · ')
               : 'Non attribué'}
           </Text>
-          {enRupture && <Text className="mt-0.5 text-[10px] font-bold text-red-600">Rupture</Text>}
           {pin.a_completer && <Text className="mt-0.5 text-[10px] font-bold text-amber-600">À compléter</Text>}
         </View>
       </View>
@@ -1542,6 +1542,8 @@ export function StockScreen({ profile, onRetour }: { profile: Profile; onRetour:
             onChangeRecherche={setRecherche}
             caseFiltre={caseFiltre}
             onChangeCaseFiltre={setCaseFiltre}
+            filtreAttribution={filtreAttribution}
+            onChangeFiltreAttribution={setFiltreAttribution}
             attributionsParPin={attributionsParPin}
             onOuvrirDetail={setPinOuvert}
             onOuvrirPhoto={setPinPhotoOuvert}
