@@ -1,9 +1,16 @@
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
 import { JourReglageCard } from '@/components/reglages/JourReglageCard';
-import { useCreerPopUp, useDefinirLocal, usePopUps, useRenommerPopUp, useSupprimerPopUp } from '@/hooks/usePopUps';
+import {
+  useCreerPopUp,
+  useModifierCoordonneesPopUp,
+  useModifierDatesPopUp,
+  usePopUps,
+  useRenommerPopUp,
+  useSupprimerPopUp,
+} from '@/hooks/usePopUps';
 import {
   useActiveProfiles,
   useAffectationsPopUp,
@@ -27,6 +34,10 @@ function CartePopUp({
   const [ajoutMembreOuvert, setAjoutMembreOuvert] = useState(false);
   const [editionNom, setEditionNom] = useState(false);
   const [nom, setNom] = useState(popUp.nom);
+  const [dateDebut, setDateDebut] = useState(popUp.date_debut ?? '');
+  const [dateFin, setDateFin] = useState(popUp.date_fin ?? '');
+  const [lat, setLat] = useState(popUp.lat != null ? String(popUp.lat) : '');
+  const [lon, setLon] = useState(popUp.lon != null ? String(popUp.lon) : '');
 
   // Les admins sont considérés attribués à tous les lieux implicitement (cf. Équipe) : cette
   // liste sert à gérer qui d'autre peut être planifié ici, pas les admins eux-mêmes.
@@ -42,7 +53,8 @@ function CartePopUp({
   const retirerAffectation = useRetirerAffectationPopUp();
   const renommer = useRenommerPopUp();
   const supprimer = useSupprimerPopUp();
-  const definirLocal = useDefinirLocal();
+  const modifierDates = useModifierDatesPopUp();
+  const modifierCoordonnees = useModifierCoordonneesPopUp();
 
   const handleSupprimer = () => {
     Alert.alert(
@@ -63,6 +75,26 @@ function CartePopUp({
       setNom(popUp.nom);
     }
     setEditionNom(false);
+  };
+
+  const validerDates = () => {
+    const debut = dateDebut.trim() || null;
+    const fin = dateFin.trim() || null;
+    if (debut !== popUp.date_debut || fin !== popUp.date_fin) {
+      modifierDates.mutate({ id: popUp.id, dateDebut: debut, dateFin: fin });
+    }
+  };
+
+  // Coordonnées saisies à la main (ex. copiées depuis Google Maps) — servent à retrouver quel
+  // pop-up a fait une vente SumUp par proximité GPS (cf. écran Finance).
+  const validerCoordonnees = () => {
+    const latNombre = lat.trim() ? Number(lat.trim().replace(',', '.')) : null;
+    const lonNombre = lon.trim() ? Number(lon.trim().replace(',', '.')) : null;
+    if (lat.trim() && Number.isNaN(latNombre)) return;
+    if (lon.trim() && Number.isNaN(lonNombre)) return;
+    if (latNombre !== popUp.lat || lonNombre !== popUp.lon) {
+      modifierCoordonnees.mutate({ id: popUp.id, lat: latNombre, lon: lonNombre });
+    }
   };
 
   return (
@@ -89,15 +121,50 @@ function CartePopUp({
         </Pressable>
       </View>
 
-      <View className="mb-3 flex-row items-center justify-between rounded-xl bg-slate-50 px-3 py-2.5">
-        <View className="flex-1 pr-2">
-          <Text className="text-sm font-semibold text-slate-700">C'est le local</Text>
-          <Text className="text-xs text-slate-400">Boutique permanente, par opposition aux pop-ups temporaires.</Text>
+      <View className="mb-3 rounded-xl bg-slate-50 px-3 py-2.5">
+        <Text className="mb-2 text-sm font-semibold text-slate-700">Dates du pop-up</Text>
+        <View className="flex-row items-center gap-2">
+          <TextInput
+            value={dateDebut}
+            onChangeText={setDateDebut}
+            onBlur={validerDates}
+            placeholder="Début (AAAA-MM-JJ)"
+            className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+          />
+          <Text className="text-slate-400">→</Text>
+          <TextInput
+            value={dateFin}
+            onChangeText={setDateFin}
+            onBlur={validerDates}
+            placeholder="Fin prévue (AAAA-MM-JJ)"
+            className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+          />
         </View>
-        <Switch
-          value={popUp.est_local}
-          onValueChange={(valeur) => definirLocal.mutate({ id: popUp.id, estLocal: valeur })}
-        />
+      </View>
+
+      <View className="mb-3 rounded-xl bg-slate-50 px-3 py-2.5">
+        <Text className="mb-2 text-sm font-semibold text-slate-700">Coordonnées GPS</Text>
+        <Text className="mb-2 text-xs text-slate-400">
+          Sert à rattacher les ventes SumUp à ce pop-up (Écran Finance) — copiez-les depuis Google Maps.
+        </Text>
+        <View className="flex-row items-center gap-2">
+          <TextInput
+            value={lat}
+            onChangeText={setLat}
+            onBlur={validerCoordonnees}
+            placeholder="Latitude"
+            keyboardType="numeric"
+            className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+          />
+          <TextInput
+            value={lon}
+            onChangeText={setLon}
+            onBlur={validerCoordonnees}
+            placeholder="Longitude"
+            keyboardType="numeric"
+            className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+          />
+        </View>
       </View>
 
       <Text className="mb-1 text-xs font-semibold uppercase text-slate-400">
@@ -162,16 +229,21 @@ function CartePopUp({
         (chargementHoraires ? (
           <ActivityIndicator color="#6366F1" />
         ) : (
-          JOURS_LABELS.map((label, jourSemaine) => (
-            <JourReglageCard
-              key={jourSemaine}
-              popUpId={popUp.id}
-              jourSemaine={jourSemaine}
-              label={label}
-              regle={horaires?.find((h) => h.jour_semaine === jourSemaine)}
-              onEnregistrer={(horaire) => enregistrerHoraire.mutate(horaire)}
-            />
-          ))
+          // Grille horizontale lundi→dimanche, même largeur/disposition que la planification des
+          // personnes (cf. HoraireRecurrentJourCard dans Équipe) plutôt qu'une pile verticale.
+          <View className="flex-row flex-wrap gap-3">
+            {JOURS_LABELS.map((label, jourSemaine) => (
+              <View key={jourSemaine} className="grow basis-[140px] max-w-[200px]">
+                <JourReglageCard
+                  popUpId={popUp.id}
+                  jourSemaine={jourSemaine}
+                  label={label}
+                  regle={horaires?.find((h) => h.jour_semaine === jourSemaine)}
+                  onEnregistrer={(horaire) => enregistrerHoraire.mutate(horaire)}
+                />
+              </View>
+            ))}
+          </View>
         ))}
     </View>
   );
@@ -187,6 +259,8 @@ export default function PopUpsScreen() {
   const [nom, setNom] = useState('');
   const [ouverture, setOuverture] = useState('10:00');
   const [fermeture, setFermeture] = useState('20:00');
+  const [dateDebut, setDateDebut] = useState('');
+  const [dateFin, setDateFin] = useState('');
 
   const mapAffectations = new Map<string, Set<string>>();
   for (const a of affectations ?? []) {
@@ -198,10 +272,18 @@ export default function PopUpsScreen() {
   const handleCreer = () => {
     if (!nom.trim()) return;
     creerPopUp.mutate(
-      { nom: nom.trim(), heureOuverture: ouverture, heureFermeture: fermeture },
+      {
+        nom: nom.trim(),
+        heureOuverture: ouverture,
+        heureFermeture: fermeture,
+        dateDebut: dateDebut.trim() || null,
+        dateFin: dateFin.trim() || null,
+      },
       {
         onSuccess: () => {
           setNom('');
+          setDateDebut('');
+          setDateFin('');
           setFormulaireOuvert(false);
         },
       },
@@ -253,6 +335,21 @@ export default function PopUpsScreen() {
                 onChangeText={setFermeture}
                 placeholder="20:00"
                 className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-center"
+              />
+            </View>
+            <View className="mb-3 flex-row items-center justify-center gap-2">
+              <TextInput
+                value={dateDebut}
+                onChangeText={setDateDebut}
+                placeholder="Début (AAAA-MM-JJ)"
+                className="flex-1 rounded-lg border border-slate-200 px-2 py-1 text-center"
+              />
+              <Text className="text-slate-400">→</Text>
+              <TextInput
+                value={dateFin}
+                onChangeText={setDateFin}
+                placeholder="Fin prévue (AAAA-MM-JJ)"
+                className="flex-1 rounded-lg border border-slate-200 px-2 py-1 text-center"
               />
             </View>
             <Pressable onPress={handleCreer} className="items-center rounded-lg bg-indigo-600 py-2">
