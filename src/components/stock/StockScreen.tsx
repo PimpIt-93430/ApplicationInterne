@@ -340,8 +340,6 @@ function VueCatalogue({
   attributionsParPin,
   onOuvrirDetail,
   onOuvrirPhoto,
-  formulaireOuvert,
-  onToggleFormulaire,
   signalementOuvert,
   onToggleSignalement,
   nbACompleter,
@@ -360,8 +358,6 @@ function VueCatalogue({
   attributionsParPin: Map<string, AttributionAffichage[]>;
   onOuvrirDetail: (pin: StockPin) => void;
   onOuvrirPhoto: (pin: StockPin) => void;
-  formulaireOuvert: boolean;
-  onToggleFormulaire: (v: boolean) => void;
   signalementOuvert: boolean;
   onToggleSignalement: (v: boolean) => void;
   nbACompleter: number;
@@ -420,25 +416,15 @@ function VueCatalogue({
         !chargement ? <Text className="mb-3 text-sm text-slate-400">Aucun résultat.</Text> : null
       }
       ListFooterComponent={
-        formulaireOuvert ? (
-          <FormulaireNouveauPin onFermer={() => onToggleFormulaire(false)} />
-        ) : signalementOuvert ? (
+        signalementOuvert ? (
           <FormulaireSignalementPin onFermer={() => onToggleSignalement(false)} />
         ) : (
-          <View className="mb-6 gap-2">
-            <Pressable
-              onPress={() => onToggleFormulaire(true)}
-              className="items-center rounded-2xl border border-dashed border-indigo-300 bg-white py-3"
-            >
-              <Text className="text-sm font-semibold text-indigo-600">+ Ajouter un pin au catalogue</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => onToggleSignalement(true)}
-              className="items-center rounded-2xl border border-dashed border-amber-300 bg-white py-3"
-            >
-              <Text className="text-sm font-semibold text-amber-600">📷 Signaler un pin inconnu</Text>
-            </Pressable>
-          </View>
+          <Pressable
+            onPress={() => onToggleSignalement(true)}
+            className="mb-6 items-center rounded-2xl border border-dashed border-amber-300 bg-white py-3"
+          >
+            <Text className="text-sm font-semibold text-amber-600">📷 Signaler un pin inconnu</Text>
+          </Pressable>
         )
       }
     />
@@ -562,8 +548,6 @@ function VueCatalogueWeb({
   attributionsParPin,
   onOuvrirDetail,
   onOuvrirPhoto,
-  formulaireOuvert,
-  onToggleFormulaire,
   signalementOuvert,
   onToggleSignalement,
   nbACompleter,
@@ -582,8 +566,6 @@ function VueCatalogueWeb({
   attributionsParPin: Map<string, AttributionAffichage[]>;
   onOuvrirDetail: (pin: StockPin) => void;
   onOuvrirPhoto: (pin: StockPin) => void;
-  formulaireOuvert: boolean;
-  onToggleFormulaire: (v: boolean) => void;
   signalementOuvert: boolean;
   onToggleSignalement: (v: boolean) => void;
   nbACompleter: number;
@@ -611,23 +593,14 @@ function VueCatalogueWeb({
         <>
           <View className="mb-3 flex-row items-center justify-between">
             <Text className="text-xs font-semibold uppercase text-slate-400">Catalogue</Text>
-            <View className="flex-row gap-2">
-              <Pressable
-                onPress={() => onToggleFormulaire(!formulaireOuvert)}
-                className="rounded-lg border border-dashed border-indigo-300 bg-white px-3 py-2"
-              >
-                <Text className="text-xs font-semibold text-indigo-600">+ Ajouter un pin</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => onToggleSignalement(!signalementOuvert)}
-                className="rounded-lg border border-dashed border-amber-300 bg-white px-3 py-2"
-              >
-                <Text className="text-xs font-semibold text-amber-600">📷 Signaler un pin inconnu</Text>
-              </Pressable>
-            </View>
+            <Pressable
+              onPress={() => onToggleSignalement(!signalementOuvert)}
+              className="rounded-lg border border-dashed border-amber-300 bg-white px-3 py-2"
+            >
+              <Text className="text-xs font-semibold text-amber-600">📷 Signaler un pin inconnu</Text>
+            </Pressable>
           </View>
 
-          {formulaireOuvert && <FormulaireNouveauPin onFermer={() => onToggleFormulaire(false)} />}
           {signalementOuvert && <FormulaireSignalementPin onFermer={() => onToggleSignalement(false)} />}
 
           {estAdmin && nbACompleter > 0 && (
@@ -906,113 +879,6 @@ function PanneauCommande({
         <Text className="font-semibold text-indigo-600">Fermer</Text>
       </Pressable>
     </FeuilleModale>
-  );
-}
-
-function FormulaireNouveauPin({ onFermer }: { onFermer: () => void }) {
-  const { creer } = useGererCatalogue();
-  const [nom, setNom] = useState('');
-  const [fournisseur, setFournisseur] = useState('');
-  const [seuil, setSeuil] = useState('');
-  const [poids, setPoids] = useState('');
-  const [photo, setPhoto] = useState<{ uri: string; base64: string } | null>(null);
-  const [televersementEnCours, setTeleversementEnCours] = useState(false);
-
-  const choisirPhoto = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permission refusée', "Autorise l'accès à tes photos pour en choisir une.");
-      return;
-    }
-    const resultat = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      quality: 0.6,
-      base64: true,
-    });
-    if (resultat.canceled) return;
-    const asset = resultat.assets[0];
-    if (!asset.base64) return;
-    setPhoto({ uri: asset.uri, base64: asset.base64 });
-  };
-
-  const enCours = televersementEnCours || creer.isPending;
-
-  const valider = async () => {
-    if (!nom.trim() || enCours) return;
-    try {
-      setTeleversementEnCours(true);
-      const photoUrl = photo ? await uploaderPhotoPin(photo.base64) : undefined;
-      setTeleversementEnCours(false);
-      await creer.mutateAsync({
-        nom: nom.trim(),
-        fournisseur: fournisseur.trim() || undefined,
-        seuilCible: seuil ? Number(seuil) : undefined,
-        poidsUnitaire: poids ? Number(poids.replace(',', '.')) : undefined,
-        photoUrl,
-      });
-      onFermer();
-    } catch {
-      setTeleversementEnCours(false);
-      Alert.alert('Erreur', "Impossible de créer le pin. Réessaie.");
-    }
-  };
-
-  return (
-    <View className="mb-4 rounded-2xl border border-dashed border-indigo-300 bg-white p-4">
-      <Pressable
-        onPress={choisirPhoto}
-        className="mb-3 h-24 w-24 items-center justify-center overflow-hidden rounded-xl bg-slate-100"
-      >
-        {photo ? (
-          <Image source={{ uri: photo.uri }} className="h-24 w-24" resizeMode="cover" />
-        ) : (
-          <Text className="px-2 text-center text-xs font-semibold text-slate-400">+ Photo</Text>
-        )}
-      </Pressable>
-      <TextInput
-        value={nom}
-        onChangeText={setNom}
-        placeholder="Nom du pin"
-        className="mb-3 rounded-lg border border-slate-200 px-3 py-2"
-      />
-      <TextInput
-        value={fournisseur}
-        onChangeText={setFournisseur}
-        placeholder="Fournisseur"
-        className="mb-3 rounded-lg border border-slate-200 px-3 py-2"
-      />
-      <View className="mb-3 flex-row gap-2">
-        <TextInput
-          value={poids}
-          onChangeText={setPoids}
-          keyboardType="decimal-pad"
-          placeholder="Poids (g/10)"
-          className="flex-1 rounded-lg border border-slate-200 px-3 py-2"
-        />
-        <TextInput
-          value={seuil}
-          onChangeText={setSeuil}
-          keyboardType="numeric"
-          placeholder="Seuil cible"
-          className="flex-1 rounded-lg border border-slate-200 px-3 py-2"
-        />
-      </View>
-      <View className="flex-row gap-2">
-        <Pressable onPress={onFermer} className="flex-1 items-center rounded-lg border border-slate-200 py-2">
-          <Text className="font-semibold text-slate-600">Annuler</Text>
-        </Pressable>
-        <Pressable
-          onPress={valider}
-          disabled={enCours}
-          className={`flex-1 items-center rounded-lg py-2 ${enCours ? 'bg-indigo-300' : 'bg-indigo-600'}`}
-        >
-          <Text className="font-semibold text-white">
-            {televersementEnCours ? 'Envoi de la photo…' : creer.isPending ? 'Création…' : 'Créer'}
-          </Text>
-        </Pressable>
-      </View>
-    </View>
   );
 }
 
@@ -1579,7 +1445,6 @@ export function StockScreen({ profile, onRetour }: { profile: Profile; onRetour:
   const [filtreAttribution, setFiltreAttribution] = useState<FiltreAttributionValeur>('tous');
   const [pinOuvert, setPinOuvert] = useState<StockPin | null>(null);
   const [pinPhotoOuvert, setPinPhotoOuvert] = useState<StockPin | null>(null);
-  const [formulaireOuvert, setFormulaireOuvert] = useState(false);
   const [signalementOuvert, setSignalementOuvert] = useState(false);
   const [filtreACompleter, setFiltreACompleter] = useState(false);
   const [commandeOuverte, setCommandeOuverte] = useState(false);
@@ -1721,8 +1586,6 @@ export function StockScreen({ profile, onRetour }: { profile: Profile; onRetour:
             attributionsParPin={attributionsParPin}
             onOuvrirDetail={setPinOuvert}
             onOuvrirPhoto={setPinPhotoOuvert}
-            formulaireOuvert={formulaireOuvert}
-            onToggleFormulaire={setFormulaireOuvert}
             signalementOuvert={signalementOuvert}
             onToggleSignalement={setSignalementOuvert}
             nbACompleter={nbACompleter}
@@ -1743,8 +1606,6 @@ export function StockScreen({ profile, onRetour }: { profile: Profile; onRetour:
             attributionsParPin={attributionsParPin}
             onOuvrirDetail={setPinOuvert}
             onOuvrirPhoto={setPinPhotoOuvert}
-            formulaireOuvert={formulaireOuvert}
-            onToggleFormulaire={setFormulaireOuvert}
             signalementOuvert={signalementOuvert}
             onToggleSignalement={setSignalementOuvert}
             nbACompleter={nbACompleter}
