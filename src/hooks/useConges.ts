@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { ajouterConge, fetchCongesPeriode, fetchCongesProfile, supprimerConge } from '@/api/conges';
+import { supprimerShiftsProfilChevauchants } from '@/api/planning';
 import { regenererPlanningProfil } from '@/api/regenerationPlanning';
 import type { Conge, TypeConge } from '@/types/database.types';
 
@@ -21,7 +22,14 @@ export function useCongesPeriode(dateDebut: string, dateFin: string) {
 
 export function useGererConges(profileId: string | undefined) {
   const queryClient = useQueryClient();
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['conges', profileId] });
+  // Invalide aussi bien la liste par personne (feuille "Mes indisponibilités") que la vue par
+  // période (grille du calendrier admin, cf. useCongesPeriode) — sans ce second invalidate, une
+  // absence créée/supprimée depuis le panneau du calendrier reste enregistrée en base mais
+  // n'apparaît/disparaît de la grille qu'après un rechargement complet de la page.
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['conges', profileId] });
+    queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'conges-periode' });
+  };
 
   // Best-effort : si la régénération échoue (ex. la personne connectée n'est pas admin, sans
   // droit d'écriture sur planning_shifts), l'indisponibilité est quand même bien enregistrée —
@@ -42,8 +50,18 @@ export function useGererConges(profileId: string | undefined) {
       type: TypeConge;
       note: string;
     }) => ajouterConge({ profileId: profileId as string, ...params }),
-    onSuccess: (_data, params) => {
+    onSuccess: async (_data, params) => {
       invalidate();
+      // Une absence doit empêcher la personne de travailler : on retire tout créneau déjà
+      // planifié sur cette période (manuel ou auto-généré) avant de régénérer, sinon elle
+      // resterait affichée comme travaillant malgré l'absence déclarée.
+      await supprimerShiftsProfilChevauchants(
+        profileId as string,
+        params.dateDebut,
+        params.dateFin,
+        params.heureDebut,
+        params.heureFin,
+      ).catch((error) => console.warn('Suppression des créneaux en conflit avec l’absence impossible :', error));
       regenererSansBloquer(profileId as string, params.dateDebut, params.dateFin);
     },
   });

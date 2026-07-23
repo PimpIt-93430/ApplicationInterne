@@ -44,6 +44,32 @@ export async function supprimerShiftsGeneresAutomatiquementPourProfil(
   if (error) throw error;
 }
 
+/** Supprime tout créneau (manuel ou auto-généré, quel que soit le statut) d'une personne qui
+ * chevauche une période — utilisé quand une absence/indisponibilité est déclarée sur un jour où
+ * elle a déjà un créneau : l'absence doit l'empêcher de travailler, elle ne doit donc jamais
+ * rester planifiée sur ce créneau. Contrairement à `supprimerShiftsGeneresAutomatiquementPourProfil`
+ * (qui protège volontairement les ajouts manuels lors d'une simple régénération), ici on supprime
+ * bien tous les créneaux car l'absence est une déclaration explicite d'indisponibilité. */
+export async function supprimerShiftsProfilChevauchants(
+  profileId: string,
+  dateDebut: string,
+  dateFin: string,
+  heureDebut: string | null,
+  heureFin: string | null,
+) {
+  let requete = supabase
+    .from('planning_shifts')
+    .delete()
+    .eq('profile_id', profileId)
+    .gte('date', dateDebut)
+    .lte('date', dateFin);
+  if (heureDebut && heureFin) {
+    requete = requete.lt('heure_debut', heureFin).gt('heure_fin', heureDebut);
+  }
+  const { error } = await requete;
+  if (error) throw error;
+}
+
 export async function insererShifts(
   shifts: Omit<PlanningShift, 'id' | 'created_at' | 'updated_at'>[],
 ) {

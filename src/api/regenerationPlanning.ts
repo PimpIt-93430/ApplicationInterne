@@ -1,11 +1,13 @@
 import { fetchJoursEcoleProfile } from './alternance';
 import { fetchCongesProfile } from './conges';
 import { fetchHorairesRecurrents } from './horairesRecurrents';
+import { fetchInformationsRh } from './informationsRh';
 import {
   fetchShiftsSemaine,
   insererShifts,
   supprimerShiftsGeneresAutomatiquementPourProfil,
 } from './planning';
+import { fetchPopUps } from './popUps';
 import { fetchAffectationsPopUp, fetchProfile } from './profiles';
 import { supabase } from './supabaseClient';
 import { genererPlanning } from '@/domain/generationPlanning';
@@ -28,14 +30,17 @@ function joursDeLaPeriode(dateDebut: string, dateFin: string): { date: string; j
  * semaine pour que le changement se répercute. Ne touche jamais aux créneaux ajoutés à la main
  * (cf. supprimerShiftsGeneresAutomatiquementPourProfil) ni au planning des autres personnes. */
 export async function regenererPlanningProfil(profileId: string, dateDebut: string, dateFin: string) {
-  const [profil, horaires, conges, joursEcole, affectations, shiftsPeriode] = await Promise.all([
-    fetchProfile(profileId),
-    fetchHorairesRecurrents(profileId),
-    fetchCongesProfile(profileId),
-    fetchJoursEcoleProfile(profileId),
-    fetchAffectationsPopUp(),
-    fetchShiftsSemaine(dateDebut, dateFin),
-  ]);
+  const [profil, horaires, conges, joursEcole, affectations, shiftsPeriode, popUps, informationsRh] =
+    await Promise.all([
+      fetchProfile(profileId),
+      fetchHorairesRecurrents(profileId),
+      fetchCongesProfile(profileId),
+      fetchJoursEcoleProfile(profileId),
+      fetchAffectationsPopUp(),
+      fetchShiftsSemaine(dateDebut, dateFin),
+      fetchPopUps(),
+      fetchInformationsRh(profileId),
+    ]);
 
   const {
     data: { user },
@@ -55,7 +60,9 @@ export async function regenererPlanningProfil(profileId: string, dateDebut: stri
     joursEcole,
     shiftsExistants,
     mapAffectations,
+    popUps,
     adminId: user?.id ?? profileId,
+    datesDebutContrat: informationsRh ? [informationsRh] : [],
   });
 
   await supprimerShiftsGeneresAutomatiquementPourProfil(profileId, dateDebut, dateFin);

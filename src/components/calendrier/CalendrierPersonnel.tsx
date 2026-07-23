@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { ActivityIndicator, ScrollView, View } from 'react-native';
+import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 
 import { AxeHeures } from './AxeHeures';
 import { TimelineJour } from './TimelineJour';
@@ -9,7 +9,7 @@ import { useActiveProfiles } from '@/hooks/useProfiles';
 import { useToutesHorairesOuverture } from '@/hooks/useReglesMetier';
 import { useSemaineStore } from '@/store/useSemaineStore';
 import type { Profile } from '@/types/database.types';
-import { dateEnISO, joursDeLaSemaine, jourSemaineISO } from '@/utils/dateUtils';
+import { dateEnISO, formatDureeHeures, joursDeLaSemaine, jourSemaineISO, totalHeuresTravaillees } from '@/utils/dateUtils';
 
 /** Semaine du planning d'une seule personne, tous lieux confondus, colorée par lieu (cf.
  * TimelineJour) : utilisé à la fois comme écran "Calendrier" des non-admins et comme option
@@ -46,8 +46,19 @@ export function CalendrierPersonnel({ profile }: { profile: Profile | null }) {
     );
   }
 
+  const totalHeures = profile ? totalHeuresTravaillees(shifts ?? [], profile.id) : 0;
+  const depassement = !!profile?.heures_max_semaine && totalHeures > profile.heures_max_semaine;
+
   return (
     <ScrollView contentContainerStyle={{ paddingBottom: 16 }}>
+      {profile && (
+        <View style={{ paddingHorizontal: 20, paddingBottom: 8 }}>
+          <Text style={{ fontSize: 13, fontWeight: '600', color: depassement ? '#DC2626' : '#64748B' }}>
+            {formatDureeHeures(totalHeures)} cette semaine
+            {profile.heures_max_semaine ? ` / ${formatDureeHeures(profile.heures_max_semaine)} max` : ''}
+          </Text>
+        </View>
+      )}
       <View style={{ flexDirection: 'row', paddingHorizontal: 12 }}>
         <AxeHeures heureOuverture={heureOuvertureAxe} heureFermeture={heureFermetureAxe} />
 

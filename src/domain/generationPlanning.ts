@@ -3,10 +3,14 @@ import type {
   HoraireRecurrentProfil,
   JourEcoleAlternant,
   PlanningShift,
+  PopUp,
   Profile,
   RegleHoraireOuverture,
 } from '@/types/database.types';
 
+/** Horaire par défaut auto-appliqué à tout admin sans horaire récurrent explicite ce jour-là — cf.
+ * consigne : "les admins c'est auto 9h-19h tous les jours". */
+const HORAIRE_ADMIN_PAR_DEFAUT = { heure_debut: '09:00:00', heure_fin: '19:00:00' };
 export interface ShiftGenere {
   pop_up_id: string;
   profile_id: string;
@@ -66,6 +70,17 @@ function estJourEcole(joursEcole: JourEcoleAlternant[], profileId: string, date:
   return joursEcole.some((j) => j.profile_id === profileId && j.date === date);
 }
 
+/** Une personne n'a pas encore commencé à cette date (date de début de contrat renseignée et
+ * postérieure) : aucun créneau ne doit être généré pour elle avant son arrivée réelle. */
+function pasEncoreCommence(
+  datesDebutContrat: { profile_id: string; date_debut_contrat: string | null }[],
+  profileId: string,
+  date: string,
+): boolean {
+  const debut = datesDebutContrat.find((d) => d.profile_id === profileId)?.date_debut_contrat;
+  return !!debut && date < debut;
+}
+
 /** Fusionne des intervalles [heure_debut, heure_fin] qui se chevauchent ou se touchent. */
 function fusionnerIntervalles(intervalles: Intervalle[]): Intervalle[] {
   const tries = [...intervalles].sort((a, b) => a.heure_debut.localeCompare(b.heure_debut));
@@ -113,7 +128,10 @@ export function genererPlanning(params: {
   joursEcole: JourEcoleAlternant[];
   shiftsExistants: PlanningShift[];
   mapAffectations: Map<string, Set<string>>;
+  popUps: PopUp[];
   adminId: string;
+  /** Dates de début de contrat — optionnel (défaut : personne sans date connue, jamais bloquée). */
+  datesDebutContrat?: { profile_id: string; date_debut_contrat: string | null }[];
 }): ResultatGeneration {
   const {
     jours,
@@ -124,10 +142,13 @@ export function genererPlanning(params: {
     joursEcole,
     shiftsExistants,
     mapAffectations,
+    popUps,
     adminId,
+    datesDebutContrat = [],
   } = params;
 
   const profilsEligibles = profiles.filter((p) => p.actif);
+  const popUpLocal = popUps.find((p) => p.est_local);
   const shifts: ShiftGenere[] = [];
   const alertes: Alerte[] = [];
 
@@ -141,6 +162,7 @@ export function genererPlanning(params: {
       if (profil.role !== 'admin' && !mapAffectations.get(profil.id)?.has(horaire.pop_up_id)) continue;
       if (estEnConge(conges, profil.id, jour.date, horaire.heure_debut, horaire.heure_fin)) continue;
       if (profil.type_contrat === 'alternant' && estJourEcole(joursEcole, profil.id, jour.date)) continue;
+      if (pasEncoreCommence(datesDebutContrat, profil.id, jour.date)) continue;
 
       const dejaPresent = [...shiftsExistants, ...shifts].some(
         (s) =>
@@ -162,6 +184,39 @@ export function genererPlanning(params: {
       });
     }
 
+    // Les admins travaillent 9h-19h au local tous les jours par défaut, sans avoir besoin d'un
+    // horaire récurrent explicite — sauf s'ils ont déjà un créneau ce jour-là (horaire récurrent
+    // à eux, ou créneau déjà présent) ou sont en congé. Aucun trou signalé sur ce créneau puisqu'il
+    // est toujours comblé par cette règle.
+    if (popUpLocal) {
+      for (const profil of profilsEligibles) {
+        if (profil.role !== 'admin') continue;
+        if (estEnConge(conges, profil.id, jour.date, HORAIRE_ADMIN_PAR_DEFAUT.heure_debut, HORAIRE_ADMIN_PAR_DEFAUT.heure_fin)) continue;
+        if (pasEncoreCommence(datesDebutContrat, profil.id, jour.date)) continue;
+
+        const dejaPresent = [...shiftsExistants, ...shifts].some(
+          (s) => s.profile_id === profil.id && s.date === jour.date,
+        );
+        if (dejaPresent) continue;
+
+        shifts.push({
+          pop_up_id: popUpLocal.id,
+          profile_id: profil.id,
+          date: jour.date,
+          heure_debut: HORAIRE_ADMIN_PAR_DEFAUT.heure_debut,
+          heure_fin: HORAIRE_ADMIN_PAR_DEFAUT.heure_fin,
+          statut: 'brouillon',
+          genere_automatiquement: true,
+          created_by: adminId,
+        });
+      }
+    }
+
+    // Les trous de couverture (horaires d'ouverture non couverts par un horaire récurrent) ne sont
+    // plus comblés automatiquement par une personne — seulement signalés en alerte. L'auto-
+    // remplissage assignait quelqu'un à chaque trou même quand ce n'était pas voulu (créneaux
+    // fantômes non désirés, cf. retour utilisateur) ; combler un trou reste une décision manuelle
+    // via le panneau de création de shift.
     const horairesJour = horairesOuverture.filter((h) => h.jour_semaine === jour.jour_semaine && h.actif);
     for (const regleJour of horairesJour) {
       const presencesJour = [...shiftsExistants, ...shifts].filter(

@@ -17,6 +17,8 @@ export async function creerPopUp(params: {
   nom: string;
   heureOuverture: string;
   heureFermeture: string;
+  dateDebut?: string | null;
+  dateFin?: string | null;
 }): Promise<PopUp> {
   const { data: existants, error: errorCompte } = await supabase.from('pop_ups').select('id');
   if (errorCompte) throw errorCompte;
@@ -24,7 +26,7 @@ export async function creerPopUp(params: {
 
   const { data: popUp, error: errorPopUp } = await supabase
     .from('pop_ups')
-    .insert({ nom: params.nom, couleur })
+    .insert({ nom: params.nom, couleur, date_debut: params.dateDebut ?? null, date_fin: params.dateFin ?? null })
     .select()
     .single();
   if (errorPopUp) throw errorPopUp;
@@ -49,16 +51,15 @@ export async function renommerPopUp(id: string, nom: string) {
   if (error) throw error;
 }
 
-/**
- * Marque `id` comme le local (boutique permanente, prioritaire lors de la génération
- * automatique du planning) et retire ce statut à tout autre lieu — un seul local à la fois.
- */
-export async function definirLocal(id: string, estLocal: boolean) {
-  if (estLocal) {
-    const { error: errorReset } = await supabase.from('pop_ups').update({ est_local: false }).neq('id', id);
-    if (errorReset) throw errorReset;
-  }
-  const { error } = await supabase.from('pop_ups').update({ est_local: estLocal }).eq('id', id);
+export async function modifierDatesPopUp(id: string, dateDebut: string | null, dateFin: string | null) {
+  const { error } = await supabase.from('pop_ups').update({ date_debut: dateDebut, date_fin: dateFin }).eq('id', id);
+  if (error) throw error;
+}
+
+/** Coordonnées GPS saisies à la main (ex. copiées depuis Google Maps) — servent à retrouver quel
+ * pop-up a fait une vente SumUp par proximité (cf. écran Finance). */
+export async function modifierCoordonneesPopUp(id: string, lat: number | null, lon: number | null) {
+  const { error } = await supabase.from('pop_ups').update({ lat, lon }).eq('id', id);
   if (error) throw error;
 }
 

@@ -1,4 +1,4 @@
-import { addDays, format, startOfWeek } from 'date-fns';
+import { addDays, format, getISOWeek, startOfWeek } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
 export const JOURS_LABELS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
@@ -35,6 +35,20 @@ export function estAujourdhui(date: Date): boolean {
   return dateEnISO(date) === dateEnISO(new Date());
 }
 
+/** Format compact "20 juil. - 26 juil. 2026" façon Combo (barre de nav web resserrée, vue équipe
+ * uniquement) — fonction additive : `libelleJourCourt` reste utilisée telle quelle partout ailleurs
+ * (mobile + "Mon calendrier"), pour ne rien changer visuellement côté mobile. */
+export function libellePeriodeCourte(debut: Date, fin: Date): string {
+  const d = format(debut, 'd MMM', { locale: fr });
+  const f = format(fin, 'd MMM yyyy', { locale: fr });
+  return `${d} - ${f}`;
+}
+
+/** Numéro de semaine ISO (façon badge "S. 30" de Combo, au-dessus de la colonne du lundi). */
+export function numeroSemaine(date: Date): number {
+  return getISOWeek(date);
+}
+
 /** Additionne des minutes à une heure au format "HH:MM" ou "HH:MM:SS", renvoie "HH:MM:00". */
 export function ajouterMinutes(heure: string, minutes: number): string {
   const [h, m] = heure.split(':').map(Number);
@@ -53,4 +67,23 @@ export function differenceMinutes(debut: string, fin: string): number {
 
 export function formatHeure(heure: string): string {
   return heure.slice(0, 5);
+}
+
+/** Total d'heures (décimal) d'une personne sur un ensemble de créneaux (ex. la semaine affichée). */
+export function totalHeuresTravaillees(
+  shifts: { profile_id: string; heure_debut: string; heure_fin: string }[],
+  profileId: string,
+): number {
+  const minutes = shifts
+    .filter((s) => s.profile_id === profileId)
+    .reduce((total, s) => total + differenceMinutes(s.heure_debut, s.heure_fin), 0);
+  return minutes / 60;
+}
+
+/** Formate un nombre d'heures décimal en "12h" ou "12h30". */
+export function formatDureeHeures(heures: number): string {
+  const totalMinutes = Math.round(heures * 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return m === 0 ? `${h}h` : `${h}h${String(m).padStart(2, '0')}`;
 }

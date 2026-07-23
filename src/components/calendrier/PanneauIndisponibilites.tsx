@@ -2,12 +2,17 @@
 // Composant en StyleSheet (pas de className) : évite le bug NativeWind rencontré avec le
 // sélecteur de date/heure natif.
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { createElement, useState } from 'react';
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { createElement, useEffect, useRef, useState } from 'react';
+import type { ChangeEvent, CSSProperties } from 'react';
+import { Alert, Animated, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useCongesProfile, useGererConges } from '@/hooks/useConges';
 import { useProfilEffectif } from '@/hooks/useProfilEffectif';
 import { dateEnISO, formatHeure } from '@/utils/dateUtils';
+
+// Permet d'appliquer une transform animée (glissement) tout en gardant le comportement Pressable
+// (onPress vide = capture le tap pour qu'il ne remonte pas au fond assombri derrière).
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 type ModePicker = 'date_debut' | 'date_fin' | 'heure_debut' | 'heure_fin' | null;
 type ModeDuree = 'journee' | 'creneau';
@@ -48,6 +53,33 @@ export function PanneauIndisponibilites() {
     setDateFin(new Date());
     setModalOuverte(true);
   };
+
+  // Glissement vers le bas sur la poignée grise pour fermer, comme les autres feuilles modales de
+  // l'app (cf. FeuilleModale) — réécrit ici en StyleSheet/Animated pour rester cohérent avec le
+  // reste de cet écran (pas de className, cf. commentaire en tête de fichier).
+  const translateY = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (modalOuverte) translateY.setValue(0);
+  }, [modalOuverte, translateY]);
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_e, geste) => Math.abs(geste.dy) > 6,
+      onPanResponderMove: (_e, geste) => {
+        if (geste.dy > 0) translateY.setValue(geste.dy);
+      },
+      onPanResponderRelease: (_e, geste) => {
+        if (geste.dy > 100 || geste.vy > 0.8) {
+          Animated.timing(translateY, { toValue: 800, duration: 180, useNativeDriver: true }).start(() => {
+            translateY.setValue(0);
+            setModalOuverte(false);
+          });
+        } else {
+          Animated.spring(translateY, { toValue: 0, useNativeDriver: true }).start();
+        }
+      },
+    }),
+  ).current;
 
   const handleDeclarer = () => {
     if (modeDuree === 'journee' && dateFin < dateDebut) {
@@ -118,9 +150,14 @@ export function PanneauIndisponibilites() {
       </ScrollView>
 
       {modalOuverte && (
-        <View style={styles.fond}>
-          <View style={styles.feuille}>
-            <View style={styles.poignee} />
+        <Pressable style={styles.fond} onPress={() => setModalOuverte(false)}>
+          <AnimatedPressable
+            style={[styles.feuille, { transform: [{ translateY }] }]}
+            onPress={() => {}}
+          >
+            <View {...panResponder.panHandlers}>
+              <View style={styles.poignee} />
+            </View>
             <Text style={styles.feuilleTitre}>Nouvelle indisponibilité</Text>
 
             <View style={styles.segment}>
@@ -180,7 +217,39 @@ export function PanneauIndisponibilites() {
               </View>
             )}
 
+            {pickerOuvert && Platform.OS === 'web' && (
+              <input
+                type={pickerOuvert === 'heure_debut' || pickerOuvert === 'heure_fin' ? 'time' : 'date'}
+                value={
+                  pickerOuvert === 'date_debut'
+                    ? dateEnISO(dateDebut)
+                    : pickerOuvert === 'date_fin'
+                      ? dateEnISO(dateFin)
+                      : pickerOuvert === 'heure_debut'
+                        ? formatHeureAffichee(heureDebut)
+                        : formatHeureAffichee(heureFin)
+                }
+                onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                  const texte = event.target.value;
+                  if (!texte) return;
+                  if (pickerOuvert === 'date_debut' || pickerOuvert === 'date_fin') {
+                    const valeur = new Date(`${texte}T00:00:00`);
+                    if (pickerOuvert === 'date_debut') setDateDebut(valeur);
+                    else setDateFin(valeur);
+                  } else {
+                    const [h, m] = texte.split(':').map(Number);
+                    const base = new Date(pickerOuvert === 'heure_debut' ? heureDebut : heureFin);
+                    base.setHours(h, m, 0, 0);
+                    if (pickerOuvert === 'heure_debut') setHeureDebut(base);
+                    else setHeureFin(base);
+                  }
+                  setPickerOuvert(null);
+                }}
+                style={styles.champInputWeb as unknown as CSSProperties}
+              />
+            )}
             {pickerOuvert &&
+              Platform.OS !== 'web' &&
               createElement(DateTimePicker, {
                 value:
                   pickerOuvert === 'date_debut'
@@ -216,8 +285,8 @@ export function PanneauIndisponibilites() {
                 <Text style={styles.boutonValiderTexte}>Déclarer</Text>
               </Pressable>
             </View>
-          </View>
-        </View>
+          </AnimatedPressable>
+        </Pressable>
       )}
     </View>
   );
@@ -293,6 +362,18 @@ const styles = StyleSheet.create({
   label: { marginBottom: 4, fontSize: 12, color: '#94A3B8' },
   champ: { borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', paddingHorizontal: 12, paddingVertical: 12 },
   champTexte: { textAlign: 'center', color: '#1E293B' },
+  champInputWeb: {
+    marginBottom: 8,
+    width: '100%',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    textAlign: 'center',
+    color: '#1E293B',
+    fontSize: 14,
+  },
   ok: { fontSize: 14, fontWeight: '600', color: '#4F46E5' },
   ligneBoutons: { marginTop: 12, flexDirection: 'row', gap: 12 },
   boutonAnnuler: {

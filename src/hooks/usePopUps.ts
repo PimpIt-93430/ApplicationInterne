@@ -1,7 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert } from 'react-native';
 
-import { creerPopUp, definirLocal, fetchPopUps, renommerPopUp, supprimerPopUp } from '@/api/popUps';
+import {
+  creerPopUp,
+  fetchPopUps,
+  modifierCoordonneesPopUp,
+  modifierDatesPopUp,
+  renommerPopUp,
+  supprimerPopUp,
+} from '@/api/popUps';
 
 export function usePopUps() {
   return useQuery({ queryKey: ['pop-ups'], queryFn: fetchPopUps });
@@ -26,12 +32,21 @@ export function useRenommerPopUp() {
   });
 }
 
-export function useDefinirLocal() {
+export function useModifierDatesPopUp() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (params: { id: string; estLocal: boolean }) => definirLocal(params.id, params.estLocal),
+    mutationFn: (params: { id: string; dateDebut: string | null; dateFin: string | null }) =>
+      modifierDatesPopUp(params.id, params.dateDebut, params.dateFin),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['pop-ups'] }),
-    onError: (error: Error) => Alert.alert('Échec de l\'enregistrement', error.message),
+  });
+}
+
+export function useModifierCoordonneesPopUp() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params: { id: string; lat: number | null; lon: number | null }) =>
+      modifierCoordonneesPopUp(params.id, params.lat, params.lon),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['pop-ups'] }),
   });
 }
 

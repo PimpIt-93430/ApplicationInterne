@@ -1,6 +1,13 @@
-function versMinutes(heure: string): number {
+export function versMinutes(heure: string): number {
   const [h, m] = heure.split(':').map(Number);
   return h * 60 + m;
+}
+
+/** Inverse de `versMinutes` : reconstruit une heure "HH:MM:00" à partir d'un nombre de minutes. */
+export function minutesVersHeure(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
 }
 
 export interface ElementPositionne<T> {
