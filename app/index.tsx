@@ -5,7 +5,7 @@ import { ActivityIndicator, View } from 'react-native';
 import { useAuthStore } from '@/store/useAuthStore';
 
 export default function Index() {
-  const { session, profile, initializing, init } = useAuthStore();
+  const { session, initializing, init } = useAuthStore();
 
   useEffect(() => {
     init();
@@ -23,5 +23,5 @@ export default function Index() {
     return <Redirect href="/(auth)/login" />;
   }
 
-  return <Redirect href={profile?.role === 'admin' ? '/(app)/admin/calendrier' : '/(app)/calendrier'} />;
+  return <Redirect href="/(app)" />;
 }

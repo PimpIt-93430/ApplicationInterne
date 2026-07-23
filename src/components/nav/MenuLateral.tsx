@@ -1,12 +1,62 @@
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useEffect, useRef } from 'react';
-import { Animated, Pressable, Text } from 'react-native';
+import { Animated, Platform, Pressable, Text, View } from 'react-native';
 
 import { useAuthStore } from '@/store/useAuthStore';
 import { useMenuStore } from '@/store/useMenuStore';
 import { useVueAdminStore } from '@/store/useVueAdminStore';
 
-const LARGEUR = 260;
+const LARGEUR = 280;
+
+export type NomIcone = keyof typeof Ionicons.glyphMap;
+export type LienNavigation = { label: string; route: string; icone: NomIcone };
+
+// Partagé entre MenuLateral (tiroir mobile) et EnteteMenu (barre horizontale web) pour que les
+// deux navigations restent toujours synchronisées. Les deux plateformes n'affichent pas
+// exactement les mêmes liens/ordre (cf. ci-dessous) — Accueil reste mobile uniquement (pas
+// d'équivalent web, la barre web sert déjà de point d'entrée), et le web met Calendrier en
+// premier / Profil en dernier.
+//
+// Finance reste strictement réservé aux admins (décision explicite, migration 0035) : pas de
+// paramètre de droit ici, contrairement à Calendrier où un non-admin peut avoir un droit
+// "responsable de pop-up" (route `/(app)/calendrier` inchangée, `calendrier.web.tsx` s'adapte tout
+// seul selon son propre droit).
+export function liensNavigation(estAdmin: boolean): LienNavigation[] {
+  const calendrier: LienNavigation = {
+    label: 'Calendrier',
+    route: estAdmin ? '/(app)/admin/calendrier' : '/(app)/calendrier',
+    icone: 'calendar-outline',
+  };
+  const stock: LienNavigation = {
+    label: 'Stock',
+    route: estAdmin ? '/(app)/admin/stock' : '/(app)/stock',
+    icone: 'cube-outline',
+  };
+  const profil: LienNavigation = { label: 'Profil', route: '/(app)/profil', icone: 'person-outline' };
+  const liensAdmin: LienNavigation[] = estAdmin
+    ? [
+        { label: 'Pop-up', route: '/(app)/admin/popups', icone: 'storefront-outline' },
+        { label: 'Équipe', route: '/(app)/admin/equipe', icone: 'people-outline' },
+        // Web uniquement (admin/finance.web.tsx) : pas d'écran mobile équivalent pour l'instant.
+        ...(Platform.OS === 'web'
+          ? [{ label: 'Finance', route: '/(app)/admin/finance', icone: 'cash-outline' } as LienNavigation]
+          : []),
+      ]
+    : [];
+
+  if (Platform.OS === 'web') {
+    return [calendrier, stock, ...liensAdmin, profil];
+  }
+
+  return [
+    { label: 'Accueil', route: '/(app)', icone: 'home-outline' },
+    stock,
+    calendrier,
+    profil,
+    ...liensAdmin,
+  ];
+}
 
 export function MenuLateral() {
   const ouvert = useMenuStore((s) => s.ouvert);
@@ -25,17 +75,7 @@ export function MenuLateral() {
     }).start();
   }, [ouvert, translateX]);
 
-  const liens = [
-    { label: 'Stock', route: estAdmin ? '/(app)/admin/stock' : '/(app)/stock' },
-    { label: 'Calendrier', route: estAdmin ? '/(app)/admin/calendrier' : '/(app)/calendrier' },
-    { label: 'Profil', route: '/(app)/profil' },
-    ...(estAdmin
-      ? [
-          { label: 'Pop-up', route: '/(app)/admin/popups' },
-          { label: 'Équipe', route: '/(app)/admin/equipe' },
-        ]
-      : []),
-  ] as const;
+  const liens = liensNavigation(estAdmin);
 
   const allerA = (route: string) => {
     fermer();
@@ -53,7 +93,7 @@ export function MenuLateral() {
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.35)',
+            backgroundColor: 'rgba(15,23,42,0.45)',
             zIndex: 20,
           }}
         />
@@ -67,8 +107,6 @@ export function MenuLateral() {
           width: LARGEUR,
           zIndex: 30,
           backgroundColor: 'white',
-          paddingTop: 64,
-          paddingHorizontal: 12,
           transform: [{ translateX }],
           shadowColor: '#000',
           shadowOpacity: 0.15,
@@ -77,12 +115,39 @@ export function MenuLateral() {
           elevation: 8,
         }}
       >
-        <Text className="mb-4 px-3 text-xs font-semibold uppercase text-slate-400">Menu</Text>
-        {liens.map((lien) => (
-          <Pressable key={lien.route} onPress={() => allerA(lien.route)} className="rounded-xl px-3 py-3">
-            <Text className="text-base font-semibold text-slate-800">{lien.label}</Text>
-          </Pressable>
-        ))}
+        <View className="px-5 pb-5 pt-16">
+          <View
+            className="mb-3 h-14 w-14 items-center justify-center rounded-2xl"
+            style={{ backgroundColor: profile?.couleur ?? '#6366F1' }}
+          >
+            <Text className="text-xl font-bold text-white">
+              {(profile?.nom_complet || profile?.email || '?').slice(0, 1).toUpperCase()}
+            </Text>
+          </View>
+          <Text numberOfLines={1} className="text-lg font-bold text-slate-900">
+            {profile?.nom_complet || profile?.email || 'Mon compte'}
+          </Text>
+          {estAdmin && (
+            <Text className="text-xs font-semibold uppercase text-indigo-500">Administrateur</Text>
+          )}
+        </View>
+
+        <View className="h-px bg-slate-100" />
+
+        <View className="px-3 pt-3">
+          {liens.map((lien) => (
+            <Pressable
+              key={lien.route}
+              onPress={() => allerA(lien.route)}
+              className="mb-1 flex-row items-center gap-3 rounded-xl px-3 py-3 active:bg-slate-50"
+            >
+              <View className="h-9 w-9 items-center justify-center rounded-lg bg-slate-100">
+                <Ionicons name={lien.icone} size={18} color="#4338CA" />
+              </View>
+              <Text className="text-base font-semibold text-slate-800">{lien.label}</Text>
+            </Pressable>
+          ))}
+        </View>
       </Animated.View>
     </>
   );
