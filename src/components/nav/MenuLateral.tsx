@@ -3,9 +3,11 @@ import { router } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { Animated, Platform, Pressable, Text, View } from 'react-native';
 
+import { useMesDroits } from '@/hooks/useDroits';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useMenuStore } from '@/store/useMenuStore';
 import { useVueAdminStore } from '@/store/useVueAdminStore';
+import { aAccesFonctionnalite } from '@/utils/permissions';
 
 const LARGEUR = 280;
 
@@ -19,10 +21,11 @@ export type LienNavigation = { label: string; route: string; icone: NomIcone };
 // premier / Profil en dernier.
 //
 // Finance reste strictement réservé aux admins (décision explicite, migration 0035) : pas de
-// paramètre de droit ici, contrairement à Calendrier où un non-admin peut avoir un droit
-// "responsable de pop-up" (route `/(app)/calendrier` inchangée, `calendrier.web.tsx` s'adapte tout
-// seul selon son propre droit).
-export function liensNavigation(estAdmin: boolean): LienNavigation[] {
+// paramètre de droit ici, contrairement à Calendrier et Équipe où un non-admin peut avoir un
+// droit "responsable de pop-up" (routes `/(app)/calendrier` et `/(app)/equipe`, inchangées pour
+// les admins ; `calendrier.web.tsx`/`equipe.web.tsx` s'adaptent tout seuls selon leur propre
+// droit — migrations 0034/0038).
+export function liensNavigation(estAdmin: boolean, aDroitEquipe = false): LienNavigation[] {
   const calendrier: LienNavigation = {
     label: 'Calendrier',
     route: estAdmin ? '/(app)/admin/calendrier' : '/(app)/calendrier',
@@ -34,6 +37,12 @@ export function liensNavigation(estAdmin: boolean): LienNavigation[] {
     icone: 'cube-outline',
   };
   const profil: LienNavigation = { label: 'Profil', route: '/(app)/profil', icone: 'person-outline' };
+  // Web uniquement (equipe.web.tsx) : pas d'écran mobile équivalent pour l'instant, même
+  // convention que Finance ci-dessous.
+  const equipeManager: LienNavigation | null =
+    Platform.OS === 'web' && !estAdmin && aDroitEquipe
+      ? { label: 'Équipe', route: '/(app)/equipe', icone: 'people-outline' }
+      : null;
   const liensAdmin: LienNavigation[] = estAdmin
     ? [
         { label: 'Pop-up', route: '/(app)/admin/popups', icone: 'storefront-outline' },
@@ -46,7 +55,7 @@ export function liensNavigation(estAdmin: boolean): LienNavigation[] {
     : [];
 
   if (Platform.OS === 'web') {
-    return [calendrier, stock, ...liensAdmin, profil];
+    return [calendrier, stock, ...liensAdmin, ...(equipeManager ? [equipeManager] : []), profil];
   }
 
   return [
@@ -55,6 +64,7 @@ export function liensNavigation(estAdmin: boolean): LienNavigation[] {
     calendrier,
     profil,
     ...liensAdmin,
+    ...(equipeManager ? [equipeManager] : []),
   ];
 }
 
@@ -66,6 +76,8 @@ export function MenuLateral() {
   const translateX = useRef(new Animated.Value(-LARGEUR)).current;
 
   const estAdmin = profile?.role === 'admin' && vue === 'admin';
+  const { data: mesDroits } = useMesDroits(profile?.id);
+  const aDroitEquipe = aAccesFonctionnalite(mesDroits ?? [], 'equipe');
 
   useEffect(() => {
     Animated.timing(translateX, {
@@ -75,7 +87,7 @@ export function MenuLateral() {
     }).start();
   }, [ouvert, translateX]);
 
-  const liens = liensNavigation(estAdmin);
+  const liens = liensNavigation(estAdmin, aDroitEquipe);
 
   const allerA = (route: string) => {
     fermer();

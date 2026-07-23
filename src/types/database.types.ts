@@ -4,7 +4,7 @@ export type StatutShift = 'brouillon' | 'valide' | 'publie';
 export type TypeConge = 'conge' | 'indisponibilite';
 // Finance reste strictement réservé aux admins (décision explicite, migration 0035) : pas de droit
 // pour ça, uniquement "calendrier" peut être accordé à un non-admin.
-export type Fonctionnalite = 'calendrier';
+export type Fonctionnalite = 'calendrier' | 'equipe';
 
 export interface Profile {
   id: string;

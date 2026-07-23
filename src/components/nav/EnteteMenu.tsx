@@ -1,9 +1,11 @@
 import { router, usePathname } from 'expo-router';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { useMesDroits } from '@/hooks/useDroits';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useMenuStore } from '@/store/useMenuStore';
 import { useVueAdminStore } from '@/store/useVueAdminStore';
+import { aAccesFonctionnalite } from '@/utils/permissions';
 import { liensNavigation } from './MenuLateral';
 
 // Route de expo-router sans le segment de groupe "(app)" (usePathname() ne le renvoie jamais),
@@ -19,9 +21,12 @@ export function EnteteMenu({ titre, masquerTitre = false }: { titre: string; mas
   const vue = useVueAdminStore((s) => s.vue);
   const pathname = usePathname();
 
+  const { data: mesDroits } = useMesDroits(profile?.id);
+
   if (Platform.OS === 'web') {
     const estAdmin = profile?.role === 'admin' && vue === 'admin';
-    const liens = liensNavigation(estAdmin);
+    const aDroitEquipe = aAccesFonctionnalite(mesDroits ?? [], 'equipe');
+    const liens = liensNavigation(estAdmin, aDroitEquipe);
 
     return (
       <View>
