@@ -17,7 +17,7 @@ export async function fetchActiveProfiles(): Promise<Profile[]> {
   return data;
 }
 
-export async function updateOwnProfile(id: string, changes: Partial<Profile>) {
+export async function updateProfile(id: string, changes: Partial<Profile>) {
   const { error } = await supabase.from('profiles').update(changes).eq('id', id);
   if (error) throw error;
 }

@@ -1,21 +1,62 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
 import { HoraireRecurrentJourCard } from '@/components/reglages/HoraireRecurrentJourCard';
 import { useToutesHorairesOuverture } from '@/hooks/useReglesMetier';
 import { useEnregistrerHoraireRecurrent, useHorairesRecurrents } from '@/hooks/useHorairesRecurrents';
 import { usePopUps } from '@/hooks/usePopUps';
-import { useActiveProfiles, useAffectationsPopUp } from '@/hooks/useProfiles';
+import { useActiveProfiles, useAffectationsPopUp, useModifierProfil } from '@/hooks/useProfiles';
+import { useAuthStore } from '@/store/useAuthStore';
 import { construireMapAffectations, popUpsAttribues } from '@/utils/affectations';
 import { JOURS_LABELS } from '@/utils/dateUtils';
-import type { PopUp, Profile } from '@/types/database.types';
+import type { PopUp, Profile, Role } from '@/types/database.types';
 
 const LIBELLE_TYPE_CONTRAT: Record<string, string> = {
   manager: 'Manager',
   employe: 'Employé',
   alternant: 'Alternant',
 };
+
+function SelecteurRole({ profil }: { profil: Profile }) {
+  const modifier = useModifierProfil();
+  const soiMeme = useAuthStore((s) => s.profile)?.id === profil.id;
+
+  const changerRole = (role: Role) => {
+    if (role === profil.role) return;
+    Alert.alert(
+      role === 'admin' ? 'Passer admin' : 'Repasser employé',
+      `${profil.nom_complet || 'Cette personne'} va ${role === 'admin' ? 'devenir admin' : 'perdre les droits admin'}.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { text: 'Confirmer', onPress: () => modifier.mutate({ id: profil.id, changes: { role } }) },
+      ],
+    );
+  };
+
+  return (
+    <View className="mb-3 flex-row items-center gap-2">
+      <Text className="text-xs text-slate-400">Rôle</Text>
+      {(['employe', 'admin'] as Role[]).map((role) => (
+        <Pressable
+          key={role}
+          onPress={() => changerRole(role)}
+          disabled={modifier.isPending || (soiMeme && profil.role === 'admin' && role === 'employe')}
+          className={`rounded-full px-3 py-1.5 ${profil.role === role ? 'bg-indigo-600' : 'bg-slate-100'}`}
+        >
+          <Text className={`text-xs font-semibold ${profil.role === role ? 'text-white' : 'text-slate-600'}`}>
+            {role === 'admin' ? 'Admin' : 'Employé'}
+          </Text>
+        </Pressable>
+      ))}
+      {soiMeme && profil.role === 'admin' && (
+        <Text className="flex-1 text-[11px] text-slate-400">
+          Un autre admin doit te repasser employé.
+        </Text>
+      )}
+    </View>
+  );
+}
 
 function CarteMembre({ profil, lieuxAttribues }: { profil: Profile; lieuxAttribues: PopUp[] }) {
   const [ouvert, setOuvert] = useState(false);
@@ -57,6 +98,8 @@ function CarteMembre({ profil, lieuxAttribues }: { profil: Profile; lieuxAttribu
             ? lieuxAttribues.map((p) => p.nom).join(', ')
             : 'Aucun lieu attribué'}
       </Text>
+
+      <SelecteurRole profil={profil} />
 
       <Pressable onPress={() => setOuvert((v) => !v)} className="mb-2">
         <Text className="text-sm font-semibold text-indigo-600">
