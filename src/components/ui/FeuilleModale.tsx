@@ -41,7 +41,7 @@ export function FeuilleModale({ onClose, children }: { onClose: () => void; chil
           <Pressable
             onPress={onClose}
             hitSlop={8}
-            className="absolute right-4 top-4 z-10 h-8 w-8 items-center justify-center rounded-full hover:bg-slate-100"
+            className="absolute right-4 top-4 z-10 h-8 w-8 items-center justify-center rounded-full"
           >
             <Text className="text-lg text-slate-400">×</Text>
           </Pressable>

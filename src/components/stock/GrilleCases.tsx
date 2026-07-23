@@ -35,7 +35,7 @@ export function GrilleCases({
                 key={position}
                 onPress={() => onPressCase(position)}
                 style={{ flex: 1 / COLONNES.length }}
-                className={`aspect-square justify-between overflow-hidden rounded-xl border p-1.5 shadow-sm hover:border-indigo-300 ${
+                className={`aspect-square justify-between overflow-hidden rounded-xl border p-1.5 shadow-sm ${
                   statut === 'a_commander'
                     ? 'border-red-200 bg-red-50'
                     : contenus.length > 0

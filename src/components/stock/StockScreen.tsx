@@ -78,7 +78,7 @@ function BarreOnglets<T extends string>({
             key={option.valeur}
             onPress={() => onChange(option.valeur)}
             className={`flex-1 flex-row items-center justify-center gap-1.5 rounded-xl py-2.5 ${
-              actif ? 'bg-white shadow-sm' : 'hover:bg-slate-200'
+              actif ? 'bg-white shadow-sm' : ''
             }`}
           >
             <Text className={`text-sm font-semibold ${actif ? 'text-indigo-600' : 'text-slate-500'}`}>
@@ -343,7 +343,7 @@ function FiltreCase({ valeur, onChange }: { valeur: string | null; onChange: (v:
       <Pressable
         onPress={() => onChange(null)}
         className={`items-center justify-center rounded-full px-3 py-2 ${
-          valeur === null ? 'bg-indigo-600' : 'bg-slate-100 hover:bg-slate-200'
+          valeur === null ? 'bg-indigo-600' : 'bg-slate-100'
         }`}
       >
         <Text className={`text-xs font-semibold ${valeur === null ? 'text-white' : 'text-slate-600'}`}>
@@ -355,7 +355,7 @@ function FiltreCase({ valeur, onChange }: { valeur: string | null; onChange: (v:
           key={pos}
           onPress={() => onChange(pos === valeur ? null : pos)}
           className={`items-center justify-center rounded-full px-3 py-2 ${
-            valeur === pos ? 'bg-indigo-600' : 'bg-slate-100 hover:bg-slate-200'
+            valeur === pos ? 'bg-indigo-600' : 'bg-slate-100'
           }`}
         >
           <Text className={`text-xs font-semibold ${valeur === pos ? 'text-white' : 'text-slate-600'}`}>
@@ -491,7 +491,7 @@ function FiltreAttribution({
           key={o.valeur}
           onPress={() => onChange(o.valeur)}
           className={`items-center justify-center rounded-full px-3 py-2 ${
-            valeur === o.valeur ? 'bg-indigo-600' : 'bg-slate-100 hover:bg-slate-200'
+            valeur === o.valeur ? 'bg-indigo-600' : 'bg-slate-100'
           }`}
         >
           <Text className={`text-xs font-semibold ${valeur === o.valeur ? 'text-white' : 'text-slate-600'}`}>
@@ -530,7 +530,7 @@ function TuileCataloguePin({
 
   return (
     <View className="w-[10%] p-1.5">
-      <View className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm hover:border-indigo-200 hover:shadow-md">
+      <View className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
         <Pressable onPress={onOuvrirPhoto} className="aspect-square w-full items-center justify-center bg-slate-50">
           {pin.photo_url ? (
             <Image source={{ uri: pin.photo_url }} className="h-full w-full" resizeMode="cover" />
@@ -551,7 +551,7 @@ function TuileCataloguePin({
             onEndEditing={enregistrerSeuil}
             keyboardType="numeric"
             placeholder="—"
-            className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs focus:border-indigo-400 focus:bg-white"
+            className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs"
           />
         </View>
         <View className="px-2.5 pb-2.5 pt-0.5">
@@ -642,7 +642,7 @@ function VueCatalogueWeb({
             <Text className="text-xl font-bold text-slate-900">Catalogue</Text>
             <Pressable
               onPress={() => onToggleSignalement(!signalementOuvert)}
-              className="rounded-xl border border-dashed border-amber-300 bg-white px-3.5 py-2.5 shadow-sm hover:bg-amber-50"
+              className="rounded-xl border border-dashed border-amber-300 bg-white px-3.5 py-2.5 shadow-sm"
             >
               <Text className="text-xs font-semibold text-amber-600">📷 Signaler un pin inconnu</Text>
             </Pressable>
@@ -671,7 +671,7 @@ function VueCatalogueWeb({
               value={recherche}
               onChangeText={onChangeRecherche}
               placeholder={chargement ? 'Chargement…' : 'Rechercher un pin…'}
-              className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 focus:border-indigo-400 focus:bg-white"
+              className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"
             />
 
             <View className="flex-row items-center justify-between">
@@ -777,7 +777,7 @@ function RapportRemplissages({
                       )
                     }
                     hitSlop={8}
-                    className="ml-3 rounded-lg px-2 py-1 hover:bg-red-50"
+                    className="ml-3 rounded-lg px-2 py-1"
                   >
                     <Text className="text-xs font-semibold text-red-500">Supprimer</Text>
                   </Pressable>
@@ -1071,7 +1071,7 @@ function LigneLocalPin({
       </View>
       <Pressable
         onPress={onPeser}
-        className="items-center justify-center rounded-xl bg-indigo-600 px-4 py-2.5 hover:bg-indigo-500"
+        className="items-center justify-center rounded-xl bg-indigo-600 px-4 py-2.5"
       >
         <Text className="text-xs font-bold text-white">Peser</Text>
       </Pressable>
@@ -1242,7 +1242,7 @@ function LigneCommandeLocal({ resume, onOuvrir }: { resume: CommandeResume; onOu
   return (
     <Pressable
       onPress={onOuvrir}
-      className="mb-2.5 flex-row items-center justify-between rounded-2xl border border-slate-100 bg-white p-4 shadow-sm hover:border-indigo-200"
+      className="mb-2.5 flex-row items-center justify-between rounded-2xl border border-slate-100 bg-white p-4 shadow-sm"
     >
       <View className="flex-1">
         <Text className="text-sm font-semibold text-slate-800">{resume.popUpNom}</Text>

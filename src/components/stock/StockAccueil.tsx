@@ -28,7 +28,7 @@ function TuileCategorie({
       <Pressable
         onPress={onPress}
         style={{ backgroundColor: couleur }}
-        className="w-[220px] rounded-2xl p-5 shadow-md hover:opacity-90"
+        className="w-[220px] rounded-2xl p-5 shadow-md"
       >
         <Text className="text-lg font-bold text-white">{label}</Text>
         <Text className="mt-1 text-xs text-white/80">{sousTitre}</Text>
