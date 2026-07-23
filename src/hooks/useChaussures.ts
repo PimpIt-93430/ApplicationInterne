@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import {
   definirQuantiteARamener,
   fetchChaussuresStock,
+  incrementerQuantiteARamener,
   validerReapprovisionnementChaussures,
 } from '@/api/chaussures';
 import { supabase } from '@/api/supabaseClient';
@@ -43,5 +44,10 @@ export function useGererChaussures() {
     onSuccess: invalidate,
   });
 
-  return { definirQuantite, validerReappro };
+  const incrementerVendue = useMutation({
+    mutationFn: (id: string) => incrementerQuantiteARamener(id),
+    onSuccess: invalidate,
+  });
+
+  return { definirQuantite, validerReappro, incrementerVendue };
 }
