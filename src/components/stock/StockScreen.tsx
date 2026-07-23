@@ -1173,9 +1173,6 @@ function PanneauPesee({
 
   const poidsNum = Number(poids.trim().replace(',', '.'));
   const poidsValide = poids.trim() !== '' && Number.isFinite(poidsNum) && poidsNum >= 0;
-  const quantitePrevue =
-    pin.poids_unitaire && poidsValide ? Math.max(0, Math.round((poidsNum / pin.poids_unitaire) * 10)) : null;
-  const delta = quantitePrevue !== null ? quantitePrevue - pin.stock_general : null;
 
   const confirmer = () => {
     if (!poidsValide) return;
@@ -1194,55 +1191,34 @@ function PanneauPesee({
 
   return (
     <FeuilleModale onClose={onFermer}>
-      <Text className="mb-1 text-lg font-bold text-slate-900">Peser — {pin.nom}</Text>
-      <Text className="mb-4 text-sm text-slate-400">Stock actuel : {pin.stock_general} pin(s)</Text>
+      <Text className="mb-3 text-lg font-bold text-slate-900">Peser — {pin.nom}</Text>
 
       {pin.poids_unitaire === null ? (
-        <Text className="mb-4 text-sm text-amber-600">
+        <Text className="text-sm text-amber-600">
           Poids (g/10) manquant pour ce pin — renseigne-le dans l'onglet Catalogue avant de pouvoir
           le peser.
         </Text>
       ) : (
         <>
-          <Text className="mb-1 text-xs font-semibold uppercase text-slate-400">
-            Poids restant pesé (g)
-          </Text>
           <TextInput
             value={poids}
             onChangeText={setPoids}
             keyboardType="decimal-pad"
             autoFocus
-            placeholder="Ex : 145"
+            placeholder="Poids restant (g)"
             className="mb-3 rounded-xl border border-slate-200 px-4 py-3 text-base"
           />
-          {quantitePrevue !== null && (
-            <View className="mb-4 rounded-xl bg-slate-50 p-3">
-              <Text className="text-sm text-slate-600">
-                ≈ <Text className="font-bold text-slate-900">{quantitePrevue}</Text> pin(s) restant(s)
-              </Text>
-              {delta !== null && delta !== 0 && (
-                <Text className={`mt-1 text-xs font-semibold ${delta > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                  {delta > 0 ? '+' : ''}
-                  {delta} par rapport au stock actuel
-                </Text>
-              )}
-            </View>
-          )}
           <Pressable
             onPress={confirmer}
             disabled={!poidsValide || peser.isPending}
             className={`items-center rounded-xl py-3.5 ${poidsValide ? 'bg-indigo-600' : 'bg-slate-200'}`}
           >
             <Text className={`text-base font-bold ${poidsValide ? 'text-white' : 'text-slate-500'}`}>
-              {peser.isPending ? 'Enregistrement…' : 'Enregistrer la pesée'}
+              {peser.isPending ? 'Validation…' : 'Valider'}
             </Text>
           </Pressable>
         </>
       )}
-
-      <Pressable onPress={onFermer} className="mt-3 items-center py-2">
-        <Text className="font-semibold text-indigo-600">Fermer</Text>
-      </Pressable>
     </FeuilleModale>
   );
 }
