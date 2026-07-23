@@ -231,7 +231,7 @@ function BadgeAttribution({ attributions }: { attributions: AttributionAffichage
   return (
     <View className="flex-row items-center gap-1.5">
       <View className="self-start rounded-full bg-emerald-100 px-2 py-0.5">
-        <Text className="text-[10px] font-semibold text-emerald-700">Attribué ({attributions.length})</Text>
+        <Text className="text-[10px] font-semibold text-emerald-700">Attribué</Text>
       </View>
       <Text numberOfLines={1} className="flex-1 text-[10px] text-slate-400">
         {detail}
@@ -278,9 +278,7 @@ function LigneCataloguePin({
           <Text className="text-xs text-slate-400">Seuil : {pin.seuil_cible ?? '—'}</Text>
         </View>
         {enRupture && (
-          <Text className="mt-1 text-[10px] font-semibold text-red-600">
-            Rupture locale : {pin.stock_general}/{pin.seuil_cible}
-          </Text>
+          <Text className="mt-1 text-[10px] font-semibold text-red-600">Rupture locale</Text>
         )}
         {pin.a_completer && (
           <Text className="mt-1 text-[10px] font-semibold text-amber-600">À compléter (signalé)</Text>
@@ -533,11 +531,7 @@ function TuileCataloguePin({
               ? attributions.map((a) => `${a.popUpNom} ${a.casePosition}`).join(' · ')
               : 'Non attribué'}
           </Text>
-          {enRupture && (
-            <Text className="mt-0.5 text-[10px] font-bold text-red-600">
-              Rupture : {pin.stock_general}/{pin.seuil_cible}
-            </Text>
-          )}
+          {enRupture && <Text className="mt-0.5 text-[10px] font-bold text-red-600">Rupture</Text>}
           {pin.a_completer && <Text className="mt-0.5 text-[10px] font-bold text-amber-600">À compléter</Text>}
         </View>
       </View>
@@ -1397,16 +1391,22 @@ export function StockScreen({ profile, onRetour }: { profile: Profile; onRetour:
 
   const nbACompleter = useMemo(() => (pins ?? []).filter((p) => p.a_completer).length, [pins]);
 
+  // Le catalogue n'affiche que l'attribution sur les pop-ups où LA PERSONNE QUI REGARDE travaille
+  // (popUps = tous pour un admin, seulement ses lieux attribués sinon) — un alternant de Val
+  // d'Europe ne doit pas voir "Attribué à Créteil Soleil", uniquement sa propre case si le pin y
+  // est attribué.
   const attributionsParPin = useMemo(() => {
+    const popUpIdsVisibles = new Set(popUps.map((p) => p.id));
     const map = new Map<string, AttributionAffichage[]>();
     for (const a of attributions ?? []) {
+      if (!popUpIdsVisibles.has(a.pop_up_id)) continue;
       const popUpNom = popUpsTous?.find((p) => p.id === a.pop_up_id)?.nom ?? '?';
       const liste = map.get(a.pin_id) ?? [];
       liste.push({ popUpNom, casePosition: a.case_position });
       map.set(a.pin_id, liste);
     }
     return map;
-  }, [attributions, popUpsTous]);
+  }, [attributions, popUpsTous, popUps]);
 
   // Pins actuellement "à commander" sur au moins une case d'un pop-up (jamais le local lui-même,
   // ses propres cases ne sont pas une demande adressée au local) — dédupliqué par pop-up, un pin
