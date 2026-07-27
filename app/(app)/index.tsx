@@ -81,12 +81,14 @@ export default function AccueilScreen() {
           </Text>
           <Text className="text-3xl font-bold text-slate-900">Pimp It</Text>
         </View>
-        <Pressable
-          onPress={ouvrirMenu}
-          className="h-11 w-11 items-center justify-center rounded-full bg-white shadow-sm"
-        >
-          <Ionicons name="menu" size={22} color="#334155" />
-        </Pressable>
+        {estAdmin && (
+          <Pressable
+            onPress={ouvrirMenu}
+            className="h-11 w-11 items-center justify-center rounded-full bg-white shadow-sm"
+          >
+            <Ionicons name="menu" size={22} color="#334155" />
+          </Pressable>
+        )}
       </View>
 
       <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 40 }}>

@@ -61,6 +61,10 @@ function estEnConge(
 ): boolean {
   return conges.some((c) => {
     if (c.profile_id !== profileId || date < c.date_debut || date > c.date_fin) return false;
+    // Une demande de congé "en attente" (pas encore validée par un manager/admin) ne doit pas
+    // bloquer la génération auto du planning — seule une indisponibilité (jamais soumise à
+    // validation) ou un congé effectivement validé compte comme une vraie absence.
+    if (c.type === 'conge' && c.statut !== 'validee') return false;
     if (!c.heure_debut || !c.heure_fin) return true; // journée complète
     return seChevauchent(c.heure_debut, c.heure_fin, heureDebut, heureFin);
   });

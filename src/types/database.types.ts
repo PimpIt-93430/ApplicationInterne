@@ -2,6 +2,7 @@ export type Role = 'admin' | 'employe';
 export type TypeContrat = 'manager' | 'employe' | 'alternant';
 export type StatutShift = 'brouillon' | 'valide' | 'publie';
 export type TypeConge = 'conge' | 'indisponibilite';
+export type StatutConge = 'en_attente' | 'validee' | 'refusee';
 // Finance reste strictement réservé aux admins (décision explicite, migration 0035) : pas de droit
 // pour ça, uniquement "calendrier" peut être accordé à un non-admin.
 export type Fonctionnalite = 'calendrier' | 'equipe';
@@ -108,6 +109,9 @@ export interface Conge {
   heure_fin: string | null;
   type: TypeConge;
   note: string | null;
+  statut: StatutConge;
+  traite_par: string | null;
+  traite_le: string | null;
   created_at: string;
 }
 

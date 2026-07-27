@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { ajouterConge, fetchCongesPeriode, fetchCongesProfile, supprimerConge } from '@/api/conges';
+import { ajouterConge, demanderConge, fetchCongesPeriode, fetchCongesProfile, supprimerConge } from '@/api/conges';
 import { supprimerShiftsProfilChevauchants } from '@/api/planning';
 import { regenererPlanningProfil } from '@/api/regenerationPlanning';
 import type { Conge, TypeConge } from '@/types/database.types';
@@ -75,4 +75,20 @@ export function useGererConges(profileId: string | undefined) {
   });
 
   return { ajouter, supprimer };
+}
+
+// Demande de congé (onglet "Demandes") : mutation séparée de useGererConges().ajouter — une
+// demande "en attente" ne doit ni supprimer les créneaux existants ni régénérer le planning tant
+// qu'elle n'est pas validée par un manager/admin (hors périmètre de cette tâche).
+export function useDemanderConge(profileId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: { dateDebut: string; dateFin: string; note: string }) =>
+      demanderConge({ profileId: profileId as string, ...params }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['conges', profileId] });
+      queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'conges-periode' });
+    },
+  });
 }

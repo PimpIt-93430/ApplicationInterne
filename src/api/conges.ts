@@ -46,3 +46,26 @@ export async function supprimerConge(id: string) {
   const { error } = await supabase.from('conges').delete().eq('id', id);
   if (error) throw error;
 }
+
+/** Demande de congé soumise par l'employé lui-même — distincte de `ajouterConge` (qui sert aux
+ * indisponibilités, effectives immédiatement) : celle-ci part toujours "en_attente", ne touche pas
+ * au planning tant qu'un manager/admin ne l'a pas validée (écran de validation hors périmètre
+ * actuel). */
+export async function demanderConge(params: {
+  profileId: string;
+  dateDebut: string;
+  dateFin: string;
+  note: string;
+}) {
+  const { error } = await supabase.from('conges').insert({
+    profile_id: params.profileId,
+    date_debut: params.dateDebut,
+    date_fin: params.dateFin,
+    heure_debut: null,
+    heure_fin: null,
+    type: 'conge',
+    statut: 'en_attente',
+    note: params.note,
+  });
+  if (error) throw error;
+}

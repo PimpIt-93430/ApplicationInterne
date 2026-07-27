@@ -22,9 +22,9 @@ export function EnteteMenu({ titre, masquerTitre = false }: { titre: string; mas
   const pathname = usePathname();
 
   const { data: mesDroits } = useMesDroits(profile?.id);
+  const estAdmin = profile?.role === 'admin' && vue === 'admin';
 
   if (Platform.OS === 'web') {
-    const estAdmin = profile?.role === 'admin' && vue === 'admin';
     const aDroitEquipe = aAccesFonctionnalite(mesDroits ?? [], 'equipe');
     const liens = liensNavigation(estAdmin, aDroitEquipe);
 
@@ -59,9 +59,11 @@ export function EnteteMenu({ titre, masquerTitre = false }: { titre: string; mas
 
   return (
     <View className="flex-row items-center gap-3 px-4 pb-2 pt-14">
-      <Pressable onPress={ouvrir} className="h-9 w-9 items-center justify-center rounded-lg bg-slate-100">
-        <Text className="text-lg text-slate-700">☰</Text>
-      </Pressable>
+      {estAdmin && (
+        <Pressable onPress={ouvrir} className="h-9 w-9 items-center justify-center rounded-lg bg-slate-100">
+          <Text className="text-lg text-slate-700">☰</Text>
+        </Pressable>
+      )}
       <Text className="text-2xl font-bold text-slate-900">{titre}</Text>
     </View>
   );
