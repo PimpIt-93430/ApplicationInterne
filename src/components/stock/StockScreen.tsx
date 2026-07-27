@@ -28,6 +28,7 @@ import { CaseDetailModal } from '@/components/stock/CaseDetailModal';
 import { GrilleCases } from '@/components/stock/GrilleCases';
 import { ModalePhotoPin } from '@/components/stock/ModalePhotoPin';
 import { EnteteRetour } from '@/components/nav/EnteteRetour';
+import { BarreOnglets } from '@/components/ui/BarreOnglets';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { FeuilleModale } from '@/components/ui/FeuilleModale';
 import { usePopUps } from '@/hooks/usePopUps';
@@ -56,45 +57,6 @@ const TAILLES: { valeur: TaillePin; label: string }[] = [
   { valeur: 'moyen', label: 'M' },
   { valeur: 'gros', label: 'G' },
 ];
-
-/** Barre d'onglets en "segmented control" (piste grise, pastille blanche + ombre sur l'onglet
- * actif) — remplace les anciens onglets en blocs pleins indigo, plus proche des standards web/
- * desktop tout en restant identique en confort tactile sur mobile. */
-function BarreOnglets<T extends string>({
-  options,
-  valeur,
-  onChange,
-}: {
-  options: { valeur: T; label: string; badge?: number }[];
-  valeur: T;
-  onChange: (v: T) => void;
-}) {
-  return (
-    <View className="flex-row gap-1 rounded-2xl bg-slate-100 p-1">
-      {options.map((option) => {
-        const actif = option.valeur === valeur;
-        return (
-          <Pressable
-            key={option.valeur}
-            onPress={() => onChange(option.valeur)}
-            className={`flex-1 flex-row items-center justify-center gap-1.5 rounded-xl py-2.5 ${
-              actif ? 'bg-white shadow-sm' : ''
-            }`}
-          >
-            <Text className={`text-sm font-semibold ${actif ? 'text-indigo-600' : 'text-slate-500'}`}>
-              {option.label}
-            </Text>
-            {!!option.badge && option.badge > 0 && (
-              <View className="h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1">
-                <Text className="text-[10px] font-bold text-white">{option.badge}</Text>
-              </View>
-            )}
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
 
 function PanneauPin({ pin, profile, onFermer }: { pin: StockPin; profile: Profile; onFermer: () => void }) {
   const { modifier, ajusterStock } = useGererCatalogue();
@@ -870,8 +832,10 @@ function PanneauHistoriqueCommandes({
 }
 
 /** Aperçu de la commande avant envoi : pins signalés "à commander" sur les boîtes de ce pop-up,
- * tant que rien n'a encore été envoyé au local. Une fois envoyée, c'est le local qui décide pin
- * par pin ce qu'il a effectivement préparé (plus de coche "trouvé" ici). */
+ * tant que rien n'a encore été envoyé au local. Chaque pin est coché par défaut ; décocher un pin
+ * l'exclut de cet envoi (il reste "à commander" et repartira dans une prochaine commande) — utile
+ * pour ne pas tout envoyer d'un coup. Une fois envoyée, c'est le local qui décide pin par pin ce
+ * qu'il a effectivement préparé (plus de coche "trouvé" ici). */
 function PanneauCommande({
   lignes,
   popUpNom,
@@ -885,13 +849,26 @@ function PanneauCommande({
   onEnvoyer: (pinIds: string[]) => void;
   onFermer: () => void;
 }) {
+  const [pinsExclus, setPinsExclus] = useState<Set<string>>(new Set());
+
+  const lignesRetenues = lignes.filter((l) => !pinsExclus.has(l.pin.id));
+
+  const basculerPin = (pinId: string) => {
+    setPinsExclus((prev) => {
+      const next = new Set(prev);
+      if (next.has(pinId)) next.delete(pinId);
+      else next.add(pinId);
+      return next;
+    });
+  };
+
   const confirmerEnvoi = () => {
     Alert.alert(
       'Envoyer la commande au local',
       `Le local va préparer ces pins pour ${popUpNom}. Tu ne pourras pas envoyer de nouvelle commande tant que celle-ci n'est pas reçue.`,
       [
         { text: 'Annuler', style: 'cancel' },
-        { text: 'Envoyer', onPress: () => onEnvoyer(lignes.map((l) => l.pin.id)) },
+        { text: 'Envoyer', onPress: () => onEnvoyer(lignesRetenues.map((l) => l.pin.id)) },
       ],
     );
   };
@@ -900,39 +877,58 @@ function PanneauCommande({
     <FeuilleModale onClose={onFermer}>
       <Text className="mb-1 text-lg font-bold text-slate-900">Commande — {popUpNom}</Text>
       <Text className="mb-4 text-sm text-slate-400">
-        Pins signalés "à commander" sur les boîtes de ce pop-up. Envoie la commande au local dès
-        qu'elle est prête — il la préparera et te préviendra quand elle sera prête à récupérer.
+        Pins signalés "à commander" sur les boîtes de ce pop-up. Décoche ceux à ne pas envoyer tout
+        de suite — ils resteront "à commander" pour une prochaine fois.
       </Text>
 
       <ScrollView style={{ maxHeight: 480 }}>
         {lignes.length === 0 ? (
           <Text className="text-sm text-slate-400">Rien à commander pour l'instant.</Text>
         ) : (
-          lignes.map((ligne) => (
-            <View key={ligne.pin.id} className="mb-2 flex-row items-center gap-3 rounded-xl bg-slate-50 p-2">
-              {ligne.pin.photo_url ? (
-                <Image source={{ uri: ligne.pin.photo_url }} className="h-14 w-14 rounded-lg bg-slate-100" />
-              ) : (
-                <View className="h-14 w-14 items-center justify-center rounded-lg bg-slate-100">
-                  <Text className="text-lg text-slate-300">?</Text>
+          lignes.map((ligne) => {
+            const retenu = !pinsExclus.has(ligne.pin.id);
+            return (
+              <Pressable
+                key={ligne.pin.id}
+                onPress={() => basculerPin(ligne.pin.id)}
+                className="mb-2 flex-row items-center gap-3 rounded-xl bg-slate-50 p-2"
+              >
+                {ligne.pin.photo_url ? (
+                  <Image
+                    source={{ uri: ligne.pin.photo_url }}
+                    className="h-14 w-14 rounded-lg bg-slate-100"
+                  />
+                ) : (
+                  <View className="h-14 w-14 items-center justify-center rounded-lg bg-slate-100">
+                    <Text className="text-lg text-slate-300">?</Text>
+                  </View>
+                )}
+                <Text numberOfLines={2} className="flex-1 text-sm font-semibold text-slate-800">
+                  {ligne.pin.nom}
+                </Text>
+                <Text className="text-xs text-slate-400">{ligne.nbBoites} boîte(s)</Text>
+                <View
+                  className={`h-7 w-7 items-center justify-center rounded-md border-2 ${
+                    retenu ? 'border-emerald-600 bg-emerald-600' : 'border-slate-300'
+                  }`}
+                >
+                  {retenu && <Text className="text-xs font-bold text-white">✓</Text>}
                 </View>
-              )}
-              <Text numberOfLines={2} className="flex-1 text-sm font-semibold text-slate-800">
-                {ligne.pin.nom}
-              </Text>
-              <Text className="text-xs text-slate-400">{ligne.nbBoites} boîte(s)</Text>
-            </View>
-          ))
+              </Pressable>
+            );
+          })
         )}
       </ScrollView>
 
       <Pressable
         onPress={confirmerEnvoi}
-        disabled={enCours || lignes.length === 0}
-        className={`mt-4 items-center rounded-xl py-3.5 ${lignes.length === 0 ? 'bg-slate-200' : 'bg-emerald-500'}`}
+        disabled={enCours || lignesRetenues.length === 0}
+        className={`mt-4 items-center rounded-xl py-3.5 ${lignesRetenues.length === 0 ? 'bg-slate-200' : 'bg-emerald-500'}`}
       >
-        <Text className={`text-base font-bold ${lignes.length === 0 ? 'text-slate-500' : 'text-white'}`}>
-          {enCours ? 'Envoi…' : 'Envoyer la commande'}
+        <Text className={`text-base font-bold ${lignesRetenues.length === 0 ? 'text-slate-500' : 'text-white'}`}>
+          {enCours
+            ? 'Envoi…'
+            : `Envoyer la commande${lignesRetenues.length > 0 ? ` (${lignesRetenues.length})` : ''}`}
         </Text>
       </Pressable>
       <Pressable onPress={onFermer} className="mt-3 items-center py-2">

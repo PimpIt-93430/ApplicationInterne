@@ -17,7 +17,7 @@ import {
   fetchHistoriqueCommandes,
   fetchMouvements,
   fetchPins,
-  fetchRemplissages,
+  fetchRemplissagesDepuisDerniereCommande,
   marquerCommandeRecue,
   modifierPin,
   peserStockGeneral,
@@ -100,11 +100,13 @@ export function useDerniersRemplissages(popUpId: string | undefined) {
   });
 }
 
-// Historique complet (pas juste le dernier par case) pour l'onglet Rapport, groupé par jour côté UI.
+// Historique des remplissages pour l'onglet Rapport, groupé par jour côté UI — repart de zéro à
+// chaque commande envoyée (cf. fetchRemplissagesDepuisDerniereCommande), sans rien supprimer en
+// base.
 export function useRemplissages(popUpId: string | undefined) {
   return useQuery({
     queryKey: ['stock-remplissages-historique', popUpId],
-    queryFn: () => fetchRemplissages(popUpId as string),
+    queryFn: () => fetchRemplissagesDepuisDerniereCommande(popUpId as string),
     enabled: !!popUpId,
   });
 }
@@ -283,7 +285,11 @@ export function useGererCommandePopUp(popUpId: string | undefined) {
   const envoyer = useMutation({
     mutationFn: (params: { profileId: string; pinIds: string[] }) =>
       envoyerCommande({ popUpId: popUpId as string, ...params }),
-    onSuccess: invalidateActive,
+    onSuccess: () => {
+      invalidateActive();
+      // La commande envoyée devient la nouvelle référence "depuis" du rapport : le remet à zéro.
+      queryClient.invalidateQueries({ queryKey: ['stock-remplissages-historique', popUpId] });
+    },
   });
 
   const marquerRecue = useMutation({

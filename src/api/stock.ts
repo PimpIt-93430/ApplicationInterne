@@ -196,9 +196,9 @@ export async function validerCommandePrete(params: {
   if (error) throw error;
 }
 
-/** Le pop-up confirme avoir récupéré la commande : clôt la commande et retire "à commander" de
- * toutes les cases de ce pop-up (même comportement que l'ancien flux, juste déclenché ici plutôt
- * qu'à la validation de réception à l'ancienne). */
+/** Le pop-up confirme avoir récupéré la commande : clôt la commande et retire "à commander"
+ * uniquement des cases dont le pin a été trouvé (fait = true) dans CETTE commande — les pins pas
+ * trouvés doivent rester signalés "à commander" pour la prochaine commande. */
 export async function marquerCommandeRecue(params: {
   commandeId: string;
   popUpId: string;
@@ -212,10 +212,21 @@ export async function marquerCommandeRecue(params: {
     .eq('id', commandeId);
   if (errorCommande) throw errorCommande;
 
+  const { data: lignesFaites, error: errorLignes } = await supabase
+    .from('commande_lignes')
+    .select('pin_id')
+    .eq('commande_id', commandeId)
+    .eq('fait', true);
+  if (errorLignes) throw errorLignes;
+
+  const pinIdsTrouves = (lignesFaites ?? []).map((l) => l.pin_id);
+  if (pinIdsTrouves.length === 0) return;
+
   const { error: errorBoites } = await supabase
     .from('pop_up_pin_boites')
     .update({ a_commander: false })
-    .eq('pop_up_id', popUpId);
+    .eq('pop_up_id', popUpId)
+    .in('pin_id', pinIdsTrouves);
   if (errorBoites) throw errorBoites;
 }
 
@@ -297,13 +308,17 @@ export async function fetchDerniersRemplissages(popUpId: string): Promise<Dernie
   return [...parCase.values()];
 }
 
-/** Historique complet des remplissages d'un pop-up, du plus récent au plus ancien. */
-export async function fetchRemplissages(popUpId: string): Promise<DernierRemplissage[]> {
-  const { data, error } = await supabase
+/** Historique complet des remplissages d'un pop-up, du plus récent au plus ancien — `depuis` (si
+ * fourni) filtre aux remplissages postérieurs à cette date (utilisé pour repartir de zéro après
+ * chaque commande envoyée, cf. `fetchRemplissagesDepuisDerniereCommande`). */
+export async function fetchRemplissages(popUpId: string, depuis?: string): Promise<DernierRemplissage[]> {
+  let requete = supabase
     .from('pop_up_boite_remplissages')
     .select('id, case_position, created_at, profile:profiles(nom_complet)')
     .eq('pop_up_id', popUpId)
     .order('created_at', { ascending: false });
+  if (depuis) requete = requete.gt('created_at', depuis);
+  const { data, error } = await requete;
   if (error) throw error;
   return (data as unknown as (PopUpBoiteRemplissage & { profile: { nom_complet: string } | null })[]).map(
     (r) => ({
@@ -313,6 +328,22 @@ export async function fetchRemplissages(popUpId: string): Promise<DernierRemplis
       createdAt: r.created_at,
     }),
   );
+}
+
+/** Rapport de l'onglet "Rapport" : remplissages depuis la dernière commande envoyée pour ce
+ * pop-up (tous statuts confondus — envoyée, prête ou déjà reçue), pour repartir de zéro à chaque
+ * nouvel envoi sans perdre l'historique complet en base (rien n'est supprimé, juste filtré ici).
+ * S'il n'y a jamais eu de commande, retourne tout l'historique. */
+export async function fetchRemplissagesDepuisDerniereCommande(popUpId: string): Promise<DernierRemplissage[]> {
+  const { data: derniereCommande, error } = await supabase
+    .from('commandes_pop_up')
+    .select('envoyee_at')
+    .eq('pop_up_id', popUpId)
+    .order('envoyee_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return fetchRemplissages(popUpId, derniereCommande?.envoyee_at ?? undefined);
 }
 
 /** Supprime un remplissage du rapport (correction d'une erreur de saisie) — réservé aux admins
