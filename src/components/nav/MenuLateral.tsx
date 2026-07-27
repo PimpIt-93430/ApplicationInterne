@@ -151,7 +151,8 @@ export function MenuLateral() {
             <Pressable
               key={lien.route}
               onPress={() => allerA(lien.route)}
-              className="mb-1 flex-row items-center gap-3 rounded-xl px-3 py-3 active:bg-slate-50"
+              style={({ pressed }) => (pressed ? { backgroundColor: '#f8fafc' } : undefined)}
+              className="mb-1 flex-row items-center gap-3 rounded-xl px-3 py-3"
             >
               <View className="h-9 w-9 items-center justify-center rounded-lg bg-slate-100">
                 <Ionicons name={lien.icone} size={18} color="#4338CA" />

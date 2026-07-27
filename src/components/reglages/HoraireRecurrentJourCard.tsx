@@ -111,7 +111,8 @@ export function HoraireRecurrentJourCard({
       <Pressable
         onPress={enregistrer}
         disabled={actif && !popUpId}
-        className="items-center rounded-lg bg-indigo-600 py-1.5 disabled:opacity-50"
+        style={actif && !popUpId ? { opacity: 0.5 } : undefined}
+        className="items-center rounded-lg bg-indigo-600 py-1.5"
       >
         <Text className="text-xs font-semibold text-white">Enregistrer {label}</Text>
       </Pressable>

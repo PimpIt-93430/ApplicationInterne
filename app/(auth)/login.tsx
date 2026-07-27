@@ -62,7 +62,8 @@ export default function LoginScreen() {
         <Pressable
           onPress={handleLogin}
           disabled={chargement || !email || !password}
-          className="items-center rounded-xl bg-indigo-600 py-3 disabled:opacity-50"
+          style={chargement || !email || !password ? { opacity: 0.5 } : undefined}
+          className="items-center rounded-xl bg-indigo-600 py-3"
         >
           <Text className="text-base font-semibold text-white">
             {chargement ? 'Connexion...' : 'Se connecter'}
