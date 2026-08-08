@@ -1,12 +1,16 @@
 import { Link, router } from 'expo-router';
+import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { signOut } from '@/api/auth';
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
-import { useNotifications } from '@/hooks/useNotifications';
+import { ModalInviterPersonne } from '@/components/profil/ModalInviterPersonne';
 import { useProfilEffectif } from '@/hooks/useProfilEffectif';
+import { usePopUps } from '@/hooks/usePopUps';
+import { useAffectationsPopUp } from '@/hooks/useProfiles';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useVueAdminStore } from '@/store/useVueAdminStore';
+import { construireMapAffectations, popUpsAttribues } from '@/utils/affectations';
 
 const LIBELLE_TYPE_CONTRAT: Record<string, string> = {
   manager: 'Manager',
@@ -20,13 +24,24 @@ export default function ProfilScreen() {
   // sinon identique au profil réel — c'est lui qui pilote tout le reste de l'écran.
   const profileReel = useAuthStore((s) => s.profile);
   const profile = useProfilEffectif();
-  const { data: notifications } = useNotifications(profile?.id);
-  const nonLues = notifications?.filter((n) => !n.lu).length ?? 0;
+  const { data: popUpsTous } = usePopUps();
+  const { data: affectations } = useAffectationsPopUp();
 
   const estAdminReel = profileReel?.role === 'admin';
   const estAdminAffiche = profile?.role === 'admin';
   const estAlternant = profile?.type_contrat === 'alternant';
+  const estManager = profile?.type_contrat === 'manager';
   const { vue, definirVue } = useVueAdminStore();
+  // Comme le reste des actions admin (cf. estAdminEnVueAdmin ailleurs) : masqué quand l'admin
+  // prévisualise en "vue alternant"/"vue manager", pour rester fidèle à ce que cette personne voit.
+  const estAdminEnVueAdmin = estAdminReel && vue === 'admin';
+  const [inviterOuvert, setInviterOuvert] = useState(false);
+
+  // Nom du lieu affiché à côté du rôle (ex. "Manager · Val d'Europe") — le premier lieu attribué,
+  // pas pertinent pour un admin (attribué à tous, cf. estAttribueA).
+  const mapAffectations = useMemo(() => construireMapAffectations(affectations ?? []), [affectations]);
+  const monPopUp =
+    profile && !estAdminAffiche ? popUpsAttribues(profile, mapAffectations, popUpsTous ?? [])[0] : undefined;
 
   const handleSignOut = async () => {
     await signOut();
@@ -52,6 +67,7 @@ export default function ProfilScreen() {
       <Text className="mb-8 text-sm uppercase tracking-wide text-indigo-600">
         {profile ? LIBELLE_TYPE_CONTRAT[profile.type_contrat] : ''}
         {estAdminAffiche ? ' · Administrateur' : ''}
+        {monPopUp ? ` · ${monPopUp.nom}` : ''}
       </Text>
 
       {estAdminReel && (
@@ -74,12 +90,20 @@ export default function ProfilScreen() {
                 Alternant
               </Text>
             </Pressable>
+            <Pressable
+              onPress={() => definirVue('manager')}
+              className={`flex-1 items-center rounded-lg py-2 ${vue === 'manager' ? 'bg-white' : ''}`}
+            >
+              <Text className={vue === 'manager' ? 'font-semibold text-indigo-600' : 'text-slate-500'}>
+                Manager
+              </Text>
+            </Pressable>
           </View>
         </View>
       )}
 
       <View className="mb-6 gap-2">
-        {(estAlternant || estAdminReel) && (
+        {(estAlternant || estManager || estAdminReel) && (
           <Link href="/(app)/alternance" asChild>
             <Pressable className="flex-row items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3">
               <Text className="text-base text-slate-800">Calendrier d'école</Text>
@@ -87,20 +111,15 @@ export default function ProfilScreen() {
             </Pressable>
           </Link>
         )}
-
-        <Link href="/(app)/notifications" asChild>
-          <Pressable className="flex-row items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3">
-            <Text className="text-base text-slate-800">Notifications</Text>
-            <View className="flex-row items-center gap-2">
-              {nonLues > 0 && (
-                <View className="min-w-[20px] items-center rounded-full bg-red-500 px-1.5 py-0.5">
-                  <Text className="text-xs font-bold text-white">{nonLues}</Text>
-                </View>
-              )}
-              <Text className="text-slate-300">›</Text>
-            </View>
+        {estAdminEnVueAdmin && (
+          <Pressable
+            onPress={() => setInviterOuvert(true)}
+            className="flex-row items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3"
+          >
+            <Text className="text-base text-slate-800">Inviter une personne</Text>
+            <Text className="text-slate-300">›</Text>
           </Pressable>
-        </Link>
+        )}
       </View>
 
       <Pressable
@@ -110,6 +129,8 @@ export default function ProfilScreen() {
         <Text className="text-base font-semibold text-red-600">Se déconnecter</Text>
       </Pressable>
       </ScrollView>
+
+      {inviterOuvert && <ModalInviterPersonne onFermer={() => setInviterOuvert(false)} />}
     </View>
   );
 }

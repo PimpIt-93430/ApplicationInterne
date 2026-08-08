@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Redirect, router } from 'expo-router';
+import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { useProfilEffectif } from '@/hooks/useProfilEffectif';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -71,6 +71,13 @@ export default function AccueilScreen() {
 
   const estAdmin = profileReel?.role === 'admin' && vue === 'admin';
   const premierPrenom = (profile?.nom_complet || '').trim().split(' ')[0];
+
+  // Pas d'onglet "Accueil" dans la barre basse mobile (inutile pour l'instant, admin inclus
+  // désormais) : Planning en tient lieu de première page après connexion. Seul le web garde cet
+  // écran tel quel (tiroir + tuiles, pas dans le périmètre de la barre basse).
+  if (Platform.OS !== 'web') {
+    return <Redirect href="/(app)/calendrier" />;
+  }
 
   return (
     <View className="flex-1 bg-slate-50">

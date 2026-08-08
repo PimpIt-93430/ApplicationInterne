@@ -19,17 +19,16 @@ import {
   calculerCommandes,
   POSITIONS_GRILLE,
   uploaderPhotoPin,
+  type CommandeHistoriqueResume,
   type CommandeResume,
   type DernierRemplissage,
   type LigneCommande,
-  type LigneHistoriqueCommande,
 } from '@/api/stock';
 import { CaseDetailModal } from '@/components/stock/CaseDetailModal';
 import { GrilleCases } from '@/components/stock/GrilleCases';
 import { ModalePhotoPin } from '@/components/stock/ModalePhotoPin';
 import { EnteteRetour } from '@/components/nav/EnteteRetour';
 import { BarreOnglets } from '@/components/ui/BarreOnglets';
-import { Dropdown } from '@/components/ui/Dropdown';
 import { FeuilleModale } from '@/components/ui/FeuilleModale';
 import { usePopUps } from '@/hooks/usePopUps';
 import { useAffectationsPopUp } from '@/hooks/useProfiles';
@@ -38,44 +37,31 @@ import {
   useCommandeActivePopUp,
   useCommandeDetail,
   useCommandesEnAttenteLocal,
+  useCommandesTerminees,
   useDerniersRemplissages,
   useGererCasesPopUp,
   useGererCatalogue,
   useGererCommandePopUp,
   useGererPreparationCommande,
   useGrillePopUp,
-  useHistoriqueCommandes,
   useMouvements,
   useRemplissages,
   usePins,
 } from '@/hooks/useStock';
 import { construireMapAffectations, popUpsAttribues } from '@/utils/affectations';
-import type { Profile, StockPin, TaillePin } from '@/types/database.types';
+import type { Profile, StockPin } from '@/types/database.types';
 
-const TAILLES: { valeur: TaillePin; label: string }[] = [
-  { valeur: 'petit', label: 'P' },
-  { valeur: 'moyen', label: 'M' },
-  { valeur: 'gros', label: 'G' },
-];
-
-function PanneauPin({ pin, profile, onFermer }: { pin: StockPin; profile: Profile; onFermer: () => void }) {
-  const { modifier, ajusterStock } = useGererCatalogue();
+/** Fiche détail d'un pin, ouverte depuis le catalogue : uniquement poids unité (édition), seuil
+ * cible/quantité de réapprovisionnement (édition) et historique des mouvements — le reste (nom,
+ * fournisseur, stock général, taille, ajustement manuel du stock) a été volontairement retiré. */
+function PanneauPin({ pin, onFermer }: { pin: StockPin; onFermer: () => void }) {
+  const { modifier } = useGererCatalogue();
   const { data: mouvements } = useMouvements({ pinId: pin.id });
 
-  const [nom, setNom] = useState(pin.nom);
   const [seuil, setSeuil] = useState(String(pin.seuil_cible ?? ''));
-  const [poids, setPoids] = useState(pin.poids_unitaire !== null ? String(pin.poids_unitaire) : '');
-  const [delta, setDelta] = useState('');
-  const [note, setNote] = useState('');
-
-  const enregistrerNom = () => {
-    const valeur = nom.trim();
-    if (!valeur || valeur === pin.nom) {
-      setNom(pin.nom);
-      return;
-    }
-    modifier.mutate({ id: pin.id, params: { nom: valeur } });
-  };
+  // `poids_unitaire` est le poids d'une seule unité (g) — pas de conversion, cf. retour
+  // utilisateur : plus de convention "poids d'un lot de 10" (source de confusion).
+  const [poidsUnite, setPoidsUnite] = useState(pin.poids_unitaire !== null ? String(pin.poids_unitaire) : '');
 
   const enregistrerSeuil = () => {
     const valeur = seuil.trim() === '' ? null : Number(seuil);
@@ -84,110 +70,37 @@ function PanneauPin({ pin, profile, onFermer }: { pin: StockPin; profile: Profil
   };
 
   const enregistrerPoids = () => {
-    const brut = poids.trim() === '' ? null : Number(poids.replace(',', '.'));
+    const brut = poidsUnite.trim() === '' ? null : Number(poidsUnite.replace(',', '.'));
     if (brut !== null && !Number.isFinite(brut)) return;
     if (brut === pin.poids_unitaire) return;
     modifier.mutate({ id: pin.id, params: { poids_unitaire: brut } });
   };
 
-  const marquerComplet = () => modifier.mutate({ id: pin.id, params: { a_completer: false } });
-
-  const appliquerDelta = () => {
-    const n = Number(delta);
-    if (!Number.isFinite(n) || n === 0) return;
-    ajusterStock.mutate(
-      { pinId: pin.id, delta: n, note: note.trim(), profileId: profile.id },
-      { onSuccess: () => { setDelta(''); setNote(''); } },
-    );
-  };
-
   return (
     <FeuilleModale onClose={onFermer}>
       <ScrollView keyboardShouldPersistTaps="handled">
-        {pin.a_completer && (
-          <View className="mb-4 flex-row items-center gap-2 rounded-xl bg-amber-50 p-3">
-            <Text className="flex-1 text-xs font-semibold text-amber-700">
-              Pin signalé — à compléter (nom, seuil, poids…)
-            </Text>
-            <Pressable onPress={marquerComplet} className="rounded-lg bg-amber-600 px-3 py-1.5">
-              <Text className="text-xs font-bold text-white">Marquer complet</Text>
-            </Pressable>
-          </View>
-        )}
+        <Text className="mb-4 text-lg font-bold text-slate-900">{pin.nom}</Text>
 
+        <Text className="mb-1 text-xs font-semibold uppercase text-slate-400">Poids unité (g)</Text>
         <TextInput
-          value={nom}
-          onChangeText={setNom}
-          onEndEditing={enregistrerNom}
-          className="mb-1 text-lg font-bold text-slate-900"
-        />
-        <Text className="mb-4 text-sm text-slate-400">{pin.fournisseur ?? 'Fournisseur inconnu'}</Text>
-
-        <View className="mb-4 flex-row justify-between rounded-xl bg-slate-50 p-3">
-          <Text className="text-sm text-slate-500">Stock général</Text>
-          <Text className="text-base font-bold text-slate-900">{pin.stock_general}</Text>
-        </View>
-
-        <Text className="mb-1 text-xs font-semibold uppercase text-slate-400">Taille</Text>
-        <View className="mb-4 flex-row items-center gap-2">
-          {TAILLES.map((t) => (
-            <Pressable
-              key={t.valeur}
-              onPress={() => modifier.mutate({ id: pin.id, params: { taille: t.valeur } })}
-              className={`h-11 w-11 items-center justify-center rounded-xl ${
-                pin.taille === t.valeur ? 'bg-indigo-600' : 'bg-slate-100'
-              }`}
-            >
-              <Text className={`text-base font-bold ${pin.taille === t.valeur ? 'text-white' : 'text-slate-500'}`}>
-                {t.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
-        <Text className="mb-1 text-xs font-semibold uppercase text-slate-400">Poids (g/10)</Text>
-        <TextInput
-          value={poids}
-          onChangeText={setPoids}
+          value={poidsUnite}
+          onChangeText={setPoidsUnite}
           onEndEditing={enregistrerPoids}
           keyboardType="decimal-pad"
           placeholder="—"
-          className={`mb-1 rounded-xl border px-3 py-2.5 ${
+          className={`mb-4 rounded-xl border px-3 py-2.5 ${
             pin.poids_unitaire === null ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-slate-200'
           }`}
         />
-        <Text className={`mb-4 text-[11px] ${pin.poids_unitaire === null ? 'text-amber-600' : 'text-transparent'}`}>
-          Manquant — nécessaire pour peser ce pin.
-        </Text>
 
-        <Text className="mb-1 text-xs font-semibold uppercase text-slate-400">Seuil cible</Text>
+        <Text className="mb-1 text-xs font-semibold uppercase text-slate-400">
+          Seuil cible (quantité de réapprovisionnement)
+        </Text>
         <TextInput
           value={seuil}
           onChangeText={setSeuil}
           onEndEditing={enregistrerSeuil}
           keyboardType="numeric"
-          className="mb-4 rounded-xl border border-slate-200 px-3 py-2.5"
-        />
-
-        <Text className="mb-1 text-xs font-semibold uppercase text-slate-400">
-          Ajuster le stock (après pesée)
-        </Text>
-        <View className="mb-2 flex-row gap-2">
-          <TextInput
-            value={delta}
-            onChangeText={setDelta}
-            keyboardType="numbers-and-punctuation"
-            placeholder="+50 ou -12"
-            className="flex-1 rounded-xl border border-slate-200 px-3 py-2.5"
-          />
-          <Pressable onPress={appliquerDelta} className="items-center justify-center rounded-xl bg-indigo-600 px-4">
-            <Text className="font-semibold text-white">Appliquer</Text>
-          </Pressable>
-        </View>
-        <TextInput
-          value={note}
-          onChangeText={setNote}
-          placeholder="Note (motif, ex: réception fournisseur)"
           className="mb-5 rounded-xl border border-slate-200 px-3 py-2.5"
         />
 
@@ -686,12 +599,12 @@ function grouperRemplissagesParJour(remplissages: DernierRemplissage[]): GroupeJ
 
 function RapportRemplissages({
   remplissagesParJour,
-  estAdmin,
+  peutSupprimer,
   onPressBoite,
   onSupprimer,
 }: {
   remplissagesParJour: GroupeJourRemplissages[];
-  estAdmin: boolean;
+  peutSupprimer: boolean;
   onPressBoite: (casePosition: string) => void;
   onSupprimer: (id: string) => void;
 }) {
@@ -702,31 +615,29 @@ function RapportRemplissages({
   }
 
   return (
-    <>
-      {remplissagesParJour.map((jour) => (
-        <View key={jour.jourISO} className="mb-6">
-          <Text className="mb-2.5 text-sm font-bold capitalize text-slate-900">
-            {format(parseISO(jour.jourISO), 'EEEE d MMMM yyyy', { locale: fr })}
+    <View className="rounded-2xl border border-slate-100 bg-white px-3.5 py-1">
+      {remplissagesParJour.map((jour, indexJour) => (
+        <View
+          key={jour.jourISO}
+          className={indexJour > 0 ? 'mt-2 border-t border-slate-100 pt-2' : ''}
+        >
+          <Text className="mb-1 text-xs font-bold capitalize text-slate-400">
+            {format(parseISO(jour.jourISO), 'EEE d MMM', { locale: fr })}
           </Text>
-          <View className="gap-2">
-            {jour.lignes.map((ligne) => (
-              <View
-                key={ligne.id}
-                className="flex-row items-center rounded-2xl border border-slate-100 bg-white p-3.5 shadow-sm"
-              >
-                <Pressable
-                  onPress={() => onPressBoite(ligne.casePosition)}
-                  className="flex-1 flex-row items-center justify-between"
-                >
-                  <Text className="text-sm font-bold text-slate-800">Boîte {ligne.casePosition}</Text>
-                  <View className="flex-row items-center gap-2">
-                    <Text className="text-xs text-slate-400">
-                      {ligne.profileNom} · {format(new Date(ligne.createdAt), 'HH:mm')}
-                    </Text>
-                    <Text className="text-lg text-indigo-400">›</Text>
-                  </View>
-                </Pressable>
-                {estAdmin && (
+          {jour.lignes.map((ligne, indexLigne) => (
+            <Pressable
+              key={ligne.id}
+              onPress={() => onPressBoite(ligne.casePosition)}
+              className={`flex-row items-center justify-between py-1.5 ${
+                indexLigne < jour.lignes.length - 1 ? 'border-b border-slate-50' : ''
+              }`}
+            >
+              <Text className="text-xs font-semibold text-slate-700">Boîte {ligne.casePosition}</Text>
+              <View className="flex-row items-center gap-2">
+                <Text className="text-[11px] text-slate-400">
+                  {ligne.profileNom} · {format(new Date(ligne.createdAt), 'HH:mm')}
+                </Text>
+                {peutSupprimer && (
                   <Pressable
                     onPress={() =>
                       Alert.alert(
@@ -739,95 +650,17 @@ function RapportRemplissages({
                       )
                     }
                     hitSlop={8}
-                    className="ml-3 rounded-lg px-2 py-1"
+                    className="pl-2"
                   >
-                    <Text className="text-xs font-semibold text-red-500">Supprimer</Text>
+                    <Text className="text-[11px] font-semibold text-red-500">✕</Text>
                   </Pressable>
                 )}
               </View>
-            ))}
-          </View>
+            </Pressable>
+          ))}
         </View>
       ))}
-    </>
-  );
-}
-
-interface GroupeJourHistoriqueCommande {
-  jourISO: string;
-  lignes: LigneHistoriqueCommande[];
-}
-
-function grouperHistoriqueParJour(lignes: LigneHistoriqueCommande[]): GroupeJourHistoriqueCommande[] {
-  const parJour = new Map<string, LigneHistoriqueCommande[]>();
-
-  for (const l of lignes) {
-    const jourISO = l.createdAt.slice(0, 10);
-    const liste = parJour.get(jourISO) ?? [];
-    liste.push(l);
-    parJour.set(jourISO, liste);
-  }
-
-  return [...parJour.entries()]
-    .sort((a, b) => b[0].localeCompare(a[0]))
-    .map(([jourISO, lignesJour]) => ({ jourISO, lignes: lignesJour }));
-}
-
-function PanneauHistoriqueCommandes({
-  lignes,
-  popUpNom,
-  onFermer,
-}: {
-  lignes: LigneHistoriqueCommande[];
-  popUpNom: string;
-  onFermer: () => void;
-}) {
-  const parJour = useMemo(() => grouperHistoriqueParJour(lignes), [lignes]);
-
-  return (
-    <FeuilleModale onClose={onFermer}>
-      <Text className="mb-1 text-lg font-bold text-slate-900">Historique des commandes — {popUpNom}</Text>
-      <Text className="mb-4 text-sm text-slate-400">
-        Trouvé = coché comme commandé au moment de la validation ; c'est ce qui fait monter ou
-        baisser le seuil cible automatiquement d'une semaine sur l'autre.
-      </Text>
-
-      <ScrollView style={{ maxHeight: 480 }}>
-        {parJour.length === 0 ? (
-          <Text className="text-sm text-slate-400">Aucune commande validée pour l'instant sur ce pop-up.</Text>
-        ) : (
-          parJour.map((jour) => (
-            <View key={jour.jourISO} className="mb-5">
-              <Text className="mb-2 text-sm font-bold capitalize text-slate-900">
-                {format(parseISO(jour.jourISO), 'EEEE d MMMM yyyy', { locale: fr })}
-              </Text>
-              {jour.lignes.map((ligne) => (
-                <View
-                  key={ligne.id}
-                  className={`mb-1.5 flex-row items-center justify-between rounded-lg px-3 py-2 ${
-                    ligne.trouve ? 'bg-emerald-50' : 'bg-slate-50'
-                  }`}
-                >
-                  <Text numberOfLines={1} className="flex-1 text-sm text-slate-700">
-                    {ligne.pinNom}
-                  </Text>
-                  <Text
-                    className={`ml-2 text-xs font-semibold ${ligne.trouve ? 'text-emerald-700' : 'text-slate-400'}`}
-                  >
-                    {ligne.trouve ? 'Trouvé' : 'Pas trouvé'} · {ligne.profileNom} ·{' '}
-                    {format(new Date(ligne.createdAt), 'HH:mm')}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          ))
-        )}
-      </ScrollView>
-
-      <Pressable onPress={onFermer} className="mt-3 items-center py-2">
-        <Text className="font-semibold text-indigo-600">Fermer</Text>
-      </Pressable>
-    </FeuilleModale>
+    </View>
   );
 }
 
@@ -840,26 +673,61 @@ function PanneauCommande({
   lignes,
   popUpNom,
   enCours,
+  pinIdsInitialementCoches,
+  onBasculerImmediat,
   onEnvoyer,
   onFermer,
 }: {
   lignes: LigneCommande[];
   popUpNom: string;
   enCours: boolean;
-  onEnvoyer: (pinIds: string[]) => void;
+  /** Fourni en mode "modifier une commande déjà envoyée" : seuls ces pins démarrent cochés (le
+   * reste de la liste peut inclure des pins nouvellement signalés "à commander" depuis l'envoi).
+   * Absent en mode création : tout démarre coché (comportement historique). */
+  pinIdsInitialementCoches?: string[];
+  /** Mode modification uniquement : enregistre chaque coche tout de suite en base (pas seulement
+   * au clic sur un bouton) — si la personne quitte le panneau par erreur en cours de route, rien
+   * n'est perdu. `onEnvoyer` n'est alors jamais appelé. */
+  onBasculerImmediat?: (pinId: string, inclus: boolean) => void;
+  onEnvoyer?: (pinIds: string[]) => void;
   onFermer: () => void;
 }) {
-  const [pinsExclus, setPinsExclus] = useState<Set<string>>(new Set());
+  const modeModification = pinIdsInitialementCoches !== undefined;
+
+  const [pinsExclus, setPinsExclus] = useState<Set<string>>(() =>
+    pinIdsInitialementCoches
+      ? new Set(
+          lignes.filter((l) => !pinIdsInitialementCoches.includes(l.pin.id)).map((l) => l.pin.id),
+        )
+      : new Set(),
+  );
 
   const lignesRetenues = lignes.filter((l) => !pinsExclus.has(l.pin.id));
 
   const basculerPin = (pinId: string) => {
+    let inclusApres = false;
     setPinsExclus((prev) => {
       const next = new Set(prev);
-      if (next.has(pinId)) next.delete(pinId);
-      else next.add(pinId);
+      if (next.has(pinId)) {
+        next.delete(pinId);
+        inclusApres = true;
+      } else {
+        next.add(pinId);
+        inclusApres = false;
+      }
       return next;
     });
+    onBasculerImmediat?.(pinId, inclusApres);
+  };
+
+  const toutSelectionner = () => {
+    if (modeModification) {
+      // Sauvegarde tout de suite chaque pin pas encore inclus (les autres le sont déjà).
+      for (const ligne of lignes) {
+        if (pinsExclus.has(ligne.pin.id)) onBasculerImmediat?.(ligne.pin.id, true);
+      }
+    }
+    setPinsExclus(new Set());
   };
 
   const confirmerEnvoi = () => {
@@ -868,7 +736,7 @@ function PanneauCommande({
       `Le local va préparer ces pins pour ${popUpNom}. Tu ne pourras pas envoyer de nouvelle commande tant que celle-ci n'est pas reçue.`,
       [
         { text: 'Annuler', style: 'cancel' },
-        { text: 'Envoyer', onPress: () => onEnvoyer(lignesRetenues.map((l) => l.pin.id)) },
+        { text: 'Envoyer', onPress: () => onEnvoyer?.(lignesRetenues.map((l) => l.pin.id)) },
       ],
     );
   };
@@ -876,10 +744,17 @@ function PanneauCommande({
   return (
     <FeuilleModale onClose={onFermer}>
       <Text className="mb-1 text-lg font-bold text-slate-900">Commande — {popUpNom}</Text>
-      <Text className="mb-4 text-sm text-slate-400">
-        Pins signalés "à commander" sur les boîtes de ce pop-up. Décoche ceux à ne pas envoyer tout
-        de suite — ils resteront "à commander" pour une prochaine fois.
+      <Text className="mb-2 text-sm text-slate-400">
+        {modeModification
+          ? 'La commande est encore modifiable tant que le local ne l\'a pas prise en charge. Coche/décoche pour ajuster les pins envoyés — chaque changement est enregistré tout de suite.'
+          : 'Pins signalés "à commander" sur les boîtes de ce pop-up. Décoche ceux à ne pas envoyer tout de suite — ils resteront "à commander" pour une prochaine fois.'}
       </Text>
+
+      {lignes.length > 0 && (
+        <Pressable onPress={toutSelectionner} className="mb-3 self-start">
+          <Text className="text-sm font-semibold text-indigo-600">Tout sélectionner</Text>
+        </Pressable>
+      )}
 
       <ScrollView style={{ maxHeight: 480 }}>
         {lignes.length === 0 ? (
@@ -920,17 +795,23 @@ function PanneauCommande({
         )}
       </ScrollView>
 
-      <Pressable
-        onPress={confirmerEnvoi}
-        disabled={enCours || lignesRetenues.length === 0}
-        className={`mt-4 items-center rounded-xl py-3.5 ${lignesRetenues.length === 0 ? 'bg-slate-200' : 'bg-emerald-500'}`}
-      >
-        <Text className={`text-base font-bold ${lignesRetenues.length === 0 ? 'text-slate-500' : 'text-white'}`}>
-          {enCours
-            ? 'Envoi…'
-            : `Envoyer la commande${lignesRetenues.length > 0 ? ` (${lignesRetenues.length})` : ''}`}
-        </Text>
-      </Pressable>
+      {modeModification ? (
+        <Pressable onPress={onFermer} className="mt-4 items-center rounded-xl bg-slate-100 py-3.5">
+          <Text className="text-base font-bold text-slate-700">Terminé</Text>
+        </Pressable>
+      ) : (
+        <Pressable
+          onPress={confirmerEnvoi}
+          disabled={enCours || lignesRetenues.length === 0}
+          className={`mt-4 items-center rounded-xl py-3.5 ${lignesRetenues.length === 0 ? 'bg-slate-200' : 'bg-emerald-500'}`}
+        >
+          <Text className={`text-base font-bold ${lignesRetenues.length === 0 ? 'text-slate-500' : 'text-white'}`}>
+            {enCours
+              ? 'Envoi…'
+              : `Envoyer la commande${lignesRetenues.length > 0 ? ` (${lignesRetenues.length})` : ''}`}
+          </Text>
+        </Pressable>
+      )}
       <Pressable onPress={onFermer} className="mt-3 items-center py-2">
         <Text className="font-semibold text-indigo-600">Fermer</Text>
       </Pressable>
@@ -1028,13 +909,34 @@ interface PopUpDemandeur {
 function LigneLocalPin({
   pin,
   demandeurs,
-  onPeser,
+  popUpLocalId,
+  profileId,
 }: {
   pin: StockPin;
   demandeurs: PopUpDemandeur[];
-  onPeser: () => void;
+  popUpLocalId: string | undefined;
+  profileId: string;
 }) {
   const enRupture = pin.seuil_cible !== null && pin.stock_general < pin.seuil_cible;
+  const { peser } = useGererCatalogue();
+  // Champ de pesée toujours affiché (pas de bouton "Peser" à presser d'abord, cf. retour
+  // utilisateur) — permet d'enchaîner vite plusieurs pesées d'affilée pin après pin.
+  const [poids, setPoids] = useState('');
+
+  const poidsNum = Number(poids.trim().replace(',', '.'));
+  const poidsValide = poids.trim() !== '' && Number.isFinite(poidsNum) && poidsNum >= 0;
+
+  const confirmer = () => {
+    if (!poidsValide || !popUpLocalId) return;
+    peser.mutate(
+      { pinId: pin.id, popUpLocalId, poidsPese: poidsNum, profileId },
+      {
+        onSuccess: () => setPoids(''),
+        onError: (e) =>
+          Alert.alert('Erreur', e instanceof Error ? e.message : "Impossible d'enregistrer la pesée."),
+      },
+    );
+  };
 
   return (
     <View
@@ -1064,13 +966,31 @@ function LigneLocalPin({
             Demandé par {demandeurs.map((d) => d.popUpNom).join(', ')}
           </Text>
         )}
+        {pin.poids_unitaire === null && (
+          <Text className="mt-1 text-[11px] text-amber-600">
+            Poids unité (g) manquant — à renseigner dans Catalogue avant de peser.
+          </Text>
+        )}
       </View>
-      <Pressable
-        onPress={onPeser}
-        className="items-center justify-center rounded-xl bg-indigo-600 px-4 py-2.5"
-      >
-        <Text className="text-xs font-bold text-white">Peser</Text>
-      </Pressable>
+      {pin.poids_unitaire !== null && (
+        <View className="flex-row items-center gap-1.5">
+          <TextInput
+            value={poids}
+            onChangeText={setPoids}
+            keyboardType="decimal-pad"
+            placeholder="Poids (g)"
+            onSubmitEditing={confirmer}
+            className="w-20 rounded-xl border border-slate-200 px-2.5 py-2 text-sm"
+          />
+          <Pressable
+            onPress={confirmer}
+            disabled={!poidsValide || peser.isPending}
+            className={`items-center justify-center rounded-xl px-3 py-2 ${poidsValide ? 'bg-indigo-600' : 'bg-slate-200'}`}
+          >
+            <Text className={`text-xs font-bold ${poidsValide ? 'text-white' : 'text-slate-500'}`}>OK</Text>
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 }
@@ -1081,14 +1001,16 @@ function VueLocal({
   recherche,
   onChangeRecherche,
   demandesParPin,
-  onPeser,
+  popUpLocalId,
+  profileId,
 }: {
   pins: StockPin[];
   chargement: boolean;
   recherche: string;
   onChangeRecherche: (v: string) => void;
   demandesParPin: Map<string, PopUpDemandeur[]>;
-  onPeser: (pin: StockPin) => void;
+  popUpLocalId: string | undefined;
+  profileId: string;
 }) {
   const pinsTries = useMemo(() => {
     const q = recherche.trim().toLowerCase();
@@ -1123,7 +1045,8 @@ function VueLocal({
         <LigneLocalPin
           pin={item}
           demandeurs={demandesParPin.get(item.id) ?? []}
-          onPeser={() => onPeser(item)}
+          popUpLocalId={popUpLocalId}
+          profileId={profileId}
         />
       )}
       ListHeaderComponent={
@@ -1148,74 +1071,6 @@ function VueLocal({
         !chargement ? <Text className="mb-3 text-sm text-slate-400">Aucun résultat.</Text> : null
       }
     />
-  );
-}
-
-function PanneauPesee({
-  pin,
-  popUpLocalId,
-  profile,
-  onFermer,
-  onApresPesee,
-}: {
-  pin: StockPin;
-  popUpLocalId: string;
-  profile: Profile;
-  onFermer: () => void;
-  onApresPesee?: () => void;
-}) {
-  const { peser } = useGererCatalogue();
-  const [poids, setPoids] = useState('');
-
-  const poidsNum = Number(poids.trim().replace(',', '.'));
-  const poidsValide = poids.trim() !== '' && Number.isFinite(poidsNum) && poidsNum >= 0;
-
-  const confirmer = () => {
-    if (!poidsValide) return;
-    peser.mutate(
-      { pinId: pin.id, popUpLocalId, poidsPese: poidsNum, profileId: profile.id },
-      {
-        onSuccess: () => {
-          onApresPesee?.();
-          onFermer();
-        },
-        onError: (e) =>
-          Alert.alert('Erreur', e instanceof Error ? e.message : 'Impossible d\'enregistrer la pesée.'),
-      },
-    );
-  };
-
-  return (
-    <FeuilleModale onClose={onFermer}>
-      <Text className="mb-3 text-lg font-bold text-slate-900">Peser — {pin.nom}</Text>
-
-      {pin.poids_unitaire === null ? (
-        <Text className="text-sm text-amber-600">
-          Poids (g/10) manquant pour ce pin — renseigne-le dans l'onglet Catalogue avant de pouvoir
-          le peser.
-        </Text>
-      ) : (
-        <>
-          <TextInput
-            value={poids}
-            onChangeText={setPoids}
-            keyboardType="decimal-pad"
-            autoFocus
-            placeholder="Poids restant (g)"
-            className="mb-3 rounded-xl border border-slate-200 px-4 py-3 text-base"
-          />
-          <Pressable
-            onPress={confirmer}
-            disabled={!poidsValide || peser.isPending}
-            className={`items-center rounded-xl py-3.5 ${poidsValide ? 'bg-indigo-600' : 'bg-slate-200'}`}
-          >
-            <Text className={`text-base font-bold ${poidsValide ? 'text-white' : 'text-slate-500'}`}>
-              {peser.isPending ? 'Validation…' : 'Valider'}
-            </Text>
-          </Pressable>
-        </>
-      )}
-    </FeuilleModale>
   );
 }
 
@@ -1298,13 +1153,40 @@ function VueCommandesLocal({ onOuvrirCommande }: { onOuvrirCommande: (commandeId
 
 function LignePreparationCommande({
   ligne,
-  onPeser,
+  popUpLocalId,
+  profileId,
+  onApresPesee,
   onBasculerFait,
 }: {
   ligne: { id: string; fait: boolean; pin: StockPin };
-  onPeser: () => void;
+  popUpLocalId: string | undefined;
+  profileId: string;
+  onApresPesee: () => void;
   onBasculerFait: (fait: boolean) => void;
 }) {
+  const { peser } = useGererCatalogue();
+  // Même dispositif que Stock local : champ toujours affiché, pas de bouton "Peser" à presser
+  // d'abord — la pesée coche automatiquement "fait" une fois enregistrée (cf. onApresPesee).
+  const [poids, setPoids] = useState('');
+
+  const poidsNum = Number(poids.trim().replace(',', '.'));
+  const poidsValide = poids.trim() !== '' && Number.isFinite(poidsNum) && poidsNum >= 0;
+
+  const confirmer = () => {
+    if (!poidsValide || !popUpLocalId) return;
+    peser.mutate(
+      { pinId: ligne.pin.id, popUpLocalId, poidsPese: poidsNum, profileId },
+      {
+        onSuccess: () => {
+          setPoids('');
+          onApresPesee();
+        },
+        onError: (e) =>
+          Alert.alert('Erreur', e instanceof Error ? e.message : "Impossible d'enregistrer la pesée."),
+      },
+    );
+  };
+
   return (
     <View
       className={`mb-2 flex-row items-center gap-3 rounded-xl p-2 ${ligne.fait ? 'bg-emerald-50' : 'bg-slate-50'}`}
@@ -1326,12 +1208,31 @@ function LignePreparationCommande({
         <Text className="text-xs text-slate-400">
           SKU {ligne.pin.sku_pimpit ?? ligne.pin.sku_fournisseur ?? '—'} · Restant{' '}
           {ligne.pin.stock_general}
-          {ligne.pin.poids_unitaire !== null ? ` · ${ligne.pin.poids_unitaire} g/10` : ''}
+          {ligne.pin.poids_unitaire !== null ? ` · ${ligne.pin.poids_unitaire} g/unité` : ''}
         </Text>
+        {ligne.pin.poids_unitaire === null && (
+          <Text className="mt-0.5 text-[11px] text-amber-600">Poids unité manquant (Catalogue)</Text>
+        )}
       </View>
-      <Pressable onPress={onPeser} className="items-center justify-center rounded-lg bg-indigo-600 px-3 py-2">
-        <Text className="text-xs font-bold text-white">Peser</Text>
-      </Pressable>
+      {ligne.pin.poids_unitaire !== null && (
+        <View className="flex-row items-center gap-1.5">
+          <TextInput
+            value={poids}
+            onChangeText={setPoids}
+            keyboardType="decimal-pad"
+            placeholder="Poids (g)"
+            onSubmitEditing={confirmer}
+            className="w-16 rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
+          />
+          <Pressable
+            onPress={confirmer}
+            disabled={!poidsValide || peser.isPending}
+            className={`items-center justify-center rounded-lg px-2.5 py-1.5 ${poidsValide ? 'bg-indigo-600' : 'bg-slate-200'}`}
+          >
+            <Text className={`text-xs font-bold ${poidsValide ? 'text-white' : 'text-slate-500'}`}>OK</Text>
+          </Pressable>
+        </View>
+      )}
       <Pressable
         onPress={() => onBasculerFait(!ligne.fait)}
         className={`h-7 w-7 items-center justify-center rounded-md border-2 ${
@@ -1346,23 +1247,21 @@ function LignePreparationCommande({
 
 /** Écran de préparation d'une commande (Local) : peser chaque pin (coche automatiquement la case
  * "fait") ou cocher manuellement, puis valider comme prête — historise trouvé/pas trouvé pin par
- * pin (alimente l'ajustement auto de seuil_cible) et prévient le pop-up. La pesée elle-même
- * s'ouvre au niveau de l'écran parent (StockScreen), pas ici, pour rester une feuille modale
- * indépendante plutôt qu'imbriquée (une FeuilleModale imbriquée dans une autre ne couvrirait que
- * la zone de la première, pas tout l'écran). */
+ * pin (alimente l'ajustement auto de seuil_cible) et prévient le pop-up. La pesée est inline sur
+ * chaque ligne (cf. LignePreparationCommande), pas une feuille séparée. */
 function PanneauPreparationCommande({
   commandeId,
   profile,
+  popUpLocalId,
   basculerFait,
   validerPrete,
-  onPeser,
   onFermer,
 }: {
   commandeId: string;
   profile: Profile;
+  popUpLocalId: string | undefined;
   basculerFait: ReturnType<typeof useGererPreparationCommande>['basculerFait'];
   validerPrete: ReturnType<typeof useGererPreparationCommande>['validerPrete'];
-  onPeser: (pin: StockPin, ligneId: string) => void;
   onFermer: () => void;
 }) {
   const { data } = useCommandeDetail(commandeId);
@@ -1417,7 +1316,9 @@ function PanneauPreparationCommande({
           <LignePreparationCommande
             key={ligne.id}
             ligne={ligne}
-            onPeser={() => onPeser(ligne.pin, ligne.id)}
+            popUpLocalId={popUpLocalId}
+            profileId={profile.id}
+            onApresPesee={() => basculerFait.mutate({ ligneId: ligne.id, commandeId, fait: true })}
             onBasculerFait={(fait) => basculerFait.mutate({ ligneId: ligne.id, commandeId, fait })}
           />
         ))}
@@ -1441,6 +1342,97 @@ function PanneauPreparationCommande({
   );
 }
 
+/** Liste des commandes passées d'un pop-up (date + nombre de pins) — onglet "Historique", tap pour
+ * voir le détail (quels pins, trouvés ou pas) via PanneauDetailCommandeHistorique. */
+function VueHistoriqueCommandes({
+  commandes,
+  onOuvrir,
+}: {
+  commandes: CommandeHistoriqueResume[];
+  onOuvrir: (commandeId: string) => void;
+}) {
+  if (commandes.length === 0) {
+    return <Text className="text-sm text-slate-400">Aucune commande pour l'instant sur ce pop-up.</Text>;
+  }
+
+  return (
+    <>
+      {commandes.map(({ commande, nbPins }) => (
+        <Pressable
+          key={commande.id}
+          onPress={() => onOuvrir(commande.id)}
+          className="mb-2.5 flex-row items-center justify-between rounded-2xl border border-slate-100 bg-white p-4 shadow-sm"
+        >
+          <View>
+            <Text className="text-sm font-semibold capitalize text-slate-800">
+              {format(new Date(commande.envoyee_at), 'EEEE d MMMM yyyy', { locale: fr })}
+            </Text>
+            <Text className="mt-0.5 text-xs text-slate-400">
+              {nbPins} pin{nbPins > 1 ? 's' : ''} commandé{nbPins > 1 ? 's' : ''}
+            </Text>
+          </View>
+          <Text className="text-lg text-indigo-400">›</Text>
+        </Pressable>
+      ))}
+    </>
+  );
+}
+
+/** Détail (lecture seule) d'une commande passée : quels pins, trouvés ou pas au moment de la
+ * préparation par le local. */
+function PanneauDetailCommandeHistorique({
+  commandeId,
+  onFermer,
+}: {
+  commandeId: string;
+  onFermer: () => void;
+}) {
+  const { data } = useCommandeDetail(commandeId);
+
+  if (!data) {
+    return (
+      <FeuilleModale onClose={onFermer}>
+        <ActivityIndicator color="#6366F1" />
+      </FeuilleModale>
+    );
+  }
+
+  const { commande, popUpNom, lignes } = data;
+
+  return (
+    <FeuilleModale onClose={onFermer}>
+      <Text className="mb-1 text-lg font-bold text-slate-900">Commande — {popUpNom}</Text>
+      <Text className="mb-4 text-sm capitalize text-slate-400">
+        {format(new Date(commande.envoyee_at), 'EEEE d MMMM yyyy', { locale: fr })}
+      </Text>
+
+      <ScrollView style={{ maxHeight: 480 }}>
+        {lignes.map((ligne) => (
+          <View key={ligne.id} className="mb-2 flex-row items-center gap-3 rounded-xl bg-slate-50 p-2">
+            {ligne.pin.photo_url ? (
+              <Image source={{ uri: ligne.pin.photo_url }} className="h-12 w-12 rounded-lg bg-slate-100" />
+            ) : (
+              <View className="h-12 w-12 items-center justify-center rounded-lg bg-slate-100">
+                <Text className="text-lg text-slate-300">?</Text>
+              </View>
+            )}
+            <Text numberOfLines={1} className="flex-1 text-sm font-semibold text-slate-800">
+              {ligne.pin.nom}
+            </Text>
+            <Text className={`text-xs font-semibold ${ligne.fait ? 'text-emerald-600' : 'text-slate-400'}`}>
+              {ligne.fait ? 'Trouvé' : 'Pas trouvé'}
+            </Text>
+          </View>
+        ))}
+      </ScrollView>
+
+      <Pressable onPress={onFermer} className="mt-3 items-center py-2">
+        <Text className="font-semibold text-indigo-600">Fermer</Text>
+      </Pressable>
+    </FeuilleModale>
+  );
+}
+
 /** Écran Stock complet (Boîtes / Catalogue / Rapport, + Local) — identique pour tout le monde côté
  * Boîtes/Catalogue/Rapport. Seule différence, imposée par les droits en base (RLS, écriture sur
  * stock_pins réservée aux admins) : créer un pin, modifier son seuil cible ou ajuster le stock
@@ -1453,8 +1445,25 @@ function PanneauPreparationCommande({
  * (pop_ups.est_local) — c'est là qu'on pèse le stock qui alimente ensuite les pop-ups, jamais aux
  * pop-ups eux-mêmes (leur flux "Commander" sur les boîtes reste inchangé).
  */
-export function StockScreen({ profile, onRetour }: { profile: Profile; onRetour: () => void }) {
+export function StockScreen({
+  profile,
+  onRetour,
+  popUpId,
+  onChangePopUpId,
+}: {
+  profile: Profile;
+  onRetour: () => void;
+  // Contrôlé par l'écran parent (StockAccueil) pour qu'un admin garde le même lieu sélectionné en
+  // passant de "Pin's" à "Consommables" — cf. discussion : un sélecteur par sous-écran qui oublie
+  // le choix de l'autre est source de confusion.
+  popUpId: string | undefined;
+  onChangePopUpId: (id: string) => void;
+}) {
   const estAdmin = profile.role === 'admin';
+  // Un remplissage peut être ajouté par erreur (mauvaise boîte, appui accidentel) — un manager
+  // peut le corriger lui-même, pas seulement un admin (cf. migration élargissant la policy RLS
+  // correspondante), contrairement au reste du rapport qui reste en lecture seule pour lui.
+  const peutSupprimerRemplissage = estAdmin || profile.type_contrat === 'manager';
   const { data: popUpsTous, isLoading: chargementPopUps } = usePopUps();
   const { data: affectations } = useAffectationsPopUp();
   const { data: pins, isLoading: chargementPins } = usePins();
@@ -1463,31 +1472,31 @@ export function StockScreen({ profile, onRetour }: { profile: Profile; onRetour:
   const mapAffectations = useMemo(() => construireMapAffectations(affectations ?? []), [affectations]);
   const popUps = estAdmin ? (popUpsTous ?? []) : popUpsAttribues(profile, mapAffectations, popUpsTous ?? []);
 
+  const popUpActif = popUpId ?? popUps[0]?.id;
+
   const popUpLocal = useMemo(() => popUpsTous?.find((p) => p.est_local), [popUpsTous]);
   const estAuLocal = !!popUpLocal && (mapAffectations.get(profile.id)?.has(popUpLocal.id) ?? false);
-  const montrerOngletLocal = !!popUpLocal && (estAdmin || estAuLocal);
-
-  const [popUpId, setPopUpId] = useState<string | undefined>(undefined);
-  const popUpActif = popUpId ?? popUps[0]?.id;
+  // Le Local n'a ni boîtes ni commande "à recevoir" comme un pop-up normal (cf. commentaire en tête
+  // de fichier) : quand il est le lieu sélectionné (cf. roulette StockAccueil), l'écran bascule
+  // entièrement sur ses propres onglets (Commandes/Stock local/Catalogue) plutôt que d'ajouter un
+  // 4ᵉ onglet à côté de Boîtes/Catalogue/Historique qui ne le concernent pas.
+  const estVueLocaleActive = !!popUpLocal && popUpActif === popUpLocal.id && (estAdmin || estAuLocal);
 
   const { data: grille, isLoading: chargementGrille } = useGrillePopUp(popUpActif);
   const { attribuer, basculerCommande, validerRemplissage, supprimerRemplissage } =
     useGererCasesPopUp(popUpActif);
   const { data: derniersRemplissages } = useDerniersRemplissages(popUpActif);
   const { data: remplissages, isLoading: chargementRapport } = useRemplissages(popUpActif);
-  const { data: historiqueCommandes } = useHistoriqueCommandes(popUpActif);
+  const { data: commandesTerminees, isLoading: chargementHistorique } = useCommandesTerminees(popUpActif);
   const { data: commandeActive } = useCommandeActivePopUp(popUpActif);
-  const { envoyer: envoyerCommandeMutation, marquerRecue } = useGererCommandePopUp(popUpActif);
+  const { envoyer: envoyerCommandeMutation, marquerRecue, basculerLigne: basculerLigneCommandeMutation } =
+    useGererCommandePopUp(popUpActif);
   const { basculerFait, validerPrete } = useGererPreparationCommande();
 
-  const [vue, setVue] = useState<'boites' | 'catalogue' | 'rapport' | 'local'>('boites');
-  const [sousOngletLocal, setSousOngletLocal] = useState<'commandes' | 'stock'>('commandes');
+  const [vue, setVue] = useState<'boites' | 'catalogue' | 'rapport'>('boites');
+  const [sousOngletLocal, setSousOngletLocal] = useState<'commandes' | 'stock' | 'catalogue'>('commandes');
   const [commandeLocaleOuverte, setCommandeLocaleOuverte] = useState<string | null>(null);
-  const [preparationPesee, setPreparationPesee] = useState<{ pin: StockPin; ligneId: string } | null>(
-    null,
-  );
   const [rechercheLocal, setRechercheLocal] = useState('');
-  const [pinAPeser, setPinAPeser] = useState<StockPin | null>(null);
   // Seule la position est mémorisée — le contenu est relu à chaque rendu depuis `grille` (source
   // de vérité toujours à jour), pour que le poids saisi apparaisse immédiatement dans la case
   // encore ouverte, sans avoir à la fermer et la rouvrir pour rafraîchir l'affichage.
@@ -1501,7 +1510,8 @@ export function StockScreen({ profile, onRetour }: { profile: Profile; onRetour:
   const [signalementOuvert, setSignalementOuvert] = useState(false);
   const [filtreACompleter, setFiltreACompleter] = useState(false);
   const [commandeOuverte, setCommandeOuverte] = useState(false);
-  const [historiqueOuvert, setHistoriqueOuvert] = useState(false);
+  const [commandeModifOuverte, setCommandeModifOuverte] = useState(false);
+  const [commandeHistoriqueOuverte, setCommandeHistoriqueOuverte] = useState<string | null>(null);
 
   const nbACompleter = useMemo(() => (pins ?? []).filter((p) => p.a_completer).length, [pins]);
 
@@ -1571,6 +1581,17 @@ export function StockScreen({ profile, onRetour }: { profile: Profile; onRetour:
   const remplissagesParJour = useMemo(() => grouperRemplissagesParJour(remplissages ?? []), [remplissages]);
   const commandeLignes = useMemo(() => calculerCommandes(grille ?? []), [grille]);
 
+  // Pour modifier une commande déjà envoyée : ses pins actuels + les pins nouvellement signalés
+  // "à commander" depuis l'envoi (pas encore dans la commande) — ces derniers démarrent décochés.
+  const commandeLignesModifiables = useMemo(() => {
+    if (!commandeActive) return [];
+    const parPin = new Map(commandeLignes.map((l) => [l.pin.id, l]));
+    for (const ligne of commandeActive.lignes) {
+      if (!parPin.has(ligne.pin.id)) parPin.set(ligne.pin.id, { pin: ligne.pin, nbBoites: 0 });
+    }
+    return [...parPin.values()];
+  }, [commandeActive, commandeLignes]);
+
   if (chargementPopUps) {
     return (
       <View className="flex-1 items-center justify-center bg-white">
@@ -1583,62 +1604,10 @@ export function StockScreen({ profile, onRetour }: { profile: Profile; onRetour:
     <View className="flex-1 bg-slate-50">
       <EnteteRetour titre="Pin's" onRetour={onRetour} />
 
-      <View className="px-4 pt-4">
-        <BarreOnglets
-          valeur={vue}
-          onChange={setVue}
-          options={[
-            { valeur: 'boites', label: 'Boîtes' },
-            { valeur: 'catalogue', label: 'Catalogue', badge: estAdmin ? nbACompleter : 0 },
-            { valeur: 'rapport', label: 'Rapport' },
-            ...(montrerOngletLocal ? [{ valeur: 'local' as const, label: 'Local' }] : []),
-          ]}
-        />
-      </View>
-
-      {vue === 'catalogue' ? (
-        Platform.OS === 'web' ? (
-          <VueCatalogueWeb
-            pins={pinsAffiches}
-            chargement={chargementPins}
-            recherche={recherche}
-            onChangeRecherche={setRecherche}
-            caseFiltre={caseFiltre}
-            onChangeCaseFiltre={setCaseFiltre}
-            filtreAttribution={filtreAttribution}
-            onChangeFiltreAttribution={setFiltreAttribution}
-            attributionsParPin={attributionsParPin}
-            onOuvrirDetail={setPinOuvert}
-            onOuvrirPhoto={setPinPhotoOuvert}
-            signalementOuvert={signalementOuvert}
-            onToggleSignalement={setSignalementOuvert}
-            nbACompleter={nbACompleter}
-            estAdmin={estAdmin}
-            filtreACompleter={filtreACompleter}
-            onToggleFiltreACompleter={() => setFiltreACompleter((v) => !v)}
-          />
-        ) : (
-          <VueCatalogue
-            pins={pinsAffiches}
-            chargement={chargementPins}
-            recherche={recherche}
-            onChangeRecherche={setRecherche}
-            caseFiltre={caseFiltre}
-            onChangeCaseFiltre={setCaseFiltre}
-            filtreAttribution={filtreAttribution}
-            onChangeFiltreAttribution={setFiltreAttribution}
-            attributionsParPin={attributionsParPin}
-            onOuvrirDetail={setPinOuvert}
-            onOuvrirPhoto={setPinPhotoOuvert}
-            signalementOuvert={signalementOuvert}
-            onToggleSignalement={setSignalementOuvert}
-            nbACompleter={nbACompleter}
-            estAdmin={estAdmin}
-            filtreACompleter={filtreACompleter}
-            onToggleFiltreACompleter={() => setFiltreACompleter((v) => !v)}
-          />
-        )
-      ) : vue === 'local' ? (
+      {estVueLocaleActive ? (
+        // Le Local n'a ni boîtes ni "à recevoir" comme un pop-up normal : juste peser les pin's
+        // pour ajuster le stock restant, voir les commandes des pop-ups, et un accès direct au
+        // catalogue (avec "Signaler un pin inconnu" pour en ajouter un qui n'existe pas encore).
         <View className="flex-1">
           <View className="px-4 pt-4">
             <BarreOnglets
@@ -1647,135 +1616,240 @@ export function StockScreen({ profile, onRetour }: { profile: Profile; onRetour:
               options={[
                 { valeur: 'commandes', label: 'Commandes' },
                 { valeur: 'stock', label: 'Stock local' },
+                { valeur: 'catalogue', label: 'Catalogue', badge: estAdmin ? nbACompleter : 0 },
               ]}
             />
           </View>
           {sousOngletLocal === 'commandes' ? (
             <VueCommandesLocal onOuvrirCommande={setCommandeLocaleOuverte} />
-          ) : (
+          ) : sousOngletLocal === 'stock' ? (
             <VueLocal
               pins={pins ?? []}
               chargement={chargementPins}
               recherche={rechercheLocal}
               onChangeRecherche={setRechercheLocal}
               demandesParPin={demandesParPin}
-              onPeser={setPinAPeser}
+              popUpLocalId={popUpLocal?.id}
+              profileId={profile.id}
+            />
+          ) : Platform.OS === 'web' ? (
+            <VueCatalogueWeb
+              pins={pinsAffiches}
+              chargement={chargementPins}
+              recherche={recherche}
+              onChangeRecherche={setRecherche}
+              caseFiltre={caseFiltre}
+              onChangeCaseFiltre={setCaseFiltre}
+              filtreAttribution={filtreAttribution}
+              onChangeFiltreAttribution={setFiltreAttribution}
+              attributionsParPin={attributionsParPin}
+              onOuvrirDetail={setPinOuvert}
+              onOuvrirPhoto={setPinPhotoOuvert}
+              signalementOuvert={signalementOuvert}
+              onToggleSignalement={setSignalementOuvert}
+              nbACompleter={nbACompleter}
+              estAdmin={estAdmin}
+              filtreACompleter={filtreACompleter}
+              onToggleFiltreACompleter={() => setFiltreACompleter((v) => !v)}
+            />
+          ) : (
+            <VueCatalogue
+              pins={pinsAffiches}
+              chargement={chargementPins}
+              recherche={recherche}
+              onChangeRecherche={setRecherche}
+              caseFiltre={caseFiltre}
+              onChangeCaseFiltre={setCaseFiltre}
+              filtreAttribution={filtreAttribution}
+              onChangeFiltreAttribution={setFiltreAttribution}
+              attributionsParPin={attributionsParPin}
+              onOuvrirDetail={setPinOuvert}
+              onOuvrirPhoto={setPinPhotoOuvert}
+              signalementOuvert={signalementOuvert}
+              onToggleSignalement={setSignalementOuvert}
+              nbACompleter={nbACompleter}
+              estAdmin={estAdmin}
+              filtreACompleter={filtreACompleter}
+              onToggleFiltreACompleter={() => setFiltreACompleter((v) => !v)}
             />
           )}
         </View>
       ) : (
-        <ScrollView
-          className="flex-1"
-          contentContainerStyle={{ padding: 16, paddingBottom: 40, alignItems: 'center' }}
-        >
-        <View className="w-full max-w-[960px]">
-          {vue === 'boites' && (
-            <>
-              <Text className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Pop-up</Text>
-              <View className="mb-5">
-                <Dropdown
-                  value={popUpActif}
-                  options={popUps.map((p) => ({ value: p.id, label: p.nom, couleur: p.couleur }))}
-                  onChange={setPopUpId}
-                />
-              </View>
+        <>
+          <View className="px-4 pt-4">
+            <BarreOnglets
+              valeur={vue}
+              onChange={setVue}
+              options={[
+                { valeur: 'boites', label: 'Boîtes' },
+                { valeur: 'catalogue', label: 'Catalogue', badge: estAdmin ? nbACompleter : 0 },
+                { valeur: 'rapport', label: 'Historique' },
+              ]}
+            />
+          </View>
 
-              {!popUpActif ? (
-                <Text className="text-sm text-slate-400">
-                  Aucun lieu attribué pour l'instant — demande à un admin de t'en attribuer un.
-                </Text>
-              ) : chargementGrille ? (
-                <ActivityIndicator color="#6366F1" />
-              ) : (
-                <GrilleCases grille={grille ?? []} onPressCase={setCasePositionOuverte} />
-              )}
-            </>
-          )}
-          {vue === 'rapport' && (
-            <>
-              <View className="mb-2 flex-row items-center justify-between">
-                <Text className="text-xs font-semibold uppercase text-slate-400">
-                  Remplissages — {popUps.find((p) => p.id === popUpActif)?.nom ?? ''}
-                </Text>
-                {popUpActif && (
-                  <View className="flex-row items-center gap-2">
-                    <Pressable
-                      onPress={() => setHistoriqueOuvert(true)}
-                      className="rounded-lg bg-slate-100 px-3 py-1.5"
-                    >
-                      <Text className="text-xs font-semibold text-slate-600">Historique</Text>
-                    </Pressable>
-                    {!commandeActive ? (
-                      <Pressable
-                        onPress={() => setCommandeOuverte(true)}
-                        className="rounded-lg bg-indigo-600 px-3 py-1.5"
-                      >
-                        <Text className="text-xs font-semibold text-white">Voir la commande</Text>
-                      </Pressable>
-                    ) : commandeActive.commande.statut === 'envoyee' ? (
-                      <View className="rounded-lg bg-amber-100 px-3 py-1.5">
-                        <Text className="text-xs font-semibold text-amber-700">
-                          Commande envoyée — en préparation
-                        </Text>
-                      </View>
-                    ) : (
-                      <Pressable
-                        onPress={() =>
-                          Alert.alert(
-                            'Commande reçue',
-                            'Confirmer que la commande a bien été récupérée au local ?',
-                            [
-                              { text: 'Annuler', style: 'cancel' },
-                              {
-                                text: 'Confirmer',
-                                onPress: () =>
-                                  marquerRecue.mutate(
-                                    { commandeId: commandeActive.commande.id, profileId: profile.id },
+          {vue === 'catalogue' ? (
+            Platform.OS === 'web' ? (
+              <VueCatalogueWeb
+                pins={pinsAffiches}
+                chargement={chargementPins}
+                recherche={recherche}
+                onChangeRecherche={setRecherche}
+                caseFiltre={caseFiltre}
+                onChangeCaseFiltre={setCaseFiltre}
+                filtreAttribution={filtreAttribution}
+                onChangeFiltreAttribution={setFiltreAttribution}
+                attributionsParPin={attributionsParPin}
+                onOuvrirDetail={setPinOuvert}
+                onOuvrirPhoto={setPinPhotoOuvert}
+                signalementOuvert={signalementOuvert}
+                onToggleSignalement={setSignalementOuvert}
+                nbACompleter={nbACompleter}
+                estAdmin={estAdmin}
+                filtreACompleter={filtreACompleter}
+                onToggleFiltreACompleter={() => setFiltreACompleter((v) => !v)}
+              />
+            ) : (
+              <VueCatalogue
+                pins={pinsAffiches}
+                chargement={chargementPins}
+                recherche={recherche}
+                onChangeRecherche={setRecherche}
+                caseFiltre={caseFiltre}
+                onChangeCaseFiltre={setCaseFiltre}
+                filtreAttribution={filtreAttribution}
+                onChangeFiltreAttribution={setFiltreAttribution}
+                attributionsParPin={attributionsParPin}
+                onOuvrirDetail={setPinOuvert}
+                onOuvrirPhoto={setPinPhotoOuvert}
+                signalementOuvert={signalementOuvert}
+                onToggleSignalement={setSignalementOuvert}
+                nbACompleter={nbACompleter}
+                estAdmin={estAdmin}
+                filtreACompleter={filtreACompleter}
+                onToggleFiltreACompleter={() => setFiltreACompleter((v) => !v)}
+              />
+            )
+          ) : (
+            <ScrollView
+              className="flex-1"
+              contentContainerStyle={{ padding: 16, paddingBottom: 40, alignItems: 'center' }}
+            >
+            <View className="w-full max-w-[960px]">
+              {vue === 'boites' && (
+                <>
+                  {/* Le choix du lieu se fait une seule fois en arrivant sur Stock (StockAccueil,
+                      sélecteur partagé entre catégories) — ici juste un rappel du lieu actif, pas un
+                      second sélecteur redondant. */}
+                  <Text className="mb-5 text-xl font-bold text-slate-900">
+                    {popUps.find((p) => p.id === popUpActif)?.nom ?? '—'}
+                  </Text>
+
+                  {!popUpActif ? (
+                    <Text className="text-sm text-slate-400">
+                      Aucun lieu attribué pour l'instant — demande à un admin de t'en attribuer un.
+                    </Text>
+                  ) : chargementGrille ? (
+                    <ActivityIndicator color="#6366F1" />
+                  ) : (
+                    <>
+                      <GrilleCases grille={grille ?? []} onPressCase={setCasePositionOuverte} />
+
+                      {popUpActif && (
+                        <View className="mt-5">
+                          {!commandeActive ? (
+                            <Pressable
+                              onPress={() => setCommandeOuverte(true)}
+                              className="items-center rounded-2xl bg-indigo-600 py-4"
+                            >
+                              <Text className="text-base font-bold text-white">Voir la commande</Text>
+                            </Pressable>
+                          ) : commandeActive.commande.statut === 'envoyee' ? (
+                            <Pressable
+                              onPress={() => setCommandeModifOuverte(true)}
+                              className="items-center rounded-2xl bg-amber-100 py-4"
+                            >
+                              <Text className="text-sm font-semibold text-amber-700">
+                                Commande envoyée — en préparation · Modifier
+                              </Text>
+                            </Pressable>
+                          ) : (
+                            <Pressable
+                              onPress={() =>
+                                Alert.alert(
+                                  'Commande reçue',
+                                  'Confirmer que la commande a bien été récupérée au local ?',
+                                  [
+                                    { text: 'Annuler', style: 'cancel' },
                                     {
-                                      onError: (e) =>
-                                        Alert.alert(
-                                          'Erreur',
-                                          e instanceof Error ? e.message : 'Impossible de valider.',
+                                      text: 'Confirmer',
+                                      onPress: () =>
+                                        marquerRecue.mutate(
+                                          { commandeId: commandeActive.commande.id, profileId: profile.id },
+                                          {
+                                            onError: (e) =>
+                                              Alert.alert(
+                                                'Erreur',
+                                                e instanceof Error ? e.message : 'Impossible de valider.',
+                                              ),
+                                          },
                                         ),
                                     },
-                                  ),
-                              },
-                            ],
-                          )
-                        }
-                        className="rounded-lg bg-emerald-600 px-3 py-1.5"
-                      >
-                        <Text className="text-xs font-semibold text-white">
-                          {marquerRecue.isPending ? 'Validation…' : 'Commande prête — Reçue ?'}
-                        </Text>
-                      </Pressable>
-                    )}
-                  </View>
-                )}
-              </View>
-              {!popUpActif ? (
-                <Text className="text-sm text-slate-400">
-                  Aucun lieu attribué pour l'instant — demande à un admin de t'en attribuer un.
-                </Text>
-              ) : chargementRapport ? (
-                <ActivityIndicator color="#6366F1" />
-              ) : (
-                <RapportRemplissages
-                  remplissagesParJour={remplissagesParJour}
-                  estAdmin={estAdmin}
-                  onPressBoite={setCasePositionOuverte}
-                  onSupprimer={(id) =>
-                    supprimerRemplissage.mutate(id, {
-                      onError: (e) =>
-                        Alert.alert('Erreur', e instanceof Error ? e.message : 'Impossible de supprimer.'),
-                    })
-                  }
-                />
+                                  ],
+                                )
+                              }
+                              className="items-center rounded-2xl bg-emerald-600 py-4"
+                            >
+                              <Text className="text-base font-bold text-white">
+                                {marquerRecue.isPending ? 'Validation…' : 'Commande prête — Reçue ?'}
+                              </Text>
+                            </Pressable>
+                          )}
+                        </View>
+                      )}
+
+                      <Text className="mb-2 mt-6 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        Contrôle des boîtes
+                      </Text>
+                      {chargementRapport ? (
+                        <ActivityIndicator color="#6366F1" />
+                      ) : (
+                        <RapportRemplissages
+                          remplissagesParJour={remplissagesParJour}
+                          peutSupprimer={peutSupprimerRemplissage}
+                          onPressBoite={setCasePositionOuverte}
+                          onSupprimer={(id) =>
+                            supprimerRemplissage.mutate(id, {
+                              onError: (e) =>
+                                Alert.alert('Erreur', e instanceof Error ? e.message : 'Impossible de supprimer.'),
+                            })
+                          }
+                        />
+                      )}
+                    </>
+                  )}
+                </>
               )}
-            </>
+              {vue === 'rapport' && (
+                <>
+                  {!popUpActif ? (
+                    <Text className="text-sm text-slate-400">
+                      Aucun lieu attribué pour l'instant — demande à un admin de t'en attribuer un.
+                    </Text>
+                  ) : chargementHistorique ? (
+                    <ActivityIndicator color="#6366F1" />
+                  ) : (
+                    <VueHistoriqueCommandes
+                      commandes={commandesTerminees ?? []}
+                      onOuvrir={setCommandeHistoriqueOuverte}
+                    />
+                  )}
+                </>
+              )}
+            </View>
+            </ScrollView>
           )}
-        </View>
-        </ScrollView>
+        </>
       )}
 
       {casePositionOuverte && popUpActif && (
@@ -1816,42 +1890,16 @@ export function StockScreen({ profile, onRetour }: { profile: Profile; onRetour:
         />
       )}
 
-      {pinOuvert && <PanneauPin pin={pinOuvert} profile={profile} onFermer={() => setPinOuvert(null)} />}
-
-      {pinAPeser && popUpLocal && (
-        <PanneauPesee
-          pin={pinAPeser}
-          popUpLocalId={popUpLocal.id}
-          profile={profile}
-          onFermer={() => setPinAPeser(null)}
-        />
-      )}
+      {pinOuvert && <PanneauPin pin={pinOuvert} onFermer={() => setPinOuvert(null)} />}
 
       {commandeLocaleOuverte && (
         <PanneauPreparationCommande
           commandeId={commandeLocaleOuverte}
           profile={profile}
+          popUpLocalId={popUpLocal?.id}
           basculerFait={basculerFait}
           validerPrete={validerPrete}
-          onPeser={(pin, ligneId) => setPreparationPesee({ pin, ligneId })}
           onFermer={() => setCommandeLocaleOuverte(null)}
-        />
-      )}
-
-      {preparationPesee && popUpLocal && (
-        <PanneauPesee
-          pin={preparationPesee.pin}
-          popUpLocalId={popUpLocal.id}
-          profile={profile}
-          onFermer={() => setPreparationPesee(null)}
-          onApresPesee={() => {
-            if (!commandeLocaleOuverte) return;
-            basculerFait.mutate({
-              ligneId: preparationPesee.ligneId,
-              commandeId: commandeLocaleOuverte,
-              fait: true,
-            });
-          }}
         />
       )}
 
@@ -1875,11 +1923,29 @@ export function StockScreen({ profile, onRetour }: { profile: Profile; onRetour:
         />
       )}
 
-      {historiqueOuvert && popUpActif && (
-        <PanneauHistoriqueCommandes
-          lignes={historiqueCommandes ?? []}
+      {commandeModifOuverte && commandeActive && (
+        <PanneauCommande
+          lignes={commandeLignesModifiables}
           popUpNom={popUps.find((p) => p.id === popUpActif)?.nom ?? ''}
-          onFermer={() => setHistoriqueOuvert(false)}
+          enCours={basculerLigneCommandeMutation.isPending}
+          pinIdsInitialementCoches={commandeActive.lignes.map((l) => l.pin_id)}
+          onBasculerImmediat={(pinId, inclus) =>
+            basculerLigneCommandeMutation.mutate(
+              { commandeId: commandeActive.commande.id, pinId, inclus },
+              {
+                onError: (e) =>
+                  Alert.alert('Erreur', e instanceof Error ? e.message : "Impossible d'enregistrer."),
+              },
+            )
+          }
+          onFermer={() => setCommandeModifOuverte(false)}
+        />
+      )}
+
+      {commandeHistoriqueOuverte && (
+        <PanneauDetailCommandeHistorique
+          commandeId={commandeHistoriqueOuverte}
+          onFermer={() => setCommandeHistoriqueOuverte(null)}
         />
       )}
     </View>

@@ -5,6 +5,7 @@ import {
   ajusterStockGeneral,
   attribuerPinsACase,
   basculerCommandePin,
+  basculerLigneCommande,
   basculerLigneCommandeFaite,
   creerPin,
   envoyerCommande,
@@ -12,9 +13,9 @@ import {
   fetchCommandeActivePopUp,
   fetchCommandeDetail,
   fetchCommandesEnAttenteLocal,
+  fetchCommandesTerminees,
   fetchDerniersRemplissages,
   fetchGrillePopUp,
-  fetchHistoriqueCommandes,
   fetchMouvements,
   fetchPins,
   fetchRemplissagesDepuisDerniereCommande,
@@ -111,12 +112,11 @@ export function useRemplissages(popUpId: string | undefined) {
   });
 }
 
-// Historique des commandes validées (qui a été trouvé ou pas) — sert aussi de base au cron
-// hebdomadaire qui ajuste seuil_cible côté base (migration 0029).
-export function useHistoriqueCommandes(popUpId: string | undefined) {
+// Historique des commandes d'un pop-up (date + nombre de pins), pour l'onglet "Historique".
+export function useCommandesTerminees(popUpId: string | undefined) {
   return useQuery({
-    queryKey: ['stock-historique-commandes', popUpId],
-    queryFn: () => fetchHistoriqueCommandes(popUpId as string),
+    queryKey: ['stock-commandes-terminees', popUpId],
+    queryFn: () => fetchCommandesTerminees(popUpId as string),
     enabled: !!popUpId,
   });
 }
@@ -289,6 +289,7 @@ export function useGererCommandePopUp(popUpId: string | undefined) {
       invalidateActive();
       // La commande envoyée devient la nouvelle référence "depuis" du rapport : le remet à zéro.
       queryClient.invalidateQueries({ queryKey: ['stock-remplissages-historique', popUpId] });
+      queryClient.invalidateQueries({ queryKey: ['stock-commandes-terminees', popUpId] });
     },
   });
 
@@ -298,10 +299,22 @@ export function useGererCommandePopUp(popUpId: string | undefined) {
     onSuccess: () => {
       invalidateActive();
       queryClient.invalidateQueries({ queryKey: ['stock-grille', popUpId] });
+      queryClient.invalidateQueries({ queryKey: ['stock-commandes-terminees', popUpId] });
     },
   });
 
-  return { envoyer, marquerRecue };
+  // Coche/décoche un pin d'une commande déjà envoyée, enregistré tout de suite (pas seulement au
+  // clic sur un bouton "Mettre à jour") — si la personne quitte le panneau par erreur en cours de
+  // route, rien n'est perdu : chaque coche est déjà sauvegardée. Seulement possible tant que la
+  // commande est encore "envoyee" côté base (RLS, migration 0042) : verrouillé dès que le local
+  // valide.
+  const basculerLigne = useMutation({
+    mutationFn: (params: { commandeId: string; pinId: string; inclus: boolean }) =>
+      basculerLigneCommande(params),
+    onSuccess: invalidateActive,
+  });
+
+  return { envoyer, marquerRecue, basculerLigne };
 }
 
 // Côté local : préparer une commande (cocher/peser pin par pin), puis la valider comme prête.
@@ -327,7 +340,7 @@ export function useGererPreparationCommande() {
       queryClient.invalidateQueries({ queryKey: ['stock-commandes-local'] });
       queryClient.invalidateQueries({ queryKey: ['stock-commande-detail', params.commandeId] });
       queryClient.invalidateQueries({ queryKey: ['stock-commande-active', params.popUpId] });
-      queryClient.invalidateQueries({ queryKey: ['stock-historique-commandes', params.popUpId] });
+      queryClient.invalidateQueries({ queryKey: ['stock-commandes-terminees', params.popUpId] });
     },
   });
 

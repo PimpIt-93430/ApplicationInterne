@@ -4,7 +4,7 @@ import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring } from 
 import { Pressable, StyleSheet, Text, View, type GestureResponderEvent } from 'react-native';
 
 import type { PlanningShift, PopUp, Profile } from '@/types/database.types';
-import { estAujourdhui, formatHeure, nomJourCourt, numeroJour } from '@/utils/dateUtils';
+import { estAujourdhui, formatCreneauShift, nomJourCourt, numeroJour } from '@/utils/dateUtils';
 import { minutesDepuis, positionnerChevauchements, versMinutes } from '@/utils/timelineLayout';
 import { HAUTEUR_ENTETE, LARGEUR_JOUR, PX_PAR_HEURE } from './timelineConstants';
 
@@ -14,20 +14,32 @@ interface GroupeCreneau {
   cle: string;
   heure_debut: string;
   heure_fin: string;
+  pause_debut?: string | null;
+  pause_fin?: string | null;
   shifts: PlanningShift[];
 }
 
 /** Regroupe les créneaux ayant exactement les mêmes heures (ex. 3 personnes au local de 10h à
  * 19h) dans une seule colonne au lieu d'une par personne — sinon, sur un jour chargé, les
  * colonnes deviennent trop étroites pour lire les noms. Deux créneaux à des heures différentes,
- * même s'ils se chevauchent partiellement, restent dans des colonnes séparées comme avant. */
+ * même s'ils se chevauchent partiellement, restent dans des colonnes séparées comme avant. La
+ * pause fait partie de la clé : deux créneaux mêmes heures mais pause différente restent séparés,
+ * pour ne jamais afficher une pause qui ne concerne pas tout le monde dans le bloc. */
 function regrouperParHoraire(shifts: PlanningShift[]): GroupeCreneau[] {
   const groupes = new Map<string, GroupeCreneau>();
   for (const shift of shifts) {
-    const cle = `${shift.heure_debut}-${shift.heure_fin}`;
+    const cle = `${shift.heure_debut}-${shift.heure_fin}-${shift.pause_debut ?? ''}-${shift.pause_fin ?? ''}`;
     const groupe = groupes.get(cle);
     if (groupe) groupe.shifts.push(shift);
-    else groupes.set(cle, { cle, heure_debut: shift.heure_debut, heure_fin: shift.heure_fin, shifts: [shift] });
+    else
+      groupes.set(cle, {
+        cle,
+        heure_debut: shift.heure_debut,
+        heure_fin: shift.heure_fin,
+        pause_debut: shift.pause_debut,
+        pause_fin: shift.pause_fin,
+        shifts: [shift],
+      });
   }
   return [...groupes.values()];
 }
@@ -87,7 +99,7 @@ function BlocCreneau({
         );
       })}
       <Text style={styles.blocHeure} numberOfLines={1}>
-        {formatHeure(groupe.heure_debut)}-{formatHeure(groupe.heure_fin)}
+        {formatCreneauShift(groupe)}
       </Text>
       {!estGroupe && popUp && (
         <Text style={styles.blocPopUp} numberOfLines={1}>

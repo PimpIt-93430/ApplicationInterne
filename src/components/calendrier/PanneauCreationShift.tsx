@@ -3,11 +3,13 @@
 // uniquement (le mobile garde son ancienne feuille, cf. app/(app)/admin/calendrier.tsx). Bascule
 // Nouveau shift / Nouvelle absence. En StyleSheet (pas de className), comme le reste du dossier
 // calendrier.
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import type { ChangeEvent, CSSProperties } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
+import { ajouterConge } from '@/api/conges';
 import { insererShifts, mettreAJourShift, supprimerShift } from '@/api/planning';
 import { useGererConges } from '@/hooks/useConges';
 import type { Conge, PlanningShift, PopUp, Profile, TypeConge } from '@/types/database.types';
@@ -27,6 +29,8 @@ export const ETIQUETTES_SHIFT = ['Ouverture', 'Fermeture', 'Caisse', 'Réserve',
 const LIBELLE_TYPE_CONGE: Record<TypeConge, string> = {
   conge: 'Congé',
   indisponibilite: 'Indisponibilité',
+  absence: 'Absence',
+  repos: 'Repos',
 };
 
 function formatDateCourte(dateIso: string): string {
@@ -98,6 +102,9 @@ export function PanneauCreationShift({
   const [etiquetteOuverte, setEtiquetteOuverte] = useState(false);
   const [heureDebut, setHeureDebut] = useState('10:00');
   const [heureFin, setHeureFin] = useState('19:00');
+  const [pauseActive, setPauseActive] = useState(false);
+  const [heureDebutPause, setHeureDebutPause] = useState('13:00');
+  const [heureFinPause, setHeureFinPause] = useState('14:00');
   const [envoiEnCours, setEnvoiEnCours] = useState(false);
 
   // --- Nouvelle absence ---
@@ -112,6 +119,7 @@ export function PanneauCreationShift({
   const [noteAbsence, setNoteAbsence] = useState('');
 
   const { ajouter } = useGererConges(salarieAbsence?.id);
+  const queryClient = useQueryClient();
 
   // Réinitialise le formulaire à chaque ouverture, pré-rempli avec le contexte du clic.
   useEffect(() => {
@@ -127,6 +135,11 @@ export function PanneauCreationShift({
     setEtiquetteOuverte(false);
     setHeureDebut(heureDebutInitiale ?? '10:00');
     setHeureFin(heureFinInitiale ?? '19:00');
+    const pauseExistante =
+      shiftsExistants?.length === 1 ? shiftsExistants[0] : null;
+    setPauseActive(!!(pauseExistante?.pause_debut && pauseExistante?.pause_fin));
+    setHeureDebutPause(pauseExistante?.pause_debut?.slice(0, 5) ?? '13:00');
+    setHeureFinPause(pauseExistante?.pause_fin?.slice(0, 5) ?? '14:00');
     setSalarieAbsence(profilInitial ?? null);
     setRechercheSalarieAbsence('');
     setTypeAbsence('conge');
@@ -161,6 +174,11 @@ export function PanneauCreationShift({
     return `${p.nom_complet} ${p.email}`.toLowerCase().includes(recherche);
   });
 
+  // Pause comprise dans le créneau et heure de fin après l'heure de début — vérifié avant tout
+  // envoi (création comme modification), pas seulement à la saisie.
+  const pauseValide =
+    heureFinPause > heureDebutPause && heureDebutPause >= heureDebut && heureFinPause <= heureFin;
+
   const ajouterJour = (dateIso: string) => {
     setJoursChoisis((prev) => (prev.includes(dateIso) ? prev : [...prev, dateIso].sort()));
   };
@@ -177,6 +195,10 @@ export function PanneauCreationShift({
     }
     if (heureFin <= heureDebut) {
       Alert.alert('Heures invalides', "L'heure de fin doit être après l'heure de début.");
+      return;
+    }
+    if (pauseActive && !pauseValide) {
+      Alert.alert('Pause invalide', "La pause doit être comprise dans le créneau, heure de fin après l'heure de début.");
       return;
     }
     if (!popUpChoisiId) {
@@ -237,6 +259,8 @@ export function PanneauCreationShift({
           date: dateIso,
           heure_debut: `${heureDebut}:00`,
           heure_fin: `${heureFin}:00`,
+          pause_debut: pauseActive ? `${heureDebutPause}:00` : null,
+          pause_fin: pauseActive ? `${heureFinPause}:00` : null,
           statut: 'brouillon' as const,
           genere_automatiquement: false,
           created_by: adminId,
@@ -257,6 +281,10 @@ export function PanneauCreationShift({
     if (!shiftAModifier || !profilInitial) return;
     if (heureFin <= heureDebut) {
       Alert.alert('Heures invalides', "L'heure de fin doit être après l'heure de début.");
+      return;
+    }
+    if (pauseActive && !pauseValide) {
+      Alert.alert('Pause invalide', "La pause doit être comprise dans le créneau, heure de fin après l'heure de début.");
       return;
     }
     if (!popUpChoisiId) {
@@ -302,7 +330,13 @@ export function PanneauCreationShift({
         pop_up_id: popUpChoisiId,
         heure_debut: heureDebutAvecSecondes,
         heure_fin: heureFinAvecSecondes,
+        pause_debut: pauseActive ? `${heureDebutPause}:00` : null,
+        pause_fin: pauseActive ? `${heureFinPause}:00` : null,
         etiquette: etiquette || null,
+        // Un shift touché à la main ne doit plus jamais être considéré comme un simple brouillon
+        // auto-généré : sinon la régénération silencieuse (cf. admin/calendrier.tsx) le supprime
+        // et le recrée depuis l'horaire récurrent, écrasant la modification.
+        genere_automatiquement: false,
       });
       onShiftCree();
       onClose();
@@ -311,6 +345,46 @@ export function PanneauCreationShift({
     } finally {
       setModificationEnCours(false);
     }
+  };
+
+  // Un shift supprimé par l'admin (pas une indisponibilité déclarée par la personne elle-même,
+  // cf. consigne : "si c'est lui qui met une indispo c'est indispo pas repos") laisse la journée
+  // ambiguë — propose de la marquer "Repos" pour ne pas avoir à repasser ensuite par le panneau
+  // "Nouvelle absence". Une paire (personne, jour) par shift supprimé, dédupliquée.
+  const proposerRepos = async (shiftsSupprimes: PlanningShift[]) => {
+    const paires = new Map<string, { profileId: string; date: string; nom: string }>();
+    for (const s of shiftsSupprimes) {
+      const cle = `${s.profile_id}_${s.date}`;
+      if (paires.has(cle)) continue;
+      const profil = profils.find((p) => p.id === s.profile_id) ?? (profilInitial?.id === s.profile_id ? profilInitial : undefined);
+      paires.set(cle, { profileId: s.profile_id, date: s.date, nom: profil ? nomAffiche(profil) : 'cette personne' });
+    }
+    const liste = Array.from(paires.values());
+    if (liste.length === 0) return;
+
+    const message =
+      liste.length === 1
+        ? `Marquer ${liste[0].nom} en repos le ${formatDateCourte(liste[0].date)} ?`
+        : `Marquer en repos :\n${liste.map((l) => `${l.nom} – ${formatDateCourte(l.date)}`).join('\n')} ?`;
+    if (!window.confirm(message)) return;
+
+    await Promise.all(
+      liste.map((l) =>
+        ajouterConge({
+          profileId: l.profileId,
+          dateDebut: l.date,
+          dateFin: l.date,
+          heureDebut: null,
+          heureFin: null,
+          type: 'repos',
+          note: '',
+        }),
+      ),
+    );
+    for (const l of liste) {
+      queryClient.invalidateQueries({ queryKey: ['conges', l.profileId] });
+    }
+    queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'conges-periode' });
   };
 
   // Alert.alert ne fait rien sur web (no-op dans react-native-web) — ce panneau n'existe que sur
@@ -326,6 +400,7 @@ export function PanneauCreationShift({
     setSuppressionEnCours(true);
     try {
       await Promise.all(shiftsExistants.map((s) => supprimerShift(s.id)));
+      await proposerRepos(shiftsExistants);
       onShiftCree();
       onClose();
     } catch (error) {
@@ -477,6 +552,35 @@ export function PanneauCreationShift({
                 />
               </View>
             </View>
+
+            <Pressable onPress={() => setPauseActive((v) => !v)} style={styles.ligneCase}>
+              <View style={[styles.case, pauseActive && styles.caseCochee]}>
+                {pauseActive && <Ionicons name="checkmark" size={12} color="white" />}
+              </View>
+              <Text style={styles.caseTexte}>Pause déjeuner</Text>
+            </Pressable>
+            {pauseActive && (
+              <View style={[styles.ligneChamps, { marginTop: 8 }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sousLabel}>De</Text>
+                  <input
+                    type="time"
+                    value={heureDebutPause}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => setHeureDebutPause(e.target.value)}
+                    style={styles.champInputWeb as unknown as CSSProperties}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sousLabel}>À</Text>
+                  <input
+                    type="time"
+                    value={heureFinPause}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => setHeureFinPause(e.target.value)}
+                    style={styles.champInputWeb as unknown as CSSProperties}
+                  />
+                </View>
+              </View>
+            )}
 
             <View style={styles.ligneBoutons}>
               <Pressable onPress={onClose} style={styles.boutonAnnulerFlex}>
@@ -680,6 +784,35 @@ export function PanneauCreationShift({
                 </View>
               </View>
 
+              <Pressable onPress={() => setPauseActive((v) => !v)} style={styles.ligneCase}>
+                <View style={[styles.case, pauseActive && styles.caseCochee]}>
+                  {pauseActive && <Ionicons name="checkmark" size={12} color="white" />}
+                </View>
+                <Text style={styles.caseTexte}>Pause déjeuner</Text>
+              </Pressable>
+              {pauseActive && (
+                <View style={[styles.ligneChamps, { marginTop: 8 }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.sousLabel}>De</Text>
+                    <input
+                      type="time"
+                      value={heureDebutPause}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => setHeureDebutPause(e.target.value)}
+                      style={styles.champInputWeb as unknown as CSSProperties}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.sousLabel}>À</Text>
+                    <input
+                      type="time"
+                      value={heureFinPause}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => setHeureFinPause(e.target.value)}
+                      style={styles.champInputWeb as unknown as CSSProperties}
+                    />
+                  </View>
+                </View>
+              )}
+
               <View style={styles.ligneBoutons}>
                 <Pressable onPress={onClose} style={styles.boutonAnnulerFlex}>
                   <Text style={styles.boutonAnnulerTexte}>Annuler</Text>
@@ -755,6 +888,14 @@ export function PanneauCreationShift({
                 >
                   <Text style={typeAbsence === 'indisponibilite' ? styles.segmentTexteActif : styles.segmentTexte}>
                     {LIBELLE_TYPE_CONGE.indisponibilite}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setTypeAbsence('repos')}
+                  style={[styles.segmentBouton, typeAbsence === 'repos' && styles.segmentBoutonActif]}
+                >
+                  <Text style={typeAbsence === 'repos' ? styles.segmentTexteActif : styles.segmentTexte}>
+                    {LIBELLE_TYPE_CONGE.repos}
                   </Text>
                 </Pressable>
               </View>
@@ -948,6 +1089,18 @@ const styles = StyleSheet.create({
   },
   champSelectTexte: { fontSize: 13, color: '#1E293B' },
   ligneChamps: { flexDirection: 'row', gap: 12 },
+  ligneCase: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
+  case: {
+    height: 18,
+    width: 18,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  caseCochee: { backgroundColor: '#4F46E5', borderColor: '#4F46E5' },
+  caseTexte: { fontSize: 13, fontWeight: '600', color: '#334155' },
   champInputWeb: {
     width: '100%',
     borderRadius: 12,

@@ -1,11 +1,12 @@
 export type Role = 'admin' | 'employe';
 export type TypeContrat = 'manager' | 'employe' | 'alternant';
 export type StatutShift = 'brouillon' | 'valide' | 'publie';
-export type TypeConge = 'conge' | 'indisponibilite';
+export type TypeConge = 'conge' | 'indisponibilite' | 'absence' | 'repos';
 export type StatutConge = 'en_attente' | 'validee' | 'refusee';
 // Finance reste strictement réservé aux admins (décision explicite, migration 0035) : pas de droit
 // pour ça, uniquement "calendrier" peut être accordé à un non-admin.
 export type Fonctionnalite = 'calendrier' | 'equipe';
+export type StatutVenteEspece = 'confirmee' | 'annulee';
 
 export interface Profile {
   id: string;
@@ -58,6 +59,20 @@ export interface DroitEmploye {
   created_at: string;
 }
 
+/** Encaissement en espèces déclaré manuellement par un manager (écran "Ventes"), distinct des
+ * ventes carte SumUp synchronisées automatiquement (cf. VenteSumup). Jamais supprimée : une vente
+ * annulée reste visible avec `annule_par`/`annule_le` renseignés (cf. migration 0048). */
+export interface VenteEspece {
+  id: string;
+  pop_up_id: string;
+  profile_id: string;
+  montant: number;
+  statut: StatutVenteEspece;
+  annule_par: string | null;
+  annule_le: string | null;
+  created_at: string;
+}
+
 export interface RegleHoraireOuverture {
   id: string;
   pop_up_id: string;
@@ -98,6 +113,10 @@ export interface PlanningShift {
    * Optionnelle (et non juste nullable) pour que les inserts existants qui ne la renseignent pas
    * (génération auto du planning, cf. domain/generationPlanning.ts) restent valides tels quels. */
   etiquette?: string | null;
+  /** Pause déjeuner optionnelle (ex. 13h-14h sur un shift 10h-18h) — les deux nulles ensemble si
+   * pas de pause. Optionnelles pour ne pas casser les inserts existants qui ne les renseignent pas. */
+  pause_debut?: string | null;
+  pause_fin?: string | null;
 }
 
 export interface Conge {
@@ -121,6 +140,28 @@ export interface JourEcoleAlternant {
   date: string;
   note: string | null;
   created_at: string;
+}
+
+export type StatutDemande = 'en_attente' | 'validee' | 'refusee';
+export type ActionJourCalendrierEcole = 'ajout' | 'suppression';
+
+/** Demande groupée de modification du calendrier école (plusieurs mois à la fois) — un alternant
+ * ne peut plus toucher directement à `jours_ecole_alternant` (migration 0052), il propose des
+ * changements que seul l'admin applique en validant. */
+export interface DemandeCalendrierEcole {
+  id: string;
+  profile_id: string;
+  statut: StatutDemande;
+  traite_par: string | null;
+  traite_le: string | null;
+  created_at: string;
+}
+
+export interface JourCalendrierEcoleDemande {
+  id: string;
+  demande_id: string;
+  date: string;
+  action: ActionJourCalendrierEcole;
 }
 
 export interface Notification {
@@ -182,6 +223,11 @@ export interface InformationsRh {
 
   travailleur_etranger: boolean;
   autorisation_travail: string | null;
+
+  /** Coché = les heures du dimanche de cette personne sont exclues du total RH (Demande & RH),
+   * car payées sur un contrat séparé. Décoché par défaut : le dimanche compte normalement comme
+   * n'importe quel autre jour. */
+  exclure_heures_dimanche: boolean;
 
   /** Email utilisé par ce salarié pour se connecter à SumUp — sert à rattacher ses ventes (champ
    * `user` d'une transaction SumUp). Ici et pas sur `profiles` : ce dernier est lisible/modifiable
@@ -295,6 +341,39 @@ export interface CommandeLigne {
   pin_id: string;
   fait: boolean;
   updated_at: string;
+}
+
+export type StatutCommandeConsommables = 'demandee' | 'envoyee' | 'recue';
+export type TypeConsommable =
+  | 'pochon'
+  | 'sac_chaussures'
+  | 'scotch_double_face'
+  | 'enveloppes'
+  | 'sac_poubelle'
+  | 'autre';
+
+/** Cycle de vie d'une commande de consommables : demandée (par le pop-up) → envoyée (par le
+ * local, une fois préparée) → reçue (par le pop-up, une fois récupérée) — même principe que
+ * CommandePopUp pour les pin's, sans étape de pesée/préparation détaillée (migration 0043). */
+export interface CommandeConsommables {
+  id: string;
+  pop_up_id: string;
+  statut: StatutCommandeConsommables;
+  demandee_par: string | null;
+  demandee_at: string;
+  envoyee_par: string | null;
+  envoyee_at: string | null;
+  recue_par: string | null;
+  recue_at: string | null;
+  created_at: string;
+}
+
+export interface CommandeConsommableLigne {
+  id: string;
+  commande_id: string;
+  type: TypeConsommable;
+  description: string | null;
+  created_at: string;
 }
 
 export type StatutVenteSumup = 'SUCCESSFUL' | 'CANCELLED' | 'FAILED' | 'REFUNDED' | 'CHARGE_BACK';

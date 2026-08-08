@@ -388,6 +388,11 @@ function OngletContrat({
           onChangeText={(v) => onChange({ sumup_email: v })}
           clavier="email-address"
         />
+        <ChampBool
+          label="Ne pas compter les heures du dimanche (Demande & RH)"
+          valeur={form.exclure_heures_dimanche ?? false}
+          onChange={(v) => onChange({ exclure_heures_dimanche: v })}
+        />
       </Section>
     </ScrollView>
   );

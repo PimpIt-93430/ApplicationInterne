@@ -5,17 +5,12 @@ import { Platform } from 'react-native';
 
 import { CalendrierPersonnelEcran } from '@/components/calendrier/CalendrierPersonnelEcran';
 import { PlanningMobile } from '@/components/calendrier/PlanningMobile';
-import { useAuthStore } from '@/store/useAuthStore';
-import { useVueAdminStore } from '@/store/useVueAdminStore';
 
 export default function CalendrierScreen() {
-  const profileReel = useAuthStore((s) => s.profile);
-  const vue = useVueAdminStore((s) => s.vue);
-  const estAdminEnVueAdmin = profileReel?.role === 'admin' && vue === 'admin';
-
-  // L'écran Planning façon Combo (barre basse) ne remplace le calendrier historique que pour un
-  // non-admin sur mobile — le web (repli sans droit calendrier) et l'admin gardent l'écran existant.
-  if (Platform.OS === 'web' || estAdminEnVueAdmin) {
+  // L'écran Planning façon Combo (barre basse) remplace le calendrier historique pour tout le
+  // monde sur mobile, admin inclus (cf. onglet "Équipe(s)" avec sélecteur de pop-up, ouvert à
+  // l'admin dans PlanningMobile) — seul le web garde l'écran existant.
+  if (Platform.OS === 'web') {
     return <CalendrierPersonnelEcran />;
   }
   return <PlanningMobile />;

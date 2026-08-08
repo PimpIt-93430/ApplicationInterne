@@ -19,6 +19,13 @@ export function jourSemaineISO(date: Date): number {
   return jour === 0 ? 6 : jour - 1;
 }
 
+/** Un shift du dimanche (date ISO "AAAA-MM-JJ") — sert à l'exclure des heures comptées côté RH
+ * pour les personnes dont `compter_heures_dimanche` est décoché (cf. SectionHeuresRH/
+ * PanneauHistoriqueRH). */
+export function estDimanche(dateIso: string): boolean {
+  return new Date(`${dateIso}T00:00:00`).getDay() === 0;
+}
+
 export function libelleJourCourt(date: Date): string {
   return format(date, 'EEE d MMM', { locale: fr });
 }
@@ -69,14 +76,42 @@ export function formatHeure(heure: string): string {
   return heure.slice(0, 5);
 }
 
-/** Total d'heures (décimal) d'une personne sur un ensemble de créneaux (ex. la semaine affichée). */
+/** Durée effective d'un shift en minutes, pause déjeuner déduite (pause non payée/non travaillée)
+ * quand elle est renseignée. */
+export function dureeShiftMinutes(shift: {
+  heure_debut: string;
+  heure_fin: string;
+  pause_debut?: string | null;
+  pause_fin?: string | null;
+}): number {
+  const brut = differenceMinutes(shift.heure_debut, shift.heure_fin);
+  if (!shift.pause_debut || !shift.pause_fin) return brut;
+  return brut - differenceMinutes(shift.pause_debut, shift.pause_fin);
+}
+
+/** Formate l'horaire d'un shift pour affichage : segmenté de part et d'autre de la pause si elle
+ * est renseignée ("10:00 – 13:00 · 14:00 – 18:00"), sinon la plage simple ("10:00 – 18:00"). */
+export function formatCreneauShift(shift: {
+  heure_debut: string;
+  heure_fin: string;
+  pause_debut?: string | null;
+  pause_fin?: string | null;
+}): string {
+  if (!shift.pause_debut || !shift.pause_fin) {
+    return `${formatHeure(shift.heure_debut)} – ${formatHeure(shift.heure_fin)}`;
+  }
+  return `${formatHeure(shift.heure_debut)} – ${formatHeure(shift.pause_debut)} · ${formatHeure(shift.pause_fin)} – ${formatHeure(shift.heure_fin)}`;
+}
+
+/** Total d'heures (décimal) d'une personne sur un ensemble de créneaux (ex. la semaine affichée),
+ * pause déjeuner déduite quand elle est renseignée sur le shift. */
 export function totalHeuresTravaillees(
-  shifts: { profile_id: string; heure_debut: string; heure_fin: string }[],
+  shifts: { profile_id: string; heure_debut: string; heure_fin: string; pause_debut?: string | null; pause_fin?: string | null }[],
   profileId: string,
 ): number {
   const minutes = shifts
     .filter((s) => s.profile_id === profileId)
-    .reduce((total, s) => total + differenceMinutes(s.heure_debut, s.heure_fin), 0);
+    .reduce((total, s) => total + dureeShiftMinutes(s), 0);
   return minutes / 60;
 }
 

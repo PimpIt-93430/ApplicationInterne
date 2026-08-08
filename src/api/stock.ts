@@ -2,7 +2,6 @@ import { decode } from 'base64-arraybuffer';
 
 import { supabase } from './supabaseClient';
 import type {
-  CommandeHistorique,
   CommandeLigne,
   CommandePopUp,
   PopUpBoiteRemplissage,
@@ -85,6 +84,28 @@ export async function envoyerCommande(params: {
   return commande.id;
 }
 
+/** Coche/décoche un seul pin d'une commande déjà envoyée, enregistré immédiatement (pas seulement
+ * au clic sur "Mettre à jour") — pour que rien ne soit perdu si la personne quitte le panneau par
+ * erreur en cours de route : chaque coche compte tout de suite, pas seulement à la validation. */
+export async function basculerLigneCommande(params: {
+  commandeId: string;
+  pinId: string;
+  inclus: boolean;
+}) {
+  const { commandeId, pinId, inclus } = params;
+  if (inclus) {
+    const { error } = await supabase.from('commande_lignes').insert({ commande_id: commandeId, pin_id: pinId });
+    if (error) throw error;
+  } else {
+    const { error } = await supabase
+      .from('commande_lignes')
+      .delete()
+      .eq('commande_id', commandeId)
+      .eq('pin_id', pinId);
+    if (error) throw error;
+  }
+}
+
 export interface CommandeAvecLignes {
   commande: CommandePopUp;
   lignes: (CommandeLigne & { pin: StockPin })[];
@@ -135,6 +156,27 @@ export async function fetchCommandesEnAttenteLocal(): Promise<CommandeResume[]> 
       nbLignes: lignes.length,
       nbFaites: lignes.filter((l) => l.fait).length,
     };
+  });
+}
+
+export interface CommandeHistoriqueResume {
+  commande: CommandePopUp;
+  nbPins: number;
+}
+
+/** Historique des commandes d'un pop-up (tous statuts), du plus récent au plus ancien — sert à
+ * l'onglet "Historique" côté pop-up (date + nombre de pins, détail au clic via
+ * `fetchCommandeDetail`). */
+export async function fetchCommandesTerminees(popUpId: string): Promise<CommandeHistoriqueResume[]> {
+  const { data, error } = await supabase
+    .from('commandes_pop_up')
+    .select('*, lignes:commande_lignes(id)')
+    .eq('pop_up_id', popUpId)
+    .order('envoyee_at', { ascending: false });
+  if (error) throw error;
+  return (data as unknown as (CommandePopUp & { lignes: { id: string }[] })[]).map((c) => {
+    const { lignes, ...commande } = c;
+    return { commande, nbPins: lignes.length };
   });
 }
 
@@ -228,36 +270,6 @@ export async function marquerCommandeRecue(params: {
     .eq('pop_up_id', popUpId)
     .in('pin_id', pinIdsTrouves);
   if (errorBoites) throw errorBoites;
-}
-
-export interface LigneHistoriqueCommande {
-  id: string;
-  pinNom: string;
-  trouve: boolean;
-  profileNom: string;
-  createdAt: string;
-}
-
-/** Historique complet des commandes validées d'un pop-up, du plus récent au plus ancien. */
-export async function fetchHistoriqueCommandes(popUpId: string): Promise<LigneHistoriqueCommande[]> {
-  const { data, error } = await supabase
-    .from('commandes_historique')
-    .select('id, trouve, created_at, pin:stock_pins(nom), profile:profiles(nom_complet)')
-    .eq('pop_up_id', popUpId)
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  return (
-    data as unknown as (CommandeHistorique & {
-      pin: { nom: string } | null;
-      profile: { nom_complet: string } | null;
-    })[]
-  ).map((r) => ({
-    id: r.id,
-    pinNom: r.pin?.nom ?? '?',
-    trouve: r.trouve,
-    profileNom: r.profile?.nom_complet ?? '?',
-    createdAt: r.created_at,
-  }));
 }
 
 /** Bascule le flag "à commander" d'un pin dans une case précise — décision manuelle ("le sac a
@@ -499,8 +511,8 @@ export async function ajusterStockGeneral(params: {
 
 /**
  * Pesée du stock local : on pèse ce qu'il reste d'un pin après avoir servi une ou plusieurs
- * commandes pop-up, et la quantité est recalculée à partir du poids d'un lot de référence de 10
- * (`poids_unitaire`) plutôt que saisie à la main. `popUpId` est celui du pop-up "local"
+ * commandes pop-up, et la quantité est recalculée à partir du poids unitaire du pin
+ * (`poids_unitaire`, en g) plutôt que saisie à la main. `popUpId` est celui du pop-up "local"
  * (`pop_ups.est_local`) — pas null — pour que la policy RLS existante sur `stock_mouvements`
  * (admin OU personne attribuée à ce pop-up) laisse un non-admin du local peser sans nouvelle
  * migration ; ça sert aussi de traçabilité cohérente avec le reste du stock (chaque mouvement
@@ -517,10 +529,10 @@ export async function peserStockGeneral(params: {
   const { pinId, popUpLocalId, poidsPese, profileId } = params;
   const pin = await fetchPin(pinId);
   if (!pin.poids_unitaire || pin.poids_unitaire <= 0) {
-    throw new Error('Poids (g/10) manquant pour ce pin — renseigne-le dans le Catalogue avant de peser.');
+    throw new Error('Poids unité manquant pour ce pin — renseigne-le dans le Catalogue avant de peser.');
   }
 
-  const quantiteCalculee = Math.max(0, Math.round((poidsPese / pin.poids_unitaire) * 10));
+  const quantiteCalculee = Math.max(0, Math.round(poidsPese / pin.poids_unitaire));
 
   const { error: errorMaj } = await supabase
     .from('stock_pins')

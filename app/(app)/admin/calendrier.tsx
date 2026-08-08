@@ -81,6 +81,13 @@ const MODES_CRENEAU: { value: ModeCreneau; label: string }[] = [
 
 type Onglet = 'planning' | 'indisponibilites';
 
+const LIBELLE_SUPPRESSION_CONGE: Record<Conge['type'], string> = {
+  conge: 'le congé',
+  indisponibilite: "l'indisponibilité",
+  absence: "l'absence",
+  repos: 'le repos',
+};
+
 // Sélecteur de vue desktop (web uniquement) : remplace la grille semaine unique par plusieurs vues
 // façon Combo, appliquées à la vue "équipe" (pas "Mon calendrier", qui reste CalendrierPersonnel).
 // 'jour'/'mois' restent supportées par le code (VueParJour/VueParMois) mais volontairement pas
@@ -223,7 +230,7 @@ export default function CalendrierPopUpScreen() {
   // fonction n'est de toute façon appelée que depuis la vue web (VueParEmployes).
   const handlePressCelluleConge = (conge: Conge, profilCible: Profile) => {
     const confirme = window.confirm(
-      `Supprimer ${conge.type === 'conge' ? 'le congé' : "l'indisponibilité"} de ${profilCible.nom_complet || profilCible.email} ? Cette action est irréversible.`,
+      `Supprimer ${LIBELLE_SUPPRESSION_CONGE[conge.type]} de ${profilCible.nom_complet || profilCible.email} ? Cette action est irréversible.`,
     );
     if (!confirme) return;
     supprimerConge.mutate(conge);
@@ -367,7 +374,9 @@ export default function CalendrierPopUpScreen() {
     }
     for (const shift of shiftsDeplaces) {
       const nouveau = nouveaux.get(shift.id)!;
-      await mettreAJourShift(shift.id, nouveau);
+      // Un shift déplacé à la main n'est plus un simple brouillon auto-généré (sinon la
+      // régénération silencieuse le supprime et le recrée depuis l'horaire récurrent).
+      await mettreAJourShift(shift.id, { ...nouveau, genere_automatiquement: false });
     }
     invalidateShifts();
     return true;
@@ -394,7 +403,12 @@ export default function CalendrierPopUpScreen() {
     }
     for (const shift of shiftsRedimensionnes) {
       const nouveau = nouveaux.get(shift.id)!;
-      await mettreAJourShift(shift.id, bord === 'debut' ? { heure_debut: nouveau.heure_debut } : { heure_fin: nouveau.heure_fin });
+      // Même raison que handleShiftMoved : un shift redimensionné à la main n'est plus un simple
+      // brouillon auto-généré.
+      await mettreAJourShift(shift.id, {
+        ...(bord === 'debut' ? { heure_debut: nouveau.heure_debut } : { heure_fin: nouveau.heure_fin }),
+        genere_automatiquement: false,
+      });
     }
     invalidateShifts();
     return true;

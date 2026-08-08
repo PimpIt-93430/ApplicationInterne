@@ -11,7 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import type { Conge, JourEcoleAlternant, PlanningShift, PopUp, Profile } from '@/types/database.types';
 import { couleurCaseNomSalarie, trierParPopUpAttribue } from '@/utils/affectations';
-import { dateEnISO, estAujourdhui, formatHeure, nomJourCourt, numeroJour } from '@/utils/dateUtils';
+import { dateEnISO, estAujourdhui, formatCreneauShift, nomJourCourt, numeroJour } from '@/utils/dateUtils';
 
 const LARGEUR_NOM = 180;
 const HAUTEUR_LIGNE = 68;
@@ -19,6 +19,17 @@ const HAUTEUR_LIGNE = 68;
 const LIBELLE_CONGE: Record<Conge['type'], string> = {
   conge: 'Congé',
   indisponibilite: 'Indispo.',
+  absence: 'Absence',
+  repos: 'Repos',
+};
+
+// "Repos" est un jour off normal (décidé à l'avance), pas un problème comme une absence/
+// indisponibilité — teinte neutre plutôt que le rouge utilisé pour les autres types.
+const COULEUR_CONGE: Record<Conge['type'], { fond: string; texte: string }> = {
+  conge: { fond: '#FEE2E2', texte: '#DC2626' },
+  indisponibilite: { fond: '#FEE2E2', texte: '#DC2626' },
+  absence: { fond: '#FEE2E2', texte: '#DC2626' },
+  repos: { fond: '#F1F5F9', texte: '#64748B' },
 };
 
 export function VueParEmployes({
@@ -32,6 +43,9 @@ export function VueParEmployes({
   conges,
   mapAffectations,
   popUps,
+  largeurNom = LARGEUR_NOM,
+  hauteurLigne = HAUTEUR_LIGNE,
+  compact = false,
 }: {
   jours: Date[];
   profils: Profile[];
@@ -53,6 +67,14 @@ export function VueParEmployes({
    * horaire, contrairement aux cellules de la grille (déjà colorées par lieu via popUpParId). */
   mapAffectations: Map<string, Set<string>>;
   popUps: PopUp[];
+  /** Dimensions par défaut pensées pour un large écran web (colonnes flex:1) — un manager mobile
+   * qui regarde son équipe sur téléphone a besoin d'une colonne de noms et de lignes plus
+   * compactes pour que les 7 colonnes restent lisibles sur un écran étroit (cf. PlanningMobile). */
+  largeurNom?: number;
+  hauteurLigne?: number;
+  /** Mobile : masque l'étiquette du créneau dans la puce (n'affiche que l'horaire) — une seule
+   * ligne compacte au lieu de deux, plus de place pour rester lisible dans une colonne étroite. */
+  compact?: boolean;
 }) {
   // Regroupe les gens du même pop-up ensemble (cf. couleur de la colonne des noms) plutôt qu'un
   // ordre arbitraire — les deux `.map()` ci-dessous (colonne des noms + cellules) itèrent sur cette
@@ -65,7 +87,7 @@ export function VueParEmployes({
   return (
     <View style={styles.carte}>
       <View style={styles.enteteRow}>
-        <View style={[styles.colonneNomLargeur, styles.enteteVide]} />
+        <View style={[styles.enteteVide, { width: largeurNom }]} />
         <View style={styles.enteteJoursRow}>
           {jours.map((j) => (
             <View
@@ -81,11 +103,11 @@ export function VueParEmployes({
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1 }}>
         <View style={styles.corps}>
-          <View style={styles.colonneNoms}>
+          <View style={[styles.colonneNoms, { width: largeurNom }]}>
             {profilsTries.map((p) => {
               const couleurPopUp = couleurCaseNomSalarie(p, mapAffectations, popUps);
               return (
-                <View key={p.id} style={styles.ligneNom}>
+                <View key={p.id} style={[styles.ligneNom, { height: hauteurLigne }]}>
                   <View
                     style={[
                       styles.pastille,
@@ -115,6 +137,10 @@ export function VueParEmployes({
                   const congeCellule = conges.find(
                     (c) => c.profile_id === p.id && dateIso >= c.date_debut && dateIso <= c.date_fin,
                   );
+                  // Jour sans rien du tout (pas de shift, pas de congé/absence, pas d'école) : pur
+                  // affichage "Repos" pour que ce soit lisible d'un coup d'œil (ex. les dimanches non
+                  // travaillés) — aucune ligne créée en base, cf. décision utilisateur du 2026-07-27.
+                  const estRepos = !congeCellule && !aEcole && shiftsCellule.length === 0;
                   return (
                     <Pressable
                       key={dateIso}
@@ -123,16 +149,26 @@ export function VueParEmployes({
                           ? onPressCelluleConge(congeCellule, p)
                           : onPressCellule(p, dateIso, shiftsCellule)
                       }
-                      style={[styles.cellule, aEcole && styles.celluleEcole, congeCellule && styles.celluleConge]}
+                      style={[
+                        styles.cellule,
+                        { height: hauteurLigne },
+                        aEcole && styles.celluleEcole,
+                        congeCellule && { backgroundColor: COULEUR_CONGE[congeCellule.type].fond },
+                        estRepos && { backgroundColor: COULEUR_CONGE.repos.fond },
+                      ]}
                     >
                       {congeCellule ? (
-                        <Text style={styles.texteConge}>{LIBELLE_CONGE[congeCellule.type]}</Text>
+                        <Text style={[styles.texteConge, { color: COULEUR_CONGE[congeCellule.type].texte }]}>
+                          {LIBELLE_CONGE[congeCellule.type]}
+                        </Text>
+                      ) : aEcole ? (
+                        <View style={styles.badgeEcole}>
+                          <Ionicons name="school-outline" size={11} color="white" />
+                          <Text style={styles.badgeEcoleTexte}>École</Text>
+                        </View>
                       ) : (
-                        aEcole && (
-                          <View style={styles.badgeEcole}>
-                            <Ionicons name="school-outline" size={11} color="white" />
-                            <Text style={styles.badgeEcoleTexte}>École</Text>
-                          </View>
+                        estRepos && (
+                          <Text style={[styles.texteConge, { color: COULEUR_CONGE.repos.texte }]}>Repos</Text>
                         )
                       )}
                       {/* Une personne en congé ne peut pas aussi travailler ce jour-là : on n'affiche
@@ -143,11 +179,13 @@ export function VueParEmployes({
                           const lieu = popUpParId.get(s.pop_up_id);
                           return (
                             <View key={s.id} style={[styles.chip, { backgroundColor: lieu?.couleur ?? '#6366F1' }]}>
-                              <Text style={styles.chipEtiquette} numberOfLines={1}>
-                                {s.etiquette || lieu?.nom || ''}
-                              </Text>
-                              <Text style={styles.chipHoraire}>
-                                {formatHeure(s.heure_debut)}-{formatHeure(s.heure_fin)}
+                              {!compact && (
+                                <Text style={styles.chipEtiquette} numberOfLines={1}>
+                                  {s.etiquette || lieu?.nom || ''}
+                                </Text>
+                              )}
+                              <Text style={[styles.chipHoraire, compact && styles.chipHoraireCompact]}>
+                                {formatCreneauShift(s)}
                               </Text>
                             </View>
                           );
@@ -181,7 +219,6 @@ const styles = StyleSheet.create({
     elevation: 1,
     overflow: 'hidden',
   },
-  colonneNomLargeur: { width: LARGEUR_NOM },
   enteteRow: {
     flexDirection: 'row',
     borderBottomWidth: 1,
@@ -245,11 +282,14 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   badgeEcoleTexte: { fontSize: 11, fontWeight: '700', color: 'white' },
-  // Congé/indisponibilité : cellule teintée en rouge (comme École est en gris) avec le type
-  // affiché en toutes lettres — prioritaire sur École si les deux coïncident un même jour.
-  celluleConge: { backgroundColor: '#FEE2E2' },
-  texteConge: { fontSize: 11, fontWeight: '700', color: '#DC2626', textAlign: 'center' },
+  // Congé/indisponibilité/absence/repos : cellule teintée (couleur selon le type, cf.
+  // COULEUR_CONGE) avec le type affiché en toutes lettres — prioritaire sur École si les deux
+  // coïncident un même jour.
+  texteConge: { fontSize: 11, fontWeight: '700', textAlign: 'center' },
   chip: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
   chipEtiquette: { fontSize: 10, fontWeight: '700', color: 'white' },
   chipHoraire: { fontSize: 10, color: 'rgba(255,255,255,0.9)' },
+  // compact (mobile) : seule ligne affichée dans la puce, en blanc plein plutôt qu'atténué pour
+  // rester lisible malgré la petite taille de colonne.
+  chipHoraireCompact: { fontSize: 11, fontWeight: '700', color: 'white' },
 });

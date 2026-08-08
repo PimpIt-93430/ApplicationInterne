@@ -1,9 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { ajouterConge, demanderConge, fetchCongesPeriode, fetchCongesProfile, supprimerConge } from '@/api/conges';
+import {
+  ajouterConge,
+  demanderConge,
+  fetchCongesPeriode,
+  fetchCongesProfile,
+  fetchDemandesCongeEnAttente,
+  supprimerConge,
+  traiterDemandeConge,
+} from '@/api/conges';
 import { supprimerShiftsProfilChevauchants } from '@/api/planning';
 import { regenererPlanningProfil } from '@/api/regenerationPlanning';
-import type { Conge, TypeConge } from '@/types/database.types';
+import type { Conge, StatutConge, TypeConge } from '@/types/database.types';
 
 export function useCongesProfile(profileId: string | undefined) {
   return useQuery({
@@ -89,6 +97,42 @@ export function useDemanderConge(profileId: string | undefined) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['conges', profileId] });
       queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'conges-periode' });
+    },
+  });
+}
+
+/** Demandes de congé "en attente" visibles par la personne connectée — RLS ne renvoie déjà que
+ * celles de son équipe (droit "équipe"/"calendrier") ou tout si admin (cf. fetchDemandesCongeEnAttente). */
+export function useDemandesCongeEnAttente() {
+  return useQuery({ queryKey: ['conges-en-attente'], queryFn: fetchDemandesCongeEnAttente });
+}
+
+/** Validation/refus d'une demande par un manager/admin — `traitePar` doit être l'id du vrai
+ * utilisateur connecté (pas le profil "effectif" de prévisualisation), RLS vérifie auth.uid(). */
+export function useTraiterDemandeConge(traitePar: string | undefined) {
+  const queryClient = useQueryClient();
+
+  const invalidate = (profileId: string) => {
+    queryClient.invalidateQueries({ queryKey: ['conges-en-attente'] });
+    queryClient.invalidateQueries({ queryKey: ['conges', profileId] });
+    queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'conges-periode' });
+  };
+
+  return useMutation({
+    mutationFn: (params: { conge: Conge; statut: Extract<StatutConge, 'validee' | 'refusee'> }) =>
+      traiterDemandeConge({ id: params.conge.id, statut: params.statut, traitePar: traitePar as string }),
+    onSuccess: async (_data, { conge, statut }) => {
+      invalidate(conge.profile_id);
+      if (statut !== 'validee') return;
+      // Un congé validé doit maintenant bloquer le planning comme n'importe quelle indispo —
+      // même logique que useGererConges().ajouter (retirer les créneaux en conflit puis
+      // régénérer, best-effort pour ne jamais faire échouer la validation elle-même).
+      await supprimerShiftsProfilChevauchants(conge.profile_id, conge.date_debut, conge.date_fin, null, null).catch(
+        (error) => console.warn('Suppression des créneaux en conflit avec le congé validé impossible :', error),
+      );
+      regenererPlanningProfil(conge.profile_id, conge.date_debut, conge.date_fin).catch((error) =>
+        console.warn('Régénération du planning après validation du congé impossible :', error),
+      );
     },
   });
 }

@@ -8,7 +8,7 @@
 import { ScrollView, StyleSheet, Text, View, Pressable } from 'react-native';
 
 import type { PlanningShift, PopUp, Profile } from '@/types/database.types';
-import { dateEnISO, estAujourdhui, formatHeure, nomJourCourt, numeroJour } from '@/utils/dateUtils';
+import { dateEnISO, estAujourdhui, formatCreneauShift, nomJourCourt, numeroJour } from '@/utils/dateUtils';
 
 const LARGEUR_NOM = 180;
 const HAUTEUR_MIN_LIGNE = 68;
@@ -105,9 +105,7 @@ export function VueParPopUps({
                               <Text style={styles.chipNom} numberOfLines={1}>
                                 {employe?.nom_complet || employe?.email || '—'}
                               </Text>
-                              <Text style={styles.chipHoraire}>
-                                {formatHeure(s.heure_debut)}-{formatHeure(s.heure_fin)}
-                              </Text>
+                              <Text style={styles.chipHoraire}>{formatCreneauShift(s)}</Text>
                             </View>
                           );
                         })}

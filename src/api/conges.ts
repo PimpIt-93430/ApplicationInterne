@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import type { Conge, TypeConge } from '@/types/database.types';
+import type { Conge, StatutConge, TypeConge } from '@/types/database.types';
 
 export async function fetchCongesProfile(profileId: string): Promise<Conge[]> {
   const { data, error } = await supabase
@@ -67,5 +67,34 @@ export async function demanderConge(params: {
     statut: 'en_attente',
     note: params.note,
   });
+  if (error) throw error;
+}
+
+/** Demandes de congé en attente visibles par la personne connectée — RLS s'occupe déjà de ne
+ * renvoyer que celles de son équipe (droit "équipe"/"calendrier") ou tout si admin, cf. policies
+ * "conges_lecture_equipe"/"conges_lecture" (migrations 0034/0038). Écran de validation manager. */
+export async function fetchDemandesCongeEnAttente(): Promise<Conge[]> {
+  const { data, error } = await supabase
+    .from('conges')
+    .select('*')
+    .eq('type', 'conge')
+    .eq('statut', 'en_attente')
+    .order('date_debut', { ascending: true });
+  if (error) throw error;
+  return data;
+}
+
+/** Valide/refuse une demande de congé — le trigger proteger_statut_conges (migration 0041)
+ * ignore silencieusement ces champs si l'appelant n'a pas le droit "calendrier"/"équipe" sur la
+ * personne concernée, donc pas besoin de re-vérifier côté client. */
+export async function traiterDemandeConge(params: {
+  id: string;
+  statut: Extract<StatutConge, 'validee' | 'refusee'>;
+  traitePar: string;
+}) {
+  const { error } = await supabase
+    .from('conges')
+    .update({ statut: params.statut, traite_par: params.traitePar, traite_le: new Date().toISOString() })
+    .eq('id', params.id);
   if (error) throw error;
 }

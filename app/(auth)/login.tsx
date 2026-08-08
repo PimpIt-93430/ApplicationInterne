@@ -70,6 +70,9 @@ export default function LoginScreen() {
           </Text>
         </Pressable>
 
+        <Pressable onPress={() => router.push('/(auth)/premiere-connexion')} className="mt-4 items-center py-2">
+          <Text className="text-sm font-semibold text-indigo-600">Première connexion ?</Text>
+        </Pressable>
       </View>
     </KeyboardAvoidingView>
   );

@@ -84,6 +84,13 @@ export async function mettreAJourShift(id: string, changes: Partial<PlanningShif
 }
 
 export async function supprimerShift(id: string) {
-  const { error } = await supabase.from('planning_shifts').delete().eq('id', id);
+  // Une suppression bloquée par une policy RLS ne renvoie jamais d'erreur côté Supabase (0 ligne
+  // affectée, réponse "succès" quand même) — sans `.select()` pour vérifier ce qui a vraiment été
+  // supprimé, l'appelant croit l'opération faite alors qu'elle ne l'est pas, sans aucun message
+  // (cf. bug remonté le 2026-07-31 : suppression d'un créneau équipe qui ne faisait rien).
+  const { data, error } = await supabase.from('planning_shifts').delete().eq('id', id).select('id');
   if (error) throw error;
+  if (!data || data.length === 0) {
+    throw new Error('Suppression impossible (droits insuffisants, ou créneau déjà supprimé).');
+  }
 }
