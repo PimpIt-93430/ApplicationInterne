@@ -60,6 +60,36 @@ export function calculerCommandes(grille: CaseGrille[]): LigneCommande[] {
   return [...parPin.values()].sort((a, b) => b.nbBoites - a.nbBoites);
 }
 
+/** Trie par emplacement physique dans l'entrepôt : bacs gris avant boîtes rouges, puis rangement
+ * (bacs) puis numéro ; pins sans emplacement en fin de liste — ordre de parcours du local. */
+export function comparerParEmplacement(
+  a: Pick<StockPin, 'emplacement_type' | 'emplacement_rangement' | 'emplacement_numero'>,
+  b: Pick<StockPin, 'emplacement_type' | 'emplacement_rangement' | 'emplacement_numero'>,
+): number {
+  if (a.emplacement_type === null && b.emplacement_type === null) return 0;
+  if (a.emplacement_type === null) return 1;
+  if (b.emplacement_type === null) return -1;
+  if (a.emplacement_type !== b.emplacement_type) {
+    return a.emplacement_type === 'bac_gris' ? -1 : 1;
+  }
+  const rangA = a.emplacement_rangement ?? 0;
+  const rangB = b.emplacement_rangement ?? 0;
+  if (rangA !== rangB) return rangA - rangB;
+  return (a.emplacement_numero ?? 0) - (b.emplacement_numero ?? 0);
+}
+
+/** Libellé court de l'emplacement pour affichage ("Bac R3-14" / "Boîte 12"), null si non
+ * renseigné. */
+export function formatEmplacement(
+  pin: Pick<StockPin, 'emplacement_type' | 'emplacement_rangement' | 'emplacement_numero'>,
+): string | null {
+  if (pin.emplacement_type === 'bac_gris') {
+    return `Bac R${pin.emplacement_rangement}-${pin.emplacement_numero}`;
+  }
+  if (pin.emplacement_type === 'boite_rouge') return `Boîte ${pin.emplacement_numero}`;
+  return null;
+}
+
 /** Crée une commande à partir des pins actuellement "à commander" sur ce pop-up et l'envoie au
  * local — une seule commande "en vol" (pas encore reçue) à la fois par pop-up (contrainte en
  * base, migration 0037) : échoue si une commande précédente n'a pas encore été marquée reçue. */
@@ -195,6 +225,7 @@ export async function fetchCommandeDetail(
     pop_up: { nom: string } | null;
     lignes: (CommandeLigne & { pin: StockPin })[];
   };
+  lignes.sort((a, b) => comparerParEmplacement(a.pin, b.pin));
   return { commande, popUpNom: pop_up?.nom ?? '?', lignes };
 }
 

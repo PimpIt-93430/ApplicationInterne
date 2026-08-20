@@ -250,6 +250,8 @@ export type TypeMouvementStock = 'reception' | 'ajustement' | 'pesee' | 'estimat
 
 export type TaillePin = 'petit' | 'moyen' | 'gros';
 
+export type EmplacementType = 'boite_rouge' | 'bac_gris';
+
 export interface StockPin {
   id: string;
   nom: string;
@@ -264,6 +266,12 @@ export interface StockPin {
   stock_a_ramener: number;
   seuil_cible: number | null;
   taille: TaillePin | null;
+  /** Emplacement physique dans l'entrepot (plan de rangement calcule depuis l'historique de
+   * commandes) : "boite_rouge" (emplacement_numero = 1-72) ou "bac_gris" (emplacement_rangement
+   * = 1-6, emplacement_numero = 1-36). Null si le pin n'a pas encore d'emplacement attribue. */
+  emplacement_type: EmplacementType | null;
+  emplacement_rangement: number | null;
+  emplacement_numero: number | null;
   prix_revente_ht: number | null;
   a_completer: boolean;
   actif: boolean;

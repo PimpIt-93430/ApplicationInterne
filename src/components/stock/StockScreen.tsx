@@ -17,6 +17,7 @@ import * as ImagePicker from 'expo-image-picker';
 
 import {
   calculerCommandes,
+  formatEmplacement,
   POSITIONS_GRILLE,
   uploaderPhotoPin,
   type CommandeHistoriqueResume,
@@ -957,6 +958,7 @@ function LigneLocalPin({
         </Text>
         <Text className="text-[11px] text-slate-400">
           SKU {pin.sku_pimpit ?? pin.sku_fournisseur ?? '—'}
+          {formatEmplacement(pin) ? ` · ${formatEmplacement(pin)}` : ''}
         </Text>
         <Text className={`text-xs ${enRupture ? 'font-bold text-red-600' : 'text-slate-400'}`}>
           {pin.stock_general} en stock{pin.seuil_cible !== null ? ` · seuil ${pin.seuil_cible}` : ''}
@@ -1206,7 +1208,8 @@ function LignePreparationCommande({
           {ligne.pin.nom}
         </Text>
         <Text className="text-xs text-slate-400">
-          SKU {ligne.pin.sku_pimpit ?? ligne.pin.sku_fournisseur ?? '—'} · Restant{' '}
+          SKU {ligne.pin.sku_pimpit ?? ligne.pin.sku_fournisseur ?? '—'}
+          {formatEmplacement(ligne.pin) ? ` · ${formatEmplacement(ligne.pin)}` : ''} · Restant{' '}
           {ligne.pin.stock_general}
           {ligne.pin.poids_unitaire !== null ? ` · ${ligne.pin.poids_unitaire} g/unité` : ''}
         </Text>
