@@ -7,6 +7,7 @@ import {
   basculerCommandePin,
   basculerLigneCommande,
   basculerLigneCommandeFaite,
+  basculerToutesLignesCommande,
   creerPin,
   envoyerCommande,
   fetchAttributionsPins,
@@ -27,6 +28,7 @@ import {
   supprimerRemplissage as supprimerRemplissageApi,
   validerCommandePrete,
   validerRemplissageBoite,
+  type CommandeAvecLignes,
 } from '@/api/stock';
 import { supabase } from '@/api/supabaseClient';
 import type { StockPin } from '@/types/database.types';
@@ -185,7 +187,36 @@ export function useCommandeDetail(commandeId: string | undefined) {
       .channel(`stock-commande-detail-${commandeId}-${instanceId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'commande_lignes', filter: `commande_id=eq.${commandeId}` },
+        { event: 'UPDATE', schema: 'public', table: 'commande_lignes', filter: `commande_id=eq.${commandeId}` },
+        (payload) => {
+          // Patch ciblé de la ligne modifiée plutôt qu'invalidate : évite de re-fetcher (et donc
+          // re-rendre toute la liste, photos comprises) à chaque coche — c'était la source du lag
+          // signalé sur l'écran de préparation.
+          const nouvelleLigne = payload.new as { id: string; fait: boolean };
+          queryClient.setQueryData<(CommandeAvecLignes & { popUpNom: string }) | undefined>(
+            queryKey,
+            (old) =>
+              old
+                ? {
+                    ...old,
+                    lignes: old.lignes.map((l) =>
+                      l.id === nouvelleLigne.id ? { ...l, fait: nouvelleLigne.fait } : l,
+                    ),
+                  }
+                : old,
+          );
+        },
+      )
+      .on(
+        // INSERT/DELETE de lignes n'arrive jamais dans ce flux (les lignes sont figées à la
+        // création de la commande) — invalidate en secours si ça arrivait quand même.
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'commande_lignes', filter: `commande_id=eq.${commandeId}` },
+        () => queryClient.invalidateQueries({ queryKey }),
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'commande_lignes', filter: `commande_id=eq.${commandeId}` },
         () => queryClient.invalidateQueries({ queryKey }),
       )
       .subscribe();
@@ -321,10 +352,35 @@ export function useGererCommandePopUp(popUpId: string | undefined) {
 export function useGererPreparationCommande() {
   const queryClient = useQueryClient();
 
+  // Patch direct du cache (pas d'invalidate) : la coche doit réagir instantanément, pas attendre
+  // un aller-retour réseau — le realtime patchera pareil à la confirmation serveur (idempotent).
+  const patchLigneFait = (commandeId: string, ligneId: string, fait: boolean) => {
+    queryClient.setQueryData<(CommandeAvecLignes & { popUpNom: string }) | undefined>(
+      ['stock-commande-detail', commandeId],
+      (old) =>
+        old
+          ? { ...old, lignes: old.lignes.map((l) => (l.id === ligneId ? { ...l, fait } : l)) }
+          : old,
+    );
+  };
+
   const basculerFait = useMutation({
     mutationFn: (params: { ligneId: string; commandeId: string; fait: boolean }) =>
       basculerLigneCommandeFaite(params.ligneId, params.fait),
-    onSuccess: (_data, params) => {
+    onMutate: (params) => patchLigneFait(params.commandeId, params.ligneId, params.fait),
+    onError: (_err, params) => patchLigneFait(params.commandeId, params.ligneId, !params.fait),
+  });
+
+  const basculerTout = useMutation({
+    mutationFn: (params: { commandeId: string; fait: boolean }) =>
+      basculerToutesLignesCommande(params.commandeId, params.fait),
+    onMutate: (params) => {
+      queryClient.setQueryData<(CommandeAvecLignes & { popUpNom: string }) | undefined>(
+        ['stock-commande-detail', params.commandeId],
+        (old) => (old ? { ...old, lignes: old.lignes.map((l) => ({ ...l, fait: params.fait })) } : old),
+      );
+    },
+    onError: (_err, params) => {
       queryClient.invalidateQueries({ queryKey: ['stock-commande-detail', params.commandeId] });
     },
   });
@@ -344,7 +400,7 @@ export function useGererPreparationCommande() {
     },
   });
 
-  return { basculerFait, validerPrete };
+  return { basculerFait, basculerTout, validerPrete };
 }
 
 export function useGererCatalogue() {

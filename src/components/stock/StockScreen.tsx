@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -1153,44 +1153,20 @@ function VueCommandesLocal({ onOuvrirCommande }: { onOuvrirCommande: (commandeId
   );
 }
 
-function LignePreparationCommande({
+/** Mémoïsé : avec le patch de cache ciblé de useCommandeDetail/useGererPreparationCommande, seule
+ * la ligne dont "fait" change reçoit une nouvelle prop `ligne` — les autres gardent la même
+ * référence et ne re-rendent pas (évite de faire clignoter/recharger toutes les photos à chaque
+ * coche, qui était la source du lag signalé). */
+const LignePreparationCommande = memo(function LignePreparationCommande({
   ligne,
-  popUpLocalId,
-  profileId,
-  onApresPesee,
   onBasculerFait,
 }: {
   ligne: { id: string; fait: boolean; pin: StockPin };
-  popUpLocalId: string | undefined;
-  profileId: string;
-  onApresPesee: () => void;
   onBasculerFait: (fait: boolean) => void;
 }) {
-  const { peser } = useGererCatalogue();
-  // Même dispositif que Stock local : champ toujours affiché, pas de bouton "Peser" à presser
-  // d'abord — la pesée coche automatiquement "fait" une fois enregistrée (cf. onApresPesee).
-  const [poids, setPoids] = useState('');
-
-  const poidsNum = Number(poids.trim().replace(',', '.'));
-  const poidsValide = poids.trim() !== '' && Number.isFinite(poidsNum) && poidsNum >= 0;
-
-  const confirmer = () => {
-    if (!poidsValide || !popUpLocalId) return;
-    peser.mutate(
-      { pinId: ligne.pin.id, popUpLocalId, poidsPese: poidsNum, profileId },
-      {
-        onSuccess: () => {
-          setPoids('');
-          onApresPesee();
-        },
-        onError: (e) =>
-          Alert.alert('Erreur', e instanceof Error ? e.message : "Impossible d'enregistrer la pesée."),
-      },
-    );
-  };
-
   return (
-    <View
+    <Pressable
+      onPress={() => onBasculerFait(!ligne.fait)}
       className={`mb-2 flex-row items-center gap-3 rounded-xl p-2 ${ligne.fait ? 'bg-emerald-50' : 'bg-slate-50'}`}
     >
       {ligne.pin.photo_url ? (
@@ -1209,61 +1185,35 @@ function LignePreparationCommande({
         </Text>
         <Text className="text-xs text-slate-400">
           SKU {ligne.pin.sku_pimpit ?? ligne.pin.sku_fournisseur ?? '—'}
-          {formatEmplacement(ligne.pin) ? ` · ${formatEmplacement(ligne.pin)}` : ''} · Restant{' '}
-          {ligne.pin.stock_general}
-          {ligne.pin.poids_unitaire !== null ? ` · ${ligne.pin.poids_unitaire} g/unité` : ''}
+          {formatEmplacement(ligne.pin) ? ` · ${formatEmplacement(ligne.pin)}` : ''}
         </Text>
-        {ligne.pin.poids_unitaire === null && (
-          <Text className="mt-0.5 text-[11px] text-amber-600">Poids unité manquant (Catalogue)</Text>
-        )}
       </View>
-      {ligne.pin.poids_unitaire !== null && (
-        <View className="flex-row items-center gap-1.5">
-          <TextInput
-            value={poids}
-            onChangeText={setPoids}
-            keyboardType="decimal-pad"
-            placeholder="Poids (g)"
-            onSubmitEditing={confirmer}
-            className="w-16 rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
-          />
-          <Pressable
-            onPress={confirmer}
-            disabled={!poidsValide || peser.isPending}
-            className={`items-center justify-center rounded-lg px-2.5 py-1.5 ${poidsValide ? 'bg-indigo-600' : 'bg-slate-200'}`}
-          >
-            <Text className={`text-xs font-bold ${poidsValide ? 'text-white' : 'text-slate-500'}`}>OK</Text>
-          </Pressable>
-        </View>
-      )}
-      <Pressable
-        onPress={() => onBasculerFait(!ligne.fait)}
+      <View
         className={`h-7 w-7 items-center justify-center rounded-md border-2 ${
           ligne.fait ? 'border-emerald-600 bg-emerald-600' : 'border-slate-300'
         }`}
       >
         {ligne.fait && <Text className="text-xs font-bold text-white">✓</Text>}
-      </Pressable>
-    </View>
+      </View>
+    </Pressable>
   );
-}
+});
 
-/** Écran de préparation d'une commande (Local) : peser chaque pin (coche automatiquement la case
- * "fait") ou cocher manuellement, puis valider comme prête — historise trouvé/pas trouvé pin par
- * pin (alimente l'ajustement auto de seuil_cible) et prévient le pop-up. La pesée est inline sur
- * chaque ligne (cf. LignePreparationCommande), pas une feuille séparée. */
+/** Écran de préparation d'une commande (Local) : coche chaque pin (photo, SKU, bac) — un par un ou
+ * tous d'un coup — puis valide comme prête. Historise trouvé/pas trouvé pin par pin (alimente
+ * l'ajustement auto de seuil_cible) et prévient le pop-up. */
 function PanneauPreparationCommande({
   commandeId,
   profile,
-  popUpLocalId,
   basculerFait,
+  basculerTout,
   validerPrete,
   onFermer,
 }: {
   commandeId: string;
   profile: Profile;
-  popUpLocalId: string | undefined;
   basculerFait: ReturnType<typeof useGererPreparationCommande>['basculerFait'];
+  basculerTout: ReturnType<typeof useGererPreparationCommande>['basculerTout'];
   validerPrete: ReturnType<typeof useGererPreparationCommande>['validerPrete'];
   onFermer: () => void;
 }) {
@@ -1309,19 +1259,25 @@ function PanneauPreparationCommande({
 
   return (
     <FeuilleModale onClose={onFermer}>
-      <Text className="mb-1 text-lg font-bold text-slate-900">Commande — {popUpNom}</Text>
-      <Text className="mb-4 text-sm text-slate-400">
-        Prends une poignée, pèse ce qu'il reste pour chaque pin — ça coche automatiquement la case.
-      </Text>
+      <View className="mb-4 flex-row items-center justify-between">
+        <View className="flex-1 pr-3">
+          <Text className="text-lg font-bold text-slate-900">Commande — {popUpNom}</Text>
+          <Text className="text-sm text-slate-400">Prépare chaque pin (photo, SKU, bac) puis coche-le.</Text>
+        </View>
+        <Pressable
+          onPress={() => basculerTout.mutate({ commandeId, fait: true })}
+          disabled={basculerTout.isPending}
+          className="items-center rounded-lg bg-indigo-50 px-3 py-2"
+        >
+          <Text className="text-xs font-bold text-indigo-600">Tout cocher</Text>
+        </Pressable>
+      </View>
 
       <ScrollView style={{ maxHeight: 420 }}>
         {lignes.map((ligne) => (
           <LignePreparationCommande
             key={ligne.id}
             ligne={ligne}
-            popUpLocalId={popUpLocalId}
-            profileId={profile.id}
-            onApresPesee={() => basculerFait.mutate({ ligneId: ligne.id, commandeId, fait: true })}
             onBasculerFait={(fait) => basculerFait.mutate({ ligneId: ligne.id, commandeId, fait })}
           />
         ))}
@@ -1494,7 +1450,7 @@ export function StockScreen({
   const { data: commandeActive } = useCommandeActivePopUp(popUpActif);
   const { envoyer: envoyerCommandeMutation, marquerRecue, basculerLigne: basculerLigneCommandeMutation } =
     useGererCommandePopUp(popUpActif);
-  const { basculerFait, validerPrete } = useGererPreparationCommande();
+  const { basculerFait, basculerTout, validerPrete } = useGererPreparationCommande();
 
   const [vue, setVue] = useState<'boites' | 'catalogue' | 'rapport'>('boites');
   const [sousOngletLocal, setSousOngletLocal] = useState<'commandes' | 'stock' | 'catalogue'>('commandes');
@@ -1773,7 +1729,11 @@ export function StockScreen({
                               className="items-center rounded-2xl bg-amber-100 py-4"
                             >
                               <Text className="text-sm font-semibold text-amber-700">
-                                Commande envoyée — en préparation · Modifier
+                                Commande envoyée le{' '}
+                                {format(new Date(commandeActive.commande.envoyee_at), "d MMM 'à' HH:mm", {
+                                  locale: fr,
+                                })}{' '}
+                                — en préparation · Modifier
                               </Text>
                             </Pressable>
                           ) : (
@@ -1899,8 +1859,8 @@ export function StockScreen({
         <PanneauPreparationCommande
           commandeId={commandeLocaleOuverte}
           profile={profile}
-          popUpLocalId={popUpLocal?.id}
           basculerFait={basculerFait}
+          basculerTout={basculerTout}
           validerPrete={validerPrete}
           onFermer={() => setCommandeLocaleOuverte(null)}
         />

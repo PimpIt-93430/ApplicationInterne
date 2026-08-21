@@ -229,13 +229,22 @@ export async function fetchCommandeDetail(
   return { commande, popUpNom: pop_up?.nom ?? '?', lignes };
 }
 
-/** Coche/décoche manuellement "fait" pour une ligne — utilisé quand le local prépare sans passer
- * par la pesée (ex. pin sans poids_unitaire renseigné, ou correction). */
+/** Coche/décoche manuellement "fait" pour une ligne. */
 export async function basculerLigneCommandeFaite(ligneId: string, fait: boolean) {
   const { error } = await supabase
     .from('commande_lignes')
     .update({ fait, updated_at: new Date().toISOString() })
     .eq('id', ligneId);
+  if (error) throw error;
+}
+
+/** Coche (ou décoche) toutes les lignes d'une commande en un seul aller-retour — bouton "Tout
+ * cocher" de l'écran de préparation. */
+export async function basculerToutesLignesCommande(commandeId: string, fait: boolean) {
+  const { error } = await supabase
+    .from('commande_lignes')
+    .update({ fait, updated_at: new Date().toISOString() })
+    .eq('commande_id', commandeId);
   if (error) throw error;
 }
 

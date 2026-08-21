@@ -13,6 +13,12 @@ import { formatCreneauShift } from '@/utils/dateUtils';
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 type ModePicker = 'debut' | 'fin' | 'pauseDebut' | 'pauseFin' | null;
+type Preset = 'matin' | 'apres_midi' | 'personnalise';
+
+const PRESETS: Record<Exclude<Preset, 'personnalise'>, { label: string; debut: string; pauseDebut: string; pauseFin: string; fin: string }> = {
+  matin: { label: 'Matin (10h-18h)', debut: '10:00', pauseDebut: '13:00', pauseFin: '14:00', fin: '18:00' },
+  apres_midi: { label: 'Après-midi (13h-20h30)', debut: '13:00', pauseDebut: '16:00', pauseFin: '16:30', fin: '20:30' },
+};
 
 function formatDateAffichee(dateIso: string): string {
   const txt = new Date(`${dateIso}T00:00:00`).toLocaleDateString('fr-FR', {
@@ -65,9 +71,13 @@ export function PanneauEditionShiftEquipe({
 }) {
   const [heureDebut, setHeureDebut] = useState(() => heureVersDate('10:00'));
   const [heureFin, setHeureFin] = useState(() => heureVersDate('19:00'));
-  const [pauseActive, setPauseActive] = useState(false);
   const [heureDebutPause, setHeureDebutPause] = useState(() => heureVersDate('13:00'));
   const [heureFinPause, setHeureFinPause] = useState(() => heureVersDate('14:00'));
+  const [presetActif, setPresetActif] = useState<Preset | null>(null);
+  // Un employé peut retirer la pause pour un créneau continu (ex. petit shift du soir) — un lien
+  // "Retirer la pause", pas une case à cocher devant les champs (cf. demande explicite : plus de
+  // "truc où tu tiques pause déjeuner"). Toujours false pour un admin (jamais de pause, cf. estAdmin).
+  const [sansPause, setSansPause] = useState(false);
   const [pickerOuvert, setPickerOuvert] = useState<ModePicker>(null);
   const [envoiEnCours, setEnvoiEnCours] = useState(false);
   const [suppressionId, setSuppressionId] = useState<string | null>(null);
@@ -76,11 +86,24 @@ export function PanneauEditionShiftEquipe({
     if (!visible) return;
     setHeureDebut(heureVersDate('10:00'));
     setHeureFin(heureVersDate('19:00'));
-    setPauseActive(false);
     setHeureDebutPause(heureVersDate('13:00'));
     setHeureFinPause(heureVersDate('14:00'));
+    setPresetActif(null);
+    setSansPause(false);
     setPickerOuvert(null);
   }, [visible, dateIso, profil?.id]);
+
+  // Un tap sur "Matin"/"Après-midi" remplit les 4 horaires d'un coup (fini les 4 allers-retours au
+  // sélecteur natif) ; les champs restent modifiables juste en dessous pour ajuster au cas par cas.
+  const appliquerPreset = (preset: Exclude<Preset, 'personnalise'>) => {
+    const p = PRESETS[preset];
+    setHeureDebut(heureVersDate(p.debut));
+    setHeureDebutPause(heureVersDate(p.pauseDebut));
+    setHeureFinPause(heureVersDate(p.pauseFin));
+    setHeureFin(heureVersDate(p.fin));
+    setPresetActif(preset);
+    setSansPause(false);
+  };
 
   const translateY = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -109,6 +132,9 @@ export function PanneauEditionShiftEquipe({
   if (!visible || !profil) return null;
 
   const nom = profil.nom_complet || profil.email;
+  // Un admin n'a pas de coupure repas suivie sur le planning — juste une plage continue, pas les
+  // présets/champs "avant/après la pause" pensés pour les shifts d'équipe.
+  const estAdmin = profil.role === 'admin';
 
   const confirmerEtAjouter = async () => {
     const hDebut = `${dateVersHeure(heureDebut)}:00`;
@@ -119,7 +145,11 @@ export function PanneauEditionShiftEquipe({
     }
     const hDebutPause = `${dateVersHeure(heureDebutPause)}:00`;
     const hFinPause = `${dateVersHeure(heureFinPause)}:00`;
-    if (pauseActive && (hFinPause <= hDebutPause || hDebutPause < hDebut || hFinPause > hFin)) {
+    // Heures de pause identiques (ex. laissées telles quelles pour un créneau court sans coupure)
+    // = pas de pause, plutôt qu'une case à décocher. Jamais de pause pour un admin (champs non
+    // affichés/modifiables pour lui) ni quand "Retirer la pause" a été utilisé (cf. sansPause).
+    const aUnePause = !estAdmin && !sansPause && hDebutPause !== hFinPause;
+    if (aUnePause && (hFinPause <= hDebutPause || hDebutPause < hDebut || hFinPause > hFin)) {
       Alert.alert('Pause invalide', "La pause doit être comprise dans le créneau, heure de fin après l'heure de début.");
       return;
     }
@@ -141,8 +171,8 @@ export function PanneauEditionShiftEquipe({
             date: dateIso,
             heure_debut: hDebut,
             heure_fin: hFin,
-            pause_debut: pauseActive ? hDebutPause : null,
-            pause_fin: pauseActive ? hFinPause : null,
+            pause_debut: aUnePause ? hDebutPause : null,
+            pause_fin: aUnePause ? hFinPause : null,
             statut: 'brouillon',
             genere_automatiquement: false,
             created_by: creeParId ?? profil.id,
@@ -220,42 +250,110 @@ export function PanneauEditionShiftEquipe({
         )}
 
         <Text style={[styles.label, { marginTop: 16 }]}>Ajouter un créneau</Text>
-        <View style={styles.ligneChamps}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.sousLabel}>De</Text>
-            <Pressable onPress={() => setPickerOuvert('debut')} style={styles.champ}>
-              <Text style={styles.champTexte}>{dateVersHeure(heureDebut)}</Text>
-            </Pressable>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.sousLabel}>À</Text>
-            <Pressable onPress={() => setPickerOuvert('fin')} style={styles.champ}>
-              <Text style={styles.champTexte}>{dateVersHeure(heureFin)}</Text>
-            </Pressable>
-          </View>
-        </View>
 
-        <Pressable onPress={() => setPauseActive((v) => !v)} style={styles.ligneCase}>
-          <View style={[styles.case, pauseActive && styles.caseCochee]}>
-            {pauseActive && <Text style={styles.caseCoche}>✓</Text>}
-          </View>
-          <Text style={styles.caseTexte}>Pause déjeuner</Text>
-        </Pressable>
-        {pauseActive && (
-          <View style={[styles.ligneChamps, { marginTop: 8 }]}>
+        {estAdmin ? (
+          <View style={styles.ligneChamps}>
             <View style={{ flex: 1 }}>
               <Text style={styles.sousLabel}>De</Text>
-              <Pressable onPress={() => setPickerOuvert('pauseDebut')} style={styles.champ}>
-                <Text style={styles.champTexte}>{dateVersHeure(heureDebutPause)}</Text>
+              <Pressable onPress={() => setPickerOuvert('debut')} style={styles.champ}>
+                <Text style={styles.champTexte}>{dateVersHeure(heureDebut)}</Text>
               </Pressable>
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.sousLabel}>À</Text>
-              <Pressable onPress={() => setPickerOuvert('pauseFin')} style={styles.champ}>
-                <Text style={styles.champTexte}>{dateVersHeure(heureFinPause)}</Text>
+              <Pressable onPress={() => setPickerOuvert('fin')} style={styles.champ}>
+                <Text style={styles.champTexte}>{dateVersHeure(heureFin)}</Text>
               </Pressable>
             </View>
           </View>
+        ) : (
+          <>
+            <View style={styles.lignePresets}>
+              {(Object.keys(PRESETS) as Exclude<Preset, 'personnalise'>[]).map((preset) => (
+                <Pressable
+                  key={preset}
+                  onPress={() => appliquerPreset(preset)}
+                  style={[styles.chipPreset, presetActif === preset && styles.chipPresetActif]}
+                >
+                  <Text style={[styles.chipPresetTexte, presetActif === preset && styles.chipPresetTexteActif]}>
+                    {PRESETS[preset].label}
+                  </Text>
+                </Pressable>
+              ))}
+              <Pressable
+                onPress={() => setPresetActif('personnalise')}
+                style={[styles.chipPreset, presetActif === 'personnalise' && styles.chipPresetActif]}
+              >
+                <Text
+                  style={[styles.chipPresetTexte, presetActif === 'personnalise' && styles.chipPresetTexteActif]}
+                >
+                  Personnalisé
+                </Text>
+              </Pressable>
+            </View>
+
+            {sansPause ? (
+              <>
+                <Text style={[styles.sousLabel, { marginTop: 12 }]}>Créneau</Text>
+                <View style={styles.ligneChamps}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.sousLabel}>De</Text>
+                    <Pressable onPress={() => setPickerOuvert('debut')} style={styles.champ}>
+                      <Text style={styles.champTexte}>{dateVersHeure(heureDebut)}</Text>
+                    </Pressable>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.sousLabel}>À</Text>
+                    <Pressable onPress={() => setPickerOuvert('fin')} style={styles.champ}>
+                      <Text style={styles.champTexte}>{dateVersHeure(heureFin)}</Text>
+                    </Pressable>
+                  </View>
+                </View>
+                <Pressable onPress={() => setSansPause(false)} style={{ marginTop: 8, alignSelf: 'flex-start' }}>
+                  <Text style={styles.lienPause}>+ Ajouter une pause déjeuner</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Text style={[styles.sousLabel, { marginTop: 12 }]}>Avant la pause</Text>
+                <View style={styles.ligneChamps}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.sousLabel}>De</Text>
+                    <Pressable onPress={() => setPickerOuvert('debut')} style={styles.champ}>
+                      <Text style={styles.champTexte}>{dateVersHeure(heureDebut)}</Text>
+                    </Pressable>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.sousLabel}>À</Text>
+                    <Pressable onPress={() => setPickerOuvert('pauseDebut')} style={styles.champ}>
+                      <Text style={styles.champTexte}>{dateVersHeure(heureDebutPause)}</Text>
+                    </Pressable>
+                  </View>
+                </View>
+
+                <View style={[styles.ligneLabelAvecLien, { marginTop: 12 }]}>
+                  <Text style={styles.sousLabel}>Après la pause</Text>
+                  <Pressable onPress={() => setSansPause(true)}>
+                    <Text style={styles.lienPause}>✕ Retirer la pause</Text>
+                  </Pressable>
+                </View>
+                <View style={styles.ligneChamps}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.sousLabel}>De</Text>
+                    <Pressable onPress={() => setPickerOuvert('pauseFin')} style={styles.champ}>
+                      <Text style={styles.champTexte}>{dateVersHeure(heureFinPause)}</Text>
+                    </Pressable>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.sousLabel}>À</Text>
+                    <Pressable onPress={() => setPickerOuvert('fin')} style={styles.champ}>
+                      <Text style={styles.champTexte}>{dateVersHeure(heureFin)}</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              </>
+            )}
+          </>
         )}
 
         {pickerOuvert && Platform.OS === 'web' && (
@@ -278,6 +376,7 @@ export function PanneauEditionShiftEquipe({
               else if (pickerOuvert === 'fin') setHeureFin(date);
               else if (pickerOuvert === 'pauseDebut') setHeureDebutPause(date);
               else setHeureFinPause(date);
+              setPresetActif('personnalise');
               setPickerOuvert(null);
             }}
             style={styles.champInputWeb as unknown as CSSProperties}
@@ -304,6 +403,7 @@ export function PanneauEditionShiftEquipe({
               else if (pickerOuvert === 'fin') setHeureFin(valeur);
               else if (pickerOuvert === 'pauseDebut') setHeureDebutPause(valeur);
               else setHeureFinPause(valeur);
+              setPresetActif('personnalise');
             },
           })}
         {Platform.OS === 'ios' && pickerOuvert && (
@@ -354,19 +454,19 @@ const styles = StyleSheet.create({
   shiftExistantTexte: { fontSize: 14, fontWeight: '600', color: '#1E293B' },
   croix: { fontSize: 16, color: '#CBD5E1' },
   ligneChamps: { flexDirection: 'row', gap: 12 },
-  ligneCase: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
-  case: {
-    height: 18,
-    width: 18,
-    borderRadius: 5,
+  lignePresets: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chipPreset: {
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#CBD5E1',
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
-  caseCochee: { backgroundColor: '#4F46E5', borderColor: '#4F46E5' },
-  caseCoche: { fontSize: 11, color: 'white', fontWeight: '700' },
-  caseTexte: { fontSize: 13, fontWeight: '600', color: '#334155' },
+  chipPresetActif: { backgroundColor: '#4F46E5', borderColor: '#4F46E5' },
+  chipPresetTexte: { fontSize: 13, fontWeight: '600', color: '#334155' },
+  chipPresetTexteActif: { color: 'white' },
+  ligneLabelAvecLien: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  lienPause: { fontSize: 12, fontWeight: '600', color: '#4F46E5' },
   champ: { borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', paddingHorizontal: 12, paddingVertical: 12 },
   champTexte: { textAlign: 'center', color: '#1E293B' },
   champInputWeb: {
