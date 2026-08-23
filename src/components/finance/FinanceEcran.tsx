@@ -22,8 +22,8 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
 import { usePopUps } from '@/hooks/usePopUps';
 import { useActiveProfiles } from '@/hooks/useProfiles';
-import { useSynchroniserVentesSumup, useVentesSumupPeriode } from '@/hooks/useVentesSumup';
-import type { VenteSumup } from '@/types/database.types';
+import { useSynchroniserVentesSumup, useVentesSumupLignesPeriode, useVentesSumupPeriode } from '@/hooks/useVentesSumup';
+import type { VenteSumup, VenteSumupLigne } from '@/types/database.types';
 
 type PeriodePreset = 'jour' | 'semaine' | 'mois' | 'personnalise';
 
@@ -83,6 +83,59 @@ function BarreRepartition({ label, couleur, montant, total }: { label: string; c
   );
 }
 
+const LIBELLE_STATUT: Record<string, string> = {
+  SUCCESSFUL: 'Réussie',
+  REFUNDED: 'Remboursée',
+  FAILED: 'Échouée',
+  CANCELLED: 'Annulée',
+};
+
+/** Une transaction de l'historique — repliée par défaut, dépliable pour voir le détail produit
+ * (cf. ventes_sumup_lignes, migration 0068) quand la vente est passée par le catalogue SumUp. */
+function LigneHistoriqueVente({
+  vente,
+  lignes,
+  nomPopUp,
+  nomSalarie,
+}: {
+  vente: VenteSumup;
+  lignes: VenteSumupLigne[];
+  nomPopUp: string;
+  nomSalarie: string;
+}) {
+  const [deplie, setDeplie] = useState(false);
+  return (
+    <Pressable
+      onPress={() => lignes.length > 0 && setDeplie((v) => !v)}
+      style={styles.ligneHistorique}
+    >
+      <View style={styles.ligneHistoriqueEntete}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.ligneHistoriqueTitre}>
+            {format(new Date(vente.horodatage), 'd MMM yyyy à HH:mm', { locale: fr })}
+          </Text>
+          <Text style={styles.ligneHistoriqueSousTitre}>
+            {nomPopUp} · {nomSalarie}
+            {vente.statut !== 'SUCCESSFUL' ? ` · ${LIBELLE_STATUT[vente.statut] ?? vente.statut}` : ''}
+          </Text>
+        </View>
+        <Text style={styles.ligneHistoriqueMontant}>{formatMontant(vente.montant)}</Text>
+        {lignes.length > 0 && <Text style={styles.chevron}>{deplie ? '︿' : '⌄'}</Text>}
+      </View>
+      {deplie && lignes.length > 0 && (
+        <View style={styles.ligneHistoriqueDetail}>
+          {lignes.map((l) => (
+            <View key={l.id} style={styles.ligneProduit}>
+              <Text style={styles.ligneProduitNom}>{l.nom_produit}</Text>
+              <Text style={styles.ligneProduitQuantite}>× {l.quantite}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
 export function FinanceEcran() {
   const [preset, setPreset] = useState<PeriodePreset>('semaine');
   const [debutPerso, setDebutPerso] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -92,6 +145,7 @@ export function FinanceEcran() {
 
   const { debut, fin } = calculerPeriode(preset, debutPerso, finPerso);
   const { data: ventes, isLoading, isError, error } = useVentesSumupPeriode(debut.toISOString(), fin.toISOString());
+  const { data: lignesVentes } = useVentesSumupLignesPeriode(debut.toISOString(), fin.toISOString());
   const { data: popUps } = usePopUps();
   const { data: profils } = useActiveProfiles();
   const synchroniser = useSynchroniserVentesSumup();
@@ -161,6 +215,16 @@ export function FinanceEcran() {
     .sort((a, b) => b.montant - a.montant);
 
   const ventesNonAttribuees = ventesFiltrees.filter((v) => !v.pop_up_id || !v.profile_id);
+
+  const lignesParVente = useMemo(() => {
+    const map = new Map<string, VenteSumupLigne[]>();
+    for (const l of lignesVentes ?? []) {
+      const liste = map.get(l.vente_id) ?? [];
+      liste.push(l);
+      map.set(l.vente_id, liste);
+    }
+    return map;
+  }, [lignesVentes]);
 
   return (
     <View style={styles.ecran}>
@@ -343,6 +407,23 @@ export function FinanceEcran() {
                 </View>
               </>
             )}
+
+            <Text style={styles.titreSection}>Historique ({ventesFiltrees.length})</Text>
+            <View style={styles.carteHistorique}>
+              {ventesFiltrees.length === 0 ? (
+                <Text style={styles.texteVide}>Aucune vente sur cette période.</Text>
+              ) : (
+                ventesFiltrees.map((v) => (
+                  <LigneHistoriqueVente
+                    key={v.id}
+                    vente={v}
+                    lignes={lignesParVente.get(v.id) ?? []}
+                    nomPopUp={v.pop_up_id ? (popUpParId.get(v.pop_up_id)?.nom ?? 'Pop-up supprimé') : 'Non attribué'}
+                    nomSalarie={v.profile_id ? nomAffiche(profilParId.get(v.profile_id)) : 'Non attribué'}
+                  />
+                ))
+              )}
+            </View>
           </>
         )}
       </ScrollView>
@@ -412,4 +493,15 @@ const styles = StyleSheet.create({
   texteErreur: { marginTop: 24, fontSize: 13, color: '#DC2626' },
   ligneNonAttribuee: { paddingVertical: 6, borderTopWidth: 1, borderTopColor: '#F1F5F9' },
   ligneNonAttribueeTexte: { fontSize: 12, color: '#64748B' },
+  carteHistorique: { marginBottom: 24, borderRadius: 16, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: 'white', overflow: 'hidden' },
+  ligneHistorique: { paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#F1F5F9' },
+  ligneHistoriqueEntete: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  ligneHistoriqueTitre: { fontSize: 13, fontWeight: '600', color: '#1E293B' },
+  ligneHistoriqueSousTitre: { marginTop: 2, fontSize: 12, color: '#94A3B8' },
+  ligneHistoriqueMontant: { fontSize: 14, fontWeight: '700', color: '#0F172A' },
+  chevron: { fontSize: 13, color: '#94A3B8', width: 14, textAlign: 'center' },
+  ligneHistoriqueDetail: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#F1F5F9', gap: 4 },
+  ligneProduit: { flexDirection: 'row', justifyContent: 'space-between' },
+  ligneProduitNom: { fontSize: 12, color: '#475569' },
+  ligneProduitQuantite: { fontSize: 12, fontWeight: '600', color: '#334155' },
 });

@@ -1,5 +1,6 @@
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
@@ -170,6 +171,15 @@ export function VentesEcran() {
               </Text>
             </Pressable>
           </View>
+
+          {estAdmin && (
+            <Pressable
+              onPress={() => router.push('/(app)/admin/recap-ventes')}
+              className="mb-5 items-center rounded-2xl bg-slate-900 py-5"
+            >
+              <Text className="text-lg font-bold text-white">Voir tous les chiffres</Text>
+            </Pressable>
+          )}
 
           <Text className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Historique</Text>
           {isLoading ? (

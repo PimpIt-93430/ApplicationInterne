@@ -8,9 +8,6 @@ import type {
   RegleHoraireOuverture,
 } from '@/types/database.types';
 
-/** Horaire par défaut auto-appliqué à tout admin sans horaire récurrent explicite ce jour-là — cf.
- * consigne : "les admins c'est auto 9h-19h tous les jours". */
-const HORAIRE_ADMIN_PAR_DEFAUT = { heure_debut: '09:00:00', heure_fin: '19:00:00' };
 export interface ShiftGenere {
   pop_up_id: string;
   profile_id: string;
@@ -20,6 +17,10 @@ export interface ShiftGenere {
   statut: 'brouillon';
   genere_automatiquement: true;
   created_by: string;
+  /** Reprise de la pause de l'horaire récurrent (cf. HoraireRecurrentProfil.pause_debut/pause_fin)
+   * — absente (pas juste nulle) pour les créneaux admin par défaut, qui n'en ont pas. */
+  pause_debut?: string | null;
+  pause_fin?: string | null;
 }
 
 /** Un pop-up est ouvert à un horaire donné mais personne n'y est présent sur ce créneau. */
@@ -74,6 +75,30 @@ function estJourEcole(joursEcole: JourEcoleAlternant[], profileId: string, date:
   return joursEcole.some((j) => j.profile_id === profileId && j.date === date);
 }
 
+/** Lundi de la semaine (ISO) contenant cette date. */
+function lundiDeLaSemaine(dateIso: string): Date {
+  const d = new Date(`${dateIso}T00:00:00`);
+  const offset = (d.getDay() + 6) % 7; // 0 = lundi
+  d.setDate(d.getDate() - offset);
+  return d;
+}
+
+/** Un horaire récurrent "premiere"/"deuxieme" (un jour sur deux) ne s'applique qu'à la semaine
+ * qui correspond, la parité étant calée sur la semaine d'ouverture du pop-up (date_debut) — pas
+ * sur une date arbitraire, pour que "1ère semaine" veuille dire la même chose pour tout le monde.
+ * Un horaire "toutes" (ou un pop-up sans date_debut connue) s'applique toujours. */
+function semaineCorrespondPourFrequence(horaire: HoraireRecurrentProfil, date: string, popUps: PopUp[]): boolean {
+  if (horaire.semaine_reference === 'toutes') return true;
+  const popUp = popUps.find((p) => p.id === horaire.pop_up_id);
+  if (!popUp?.date_debut) return true;
+  const diffSemaines = Math.round(
+    (lundiDeLaSemaine(date).getTime() - lundiDeLaSemaine(popUp.date_debut).getTime()) / (7 * 24 * 60 * 60 * 1000),
+  );
+  const parite = ((diffSemaines % 2) + 2) % 2; // 0 = même semaine que l'ouverture, 1 = l'autre
+  const semaineAttendue = horaire.semaine_reference === 'deuxieme' ? 1 : 0;
+  return parite === semaineAttendue;
+}
+
 /** Une personne n'a pas encore commencé à cette date (date de début de contrat renseignée et
  * postérieure) : aucun créneau ne doit être généré pour elle avant son arrivée réelle. */
 function pasEncoreCommence(
@@ -114,14 +139,13 @@ function trouverTrousCouverture(ouverture: string, fermeture: string, intervalle
 
 /**
  * Génère le planning de la semaine à partir de l'horaire récurrent de chaque personne — y
- * compris les admins (par défaut au local, éditable comme n'importe qui dans Équipe) : pour
- * chaque jour où son horaire habituel est actif, un créneau est créé au lieu qu'il précise, sauf
- * si elle a déclaré une indisponibilité ce jour-là, si c'est un jour d'école pour un alternant,
- * si elle n'est plus attribuée à ce lieu (retirée depuis que l'horaire a été fixé — les admins
- * sont toujours considérés attribués à tous les lieux), ou si un créneau lui est déjà attribué
- * (généré plus tôt dans cette même génération, ou déjà présent — ex. un admin placé à la main
- * sur un pop-up ce jour-là, qui prend le pas sur son horaire par défaut au local et qu'on ne
- * veut pas doubler). Signale ensuite les horaires d'ouverture non couverts.
+ * compris les admins (aucun horaire par défaut : à régler explicitement dans Équipe comme
+ * n'importe qui) : pour chaque jour où son horaire habituel est actif, un créneau est créé au
+ * lieu qu'il précise, sauf si elle a déclaré une indisponibilité ce jour-là, si c'est un jour
+ * d'école pour un alternant, si elle n'est plus attribuée à ce lieu (retirée depuis que l'horaire
+ * a été fixé — les admins sont toujours considérés attribués à tous les lieux), ou si un créneau
+ * lui est déjà attribué (généré plus tôt dans cette même génération, ou déjà présent). Signale
+ * ensuite les horaires d'ouverture non couverts.
  */
 export function genererPlanning(params: {
   jours: JourDeSemaine[];
@@ -152,66 +176,47 @@ export function genererPlanning(params: {
   } = params;
 
   const profilsEligibles = profiles.filter((p) => p.actif);
-  const popUpLocal = popUps.find((p) => p.est_local);
   const shifts: ShiftGenere[] = [];
   const alertes: Alerte[] = [];
 
   for (const jour of jours) {
     for (const profil of profilsEligibles) {
-      const horaire = horairesRecurrents.find(
-        (h) => h.profile_id === profil.id && h.jour_semaine === jour.jour_semaine && h.actif,
+      // Une personne peut avoir jusqu'à deux horaires actifs pour le même jour de semaine (un
+      // "premiere" et un "deuxieme", avec des heures différentes — cf. migration 0063) : on ne
+      // s'arrête plus au premier trouvé, on les considère tous, filtrés par semaine correspondante.
+      const horairesJourPersonne = horairesRecurrents.filter(
+        (h) =>
+          h.profile_id === profil.id &&
+          h.jour_semaine === jour.jour_semaine &&
+          h.actif &&
+          semaineCorrespondPourFrequence(h, jour.date, popUps),
       );
-      if (!horaire) continue;
-      // Un admin est toujours considéré attribué à tous les lieux (cf. estAttribueA côté écrans).
-      if (profil.role !== 'admin' && !mapAffectations.get(profil.id)?.has(horaire.pop_up_id)) continue;
-      if (estEnConge(conges, profil.id, jour.date, horaire.heure_debut, horaire.heure_fin)) continue;
-      if (profil.type_contrat === 'alternant' && estJourEcole(joursEcole, profil.id, jour.date)) continue;
-      if (pasEncoreCommence(datesDebutContrat, profil.id, jour.date)) continue;
-
-      const dejaPresent = [...shiftsExistants, ...shifts].some(
-        (s) =>
-          s.profile_id === profil.id &&
-          s.date === jour.date &&
-          seChevauchent(s.heure_debut, s.heure_fin, horaire.heure_debut, horaire.heure_fin),
-      );
-      if (dejaPresent) continue;
-
-      shifts.push({
-        pop_up_id: horaire.pop_up_id,
-        profile_id: profil.id,
-        date: jour.date,
-        heure_debut: horaire.heure_debut,
-        heure_fin: horaire.heure_fin,
-        statut: 'brouillon',
-        genere_automatiquement: true,
-        created_by: adminId,
-      });
-    }
-
-    // Les admins travaillent 9h-19h au local tous les jours par défaut, sans avoir besoin d'un
-    // horaire récurrent explicite — sauf s'ils ont déjà un créneau ce jour-là (horaire récurrent
-    // à eux, ou créneau déjà présent) ou sont en congé. Aucun trou signalé sur ce créneau puisqu'il
-    // est toujours comblé par cette règle.
-    if (popUpLocal) {
-      for (const profil of profilsEligibles) {
-        if (profil.role !== 'admin') continue;
-        if (estEnConge(conges, profil.id, jour.date, HORAIRE_ADMIN_PAR_DEFAUT.heure_debut, HORAIRE_ADMIN_PAR_DEFAUT.heure_fin)) continue;
+      for (const horaire of horairesJourPersonne) {
+        // Un admin est toujours considéré attribué à tous les lieux (cf. estAttribueA côté écrans).
+        if (profil.role !== 'admin' && !mapAffectations.get(profil.id)?.has(horaire.pop_up_id)) continue;
+        if (estEnConge(conges, profil.id, jour.date, horaire.heure_debut, horaire.heure_fin)) continue;
+        if (profil.type_contrat === 'alternant' && estJourEcole(joursEcole, profil.id, jour.date)) continue;
         if (pasEncoreCommence(datesDebutContrat, profil.id, jour.date)) continue;
 
         const dejaPresent = [...shiftsExistants, ...shifts].some(
-          (s) => s.profile_id === profil.id && s.date === jour.date,
+          (s) =>
+            s.profile_id === profil.id &&
+            s.date === jour.date &&
+            seChevauchent(s.heure_debut, s.heure_fin, horaire.heure_debut, horaire.heure_fin),
         );
         if (dejaPresent) continue;
 
         shifts.push({
-          pop_up_id: popUpLocal.id,
+          pop_up_id: horaire.pop_up_id,
           profile_id: profil.id,
           date: jour.date,
-          heure_debut: HORAIRE_ADMIN_PAR_DEFAUT.heure_debut,
-          heure_fin: HORAIRE_ADMIN_PAR_DEFAUT.heure_fin,
+          heure_debut: horaire.heure_debut,
+          heure_fin: horaire.heure_fin,
           statut: 'brouillon',
           genere_automatiquement: true,
           created_by: adminId,
+          pause_debut: horaire.pause_debut ?? null,
+          pause_fin: horaire.pause_fin ?? null,
         });
       }
     }

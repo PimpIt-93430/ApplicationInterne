@@ -120,6 +120,14 @@ export default function ProfilScreen() {
             <Text className="text-slate-300">›</Text>
           </Pressable>
         )}
+        {estAdminEnVueAdmin && (
+          <Link href="/(app)/admin/sumup" asChild>
+            <Pressable className="flex-row items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3">
+              <Text className="text-base text-slate-800">SumUp</Text>
+              <Text className="text-slate-300">›</Text>
+            </Pressable>
+          </Link>
+        )}
       </View>
 
       <Pressable

@@ -4,12 +4,16 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from 'rea
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
 import { HoraireRecurrentJourCard } from '@/components/reglages/HoraireRecurrentJourCard';
 import { useToutesHorairesOuverture } from '@/hooks/useReglesMetier';
-import { useEnregistrerHoraireRecurrent, useHorairesRecurrents } from '@/hooks/useHorairesRecurrents';
+import {
+  useEnregistrerHoraireRecurrent,
+  useHorairesRecurrents,
+  useSupprimerHoraireRecurrent,
+} from '@/hooks/useHorairesRecurrents';
 import { usePopUps } from '@/hooks/usePopUps';
 import { useActiveProfiles, useAffectationsPopUp, useModifierProfil } from '@/hooks/useProfiles';
 import { useAuthStore } from '@/store/useAuthStore';
 import { construireMapAffectations, popUpsAttribues } from '@/utils/affectations';
-import { JOURS_LABELS } from '@/utils/dateUtils';
+import { formatDureeHeures, JOURS_LABELS, totalHeuresRecurrentesParSemaine } from '@/utils/dateUtils';
 import type { PopUp, Profile, Role } from '@/types/database.types';
 
 const LIBELLE_TYPE_CONTRAT: Record<string, string> = {
@@ -66,6 +70,7 @@ function CarteMembre({ profil, lieuxAttribues }: { profil: Profile; lieuxAttribu
   );
   const { data: toutesHoraires } = useToutesHorairesOuverture();
   const enregistrer = useEnregistrerHoraireRecurrent();
+  const supprimer = useSupprimerHoraireRecurrent();
 
   const copierHorairesPopUp = (lieu: PopUp) => {
     const horairesLieu = (toutesHoraires ?? []).filter((h) => h.pop_up_id === lieu.id);
@@ -78,6 +83,9 @@ function CarteMembre({ profil, lieuxAttribues }: { profil: Profile; lieuxAttribu
         heure_debut: h.heure_ouverture,
         heure_fin: h.heure_fermeture,
         actif: true,
+        pause_debut: null,
+        pause_fin: null,
+        semaine_reference: 'toutes',
       });
     }
   };
@@ -143,17 +151,34 @@ function CarteMembre({ profil, lieuxAttribues }: { profil: Profile; lieuxAttribu
           {chargementHoraires ? (
             <ActivityIndicator color="#6366F1" />
           ) : (
-            JOURS_LABELS.map((label, jourSemaine) => (
-              <HoraireRecurrentJourCard
-                key={jourSemaine}
-                profileId={profil.id}
-                jourSemaine={jourSemaine}
-                label={label}
-                regle={horaires?.find((h) => h.jour_semaine === jourSemaine)}
-                popUpsDisponibles={lieuxAttribues}
-                onEnregistrer={(horaire) => enregistrer.mutate(horaire)}
-              />
-            ))
+            <>
+              {JOURS_LABELS.map((label, jourSemaine) => (
+                <HoraireRecurrentJourCard
+                  key={jourSemaine}
+                  profileId={profil.id}
+                  jourSemaine={jourSemaine}
+                  label={label}
+                  regles={(horaires ?? []).filter((h) => h.jour_semaine === jourSemaine)}
+                  popUpsDisponibles={lieuxAttribues}
+                  onEnregistrer={(horaire) => enregistrer.mutate(horaire)}
+                  onSupprimer={(id) => supprimer.mutate(id)}
+                />
+              ))}
+              <View className="mt-2 flex-row gap-3">
+                <View className="flex-1 flex-row items-center justify-between rounded-xl bg-slate-100 px-3.5 py-2.5">
+                  <Text className="text-sm font-semibold text-slate-500">Semaine 1</Text>
+                  <Text className="text-base font-bold text-slate-800">
+                    {formatDureeHeures(totalHeuresRecurrentesParSemaine(horaires ?? []).premiere)}
+                  </Text>
+                </View>
+                <View className="flex-1 flex-row items-center justify-between rounded-xl bg-slate-100 px-3.5 py-2.5">
+                  <Text className="text-sm font-semibold text-slate-500">Semaine 2</Text>
+                  <Text className="text-base font-bold text-slate-800">
+                    {formatDureeHeures(totalHeuresRecurrentesParSemaine(horaires ?? []).deuxieme)}
+                  </Text>
+                </View>
+              </View>
+            </>
           )}
         </>
       )}
@@ -183,9 +208,8 @@ export default function EquipeScreen() {
       <ScrollView className="flex-1" contentContainerStyle={{ padding: 16 }}>
         <Text className="mb-4 text-sm text-slate-400">
           L'horaire récurrent de chaque personne pilote la génération automatique du planning.
-          Les admins sont attribués à tous les lieux par défaut (au local de 10h à 19h du lundi
-          au samedi), mais peuvent toujours être placés à la main sur un pop-up un jour donné —
-          ça prend le pas sur leur horaire par défaut ce jour-là.
+          Les admins sont attribués à tous les lieux, mais n'ont plus aucun horaire par défaut —
+          à régler ici comme pour n'importe qui.
         </Text>
 
         {membres.length === 0 && <Text className="text-sm text-slate-400">Aucun membre pour l'instant.</Text>}

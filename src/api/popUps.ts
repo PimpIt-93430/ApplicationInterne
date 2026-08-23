@@ -63,6 +63,37 @@ export async function modifierCoordonneesPopUp(id: string, lat: number | null, l
   if (error) throw error;
 }
 
+/** Créneaux matin/après-midi prédéfinis pour ce lieu (cf. HoraireRecurrentJourCard, boutons
+ * Matin/Après-midi) — indépendants du jour de la semaine, contrairement aux horaires d'ouverture. */
+export async function modifierCreneauxPredefinisPopUp(
+  id: string,
+  creneaux: {
+    matinDebut: string | null;
+    matinFin: string | null;
+    matinPauseDebut: string | null;
+    matinPauseFin: string | null;
+    apresMidiDebut: string | null;
+    apresMidiFin: string | null;
+    apresMidiPauseDebut: string | null;
+    apresMidiPauseFin: string | null;
+  },
+) {
+  const { error } = await supabase
+    .from('pop_ups')
+    .update({
+      matin_debut: creneaux.matinDebut,
+      matin_fin: creneaux.matinFin,
+      matin_pause_debut: creneaux.matinPauseDebut,
+      matin_pause_fin: creneaux.matinPauseFin,
+      apres_midi_debut: creneaux.apresMidiDebut,
+      apres_midi_fin: creneaux.apresMidiFin,
+      apres_midi_pause_debut: creneaux.apresMidiPauseDebut,
+      apres_midi_pause_fin: creneaux.apresMidiPauseFin,
+    })
+    .eq('id', id);
+  if (error) throw error;
+}
+
 export async function supprimerPopUp(id: string) {
   const { error } = await supabase.from('pop_ups').delete().eq('id', id);
   if (error) throw error;

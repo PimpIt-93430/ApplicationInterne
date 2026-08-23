@@ -115,6 +115,32 @@ export function totalHeuresTravaillees(
   return minutes / 60;
 }
 
+/** Total d'heures (décimal) d'un horaire récurrent pour chacune des deux semaines d'un rythme
+ * "un jour sur deux" — un horaire "toutes" compte dans les deux, un horaire "premiere"/"deuxieme"
+ * ne compte que dans celle-là (cf. génération auto du planning, qui applique la même règle). Sert
+ * à vérifier d'un coup d'œil dans Équipe > Planification que le total hebdo visé (35h, etc.) est
+ * bien atteint chaque semaine. */
+export function totalHeuresRecurrentesParSemaine(
+  horaires: {
+    actif: boolean;
+    heure_debut: string;
+    heure_fin: string;
+    pause_debut?: string | null;
+    pause_fin?: string | null;
+    semaine_reference: 'toutes' | 'premiere' | 'deuxieme';
+  }[],
+): { premiere: number; deuxieme: number } {
+  let minutesPremiere = 0;
+  let minutesDeuxieme = 0;
+  for (const h of horaires) {
+    if (!h.actif) continue;
+    const minutes = dureeShiftMinutes(h);
+    if (h.semaine_reference === 'toutes' || h.semaine_reference === 'premiere') minutesPremiere += minutes;
+    if (h.semaine_reference === 'toutes' || h.semaine_reference === 'deuxieme') minutesDeuxieme += minutes;
+  }
+  return { premiere: minutesPremiere / 60, deuxieme: minutesDeuxieme / 60 };
+}
+
 /** Formate un nombre d'heures décimal en "12h" ou "12h30". */
 export function formatDureeHeures(heures: number): string {
   const totalMinutes = Math.round(heures * 60);

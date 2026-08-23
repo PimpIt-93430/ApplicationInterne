@@ -51,6 +51,11 @@ export function liensNavigation(estAdmin: boolean, aDroitEquipe = false): LienNa
         ...(Platform.OS === 'web'
           ? [{ label: 'Finance', route: '/(app)/admin/finance', icone: 'cash-outline' } as LienNavigation]
           : []),
+        // Web uniquement (admin/stock-cible.web.tsx) : réglage du stock cible chaussures, jamais
+        // sur le téléphone (décision explicite) — placé juste avant Profil dans la liste.
+        ...(Platform.OS === 'web'
+          ? [{ label: 'Stock cible', route: '/(app)/admin/stock-cible', icone: 'options-outline' } as LienNavigation]
+          : []),
       ]
     : [];
 

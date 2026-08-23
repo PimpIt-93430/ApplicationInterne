@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
 import { JourReglageCard } from '@/components/reglages/JourReglageCard';
 import {
   useCreerPopUp,
   useModifierCoordonneesPopUp,
+  useModifierCreneauxPredefinisPopUp,
   useModifierDatesPopUp,
   usePopUps,
   useRenommerPopUp,
@@ -20,6 +21,92 @@ import {
 import { useEnregistrerHoraireOuverture, useHorairesOuverture } from '@/hooks/useReglesMetier';
 import { JOURS_LABELS } from '@/utils/dateUtils';
 import type { PopUp, Profile } from '@/types/database.types';
+
+/** Une ligne de créneau prédéfini (Matin ou Après-midi) avec pause optionnelle — factorisé car
+ * utilisé deux fois à l'identique dans CartePopUp. */
+function CreneauPredefiniLigne({
+  label,
+  debut,
+  fin,
+  onDebutChange,
+  onFinChange,
+  placeholderDebut,
+  placeholderFin,
+  pauseActive,
+  onPauseActiveChange,
+  pauseDebut,
+  pauseFin,
+  onPauseDebutChange,
+  onPauseFinChange,
+  onBlur,
+}: {
+  label: string;
+  debut: string;
+  fin: string;
+  onDebutChange: (v: string) => void;
+  onFinChange: (v: string) => void;
+  placeholderDebut: string;
+  placeholderFin: string;
+  pauseActive: boolean;
+  onPauseActiveChange: (v: boolean) => void;
+  pauseDebut: string;
+  pauseFin: string;
+  onPauseDebutChange: (v: string) => void;
+  onPauseFinChange: (v: string) => void;
+  onBlur: () => void;
+}) {
+  return (
+    <View className="mb-2">
+      <View className="mb-1.5 flex-row items-center gap-2">
+        <Text className="w-24 text-xs text-slate-500">{label}</Text>
+        <TextInput
+          value={debut}
+          onChangeText={onDebutChange}
+          onBlur={onBlur}
+          placeholder={placeholderDebut}
+          className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-center text-sm"
+        />
+        <Text className="text-slate-400">à</Text>
+        <TextInput
+          value={fin}
+          onChangeText={onFinChange}
+          onBlur={onBlur}
+          placeholder={placeholderFin}
+          className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-center text-sm"
+        />
+      </View>
+      <View className="flex-row items-center gap-2 pl-24">
+        <Switch
+          value={pauseActive}
+          onValueChange={(v) => {
+            onPauseActiveChange(v);
+            onBlur();
+          }}
+        />
+        <Text className="text-xs text-slate-500">Pause</Text>
+        {pauseActive && (
+          <>
+            <TextInput
+              value={pauseDebut}
+              onChangeText={onPauseDebutChange}
+              onBlur={onBlur}
+              placeholder="13:00"
+              className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-center text-sm"
+            />
+            <Text className="text-slate-400">à</Text>
+            <TextInput
+              value={pauseFin}
+              onChangeText={onPauseFinChange}
+              onBlur={onBlur}
+              placeholder="14:00"
+              className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-center text-sm"
+            />
+          </>
+        )}
+      </View>
+    </View>
+  );
+}
 
 function CartePopUp({
   popUp,
@@ -38,6 +125,18 @@ function CartePopUp({
   const [dateFin, setDateFin] = useState(popUp.date_fin ?? '');
   const [lat, setLat] = useState(popUp.lat != null ? String(popUp.lat) : '');
   const [lon, setLon] = useState(popUp.lon != null ? String(popUp.lon) : '');
+  const [matinDebut, setMatinDebut] = useState(popUp.matin_debut?.slice(0, 5) ?? '');
+  const [matinFin, setMatinFin] = useState(popUp.matin_fin?.slice(0, 5) ?? '');
+  const [matinPauseActive, setMatinPauseActive] = useState(!!(popUp.matin_pause_debut && popUp.matin_pause_fin));
+  const [matinPauseDebut, setMatinPauseDebut] = useState(popUp.matin_pause_debut?.slice(0, 5) ?? '13:00');
+  const [matinPauseFin, setMatinPauseFin] = useState(popUp.matin_pause_fin?.slice(0, 5) ?? '14:00');
+  const [apresMidiDebut, setApresMidiDebut] = useState(popUp.apres_midi_debut?.slice(0, 5) ?? '');
+  const [apresMidiFin, setApresMidiFin] = useState(popUp.apres_midi_fin?.slice(0, 5) ?? '');
+  const [apresMidiPauseActive, setApresMidiPauseActive] = useState(
+    !!(popUp.apres_midi_pause_debut && popUp.apres_midi_pause_fin),
+  );
+  const [apresMidiPauseDebut, setApresMidiPauseDebut] = useState(popUp.apres_midi_pause_debut?.slice(0, 5) ?? '13:00');
+  const [apresMidiPauseFin, setApresMidiPauseFin] = useState(popUp.apres_midi_pause_fin?.slice(0, 5) ?? '14:00');
 
   // Les admins sont considérés attribués à tous les lieux implicitement (cf. Équipe) : cette
   // liste sert à gérer qui d'autre peut être planifié ici, pas les admins eux-mêmes.
@@ -55,6 +154,7 @@ function CartePopUp({
   const supprimer = useSupprimerPopUp();
   const modifierDates = useModifierDatesPopUp();
   const modifierCoordonnees = useModifierCoordonneesPopUp();
+  const modifierCreneaux = useModifierCreneauxPredefinisPopUp();
 
   const handleSupprimer = () => {
     Alert.alert(
@@ -95,6 +195,22 @@ function CartePopUp({
     if (latNombre !== popUp.lat || lonNombre !== popUp.lon) {
       modifierCoordonnees.mutate({ id: popUp.id, lat: latNombre, lon: lonNombre });
     }
+  };
+
+  // Créneaux Matin/Après-midi prédéfinis pour ce lieu — lus ensuite par les boutons Matin/
+  // Après-midi de l'horaire récurrent d'un employé (Équipe > Planification).
+  const validerCreneaux = () => {
+    modifierCreneaux.mutate({
+      id: popUp.id,
+      matinDebut: matinDebut.trim() || null,
+      matinFin: matinFin.trim() || null,
+      matinPauseDebut: matinPauseActive ? matinPauseDebut.trim() || null : null,
+      matinPauseFin: matinPauseActive ? matinPauseFin.trim() || null : null,
+      apresMidiDebut: apresMidiDebut.trim() || null,
+      apresMidiFin: apresMidiFin.trim() || null,
+      apresMidiPauseDebut: apresMidiPauseActive ? apresMidiPauseDebut.trim() || null : null,
+      apresMidiPauseFin: apresMidiPauseActive ? apresMidiPauseFin.trim() || null : null,
+    });
   };
 
   return (
@@ -165,6 +281,45 @@ function CartePopUp({
             className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
           />
         </View>
+      </View>
+
+      <View className="mb-3 rounded-xl bg-slate-50 px-3 py-2.5">
+        <Text className="mb-2 text-sm font-semibold text-slate-700">Créneaux Matin / Après-midi prédéfinis</Text>
+        <Text className="mb-2 text-xs text-slate-400">
+          Utilisés par les boutons Matin/Après-midi dans Équipe {'>'} Planification, pour cette personne à ce lieu.
+        </Text>
+        <CreneauPredefiniLigne
+          label="Matin"
+          debut={matinDebut}
+          fin={matinFin}
+          onDebutChange={setMatinDebut}
+          onFinChange={setMatinFin}
+          placeholderDebut="10:00"
+          placeholderFin="14:00"
+          pauseActive={matinPauseActive}
+          onPauseActiveChange={setMatinPauseActive}
+          pauseDebut={matinPauseDebut}
+          pauseFin={matinPauseFin}
+          onPauseDebutChange={setMatinPauseDebut}
+          onPauseFinChange={setMatinPauseFin}
+          onBlur={validerCreneaux}
+        />
+        <CreneauPredefiniLigne
+          label="Après-midi"
+          debut={apresMidiDebut}
+          fin={apresMidiFin}
+          onDebutChange={setApresMidiDebut}
+          onFinChange={setApresMidiFin}
+          placeholderDebut="14:00"
+          placeholderFin="20:00"
+          pauseActive={apresMidiPauseActive}
+          onPauseActiveChange={setApresMidiPauseActive}
+          pauseDebut={apresMidiPauseDebut}
+          pauseFin={apresMidiPauseFin}
+          onPauseDebutChange={setApresMidiPauseDebut}
+          onPauseFinChange={setApresMidiPauseFin}
+          onBlur={validerCreneaux}
+        />
       </View>
 
       <Text className="mb-1 text-xs font-semibold uppercase text-slate-400">

@@ -34,6 +34,18 @@ export interface PopUp {
    * SumUp par proximité (cf. src/api/ventesSumup.ts), aucun autre champ fiable pour ça. */
   lat: number | null;
   lon: number | null;
+  /** Créneaux matin/après-midi prédéfinis pour ce lieu (indépendants du jour de la semaine,
+   * contrairement à regles_horaires_ouverture) — nullable tant que l'admin ne les a pas réglés. */
+  matin_debut: string | null;
+  matin_fin: string | null;
+  apres_midi_debut: string | null;
+  apres_midi_fin: string | null;
+  /** Pause optionnelle sur chacun des deux créneaux prédéfinis — les deux nulles ensemble si pas
+   * de pause pour ce créneau. */
+  matin_pause_debut: string | null;
+  matin_pause_fin: string | null;
+  apres_midi_pause_debut: string | null;
+  apres_midi_pause_fin: string | null;
 }
 
 /** Attribution d'une personne à un lieu où elle peut être planifiée. Une personne peut être
@@ -94,6 +106,17 @@ export interface HoraireRecurrentProfil {
   heure_fin: string;
   actif: boolean;
   updated_at: string;
+  /** Pause déjeuner optionnelle (même principe que PlanningShift.pause_debut/pause_fin) — les
+   * deux nulles ensemble si pas de pause. Optionnelles pour ne pas casser les upserts existants. */
+  pause_debut?: string | null;
+  pause_fin?: string | null;
+  /** 'toutes' : cet horaire s'applique chaque semaine. 'premiere'/'deuxieme' : un jour sur deux,
+   * seulement la semaine correspondante — la parité est calée sur la semaine d'ouverture du
+   * pop-up (pop_ups.date_debut), cf. semaineCorrespondPourFrequence dans generationPlanning.ts.
+   * Fait partie de la clé d'unicité avec profile_id/jour_semaine (migration 0063) : une même
+   * personne peut donc avoir un horaire 'premiere' ET un 'deuxieme' différents pour le même jour
+   * de semaine (heures distinctes d'une semaine à l'autre). */
+  semaine_reference: 'toutes' | 'premiere' | 'deuxieme';
 }
 
 export interface PlanningShift {
@@ -287,7 +310,61 @@ export interface ChaussureStock {
   id: string;
   couleur: CouleurChaussure;
   taille: TailleChaussure;
-  quantite_a_ramener: number;
+  /** Niveau de stock visé — "à ramener" ne se stocke plus nulle part, il se calcule (stock_initial
+   * moins le dernier inventaire compté, cf. calculerAramener dans src/api/chaussures.ts). */
+  stock_initial: number;
+  updated_at: string;
+}
+
+/** Un comptage réel par le pop-up, couleur/taille par couleur/taille — jamais écrasé (contrairement
+ * à l'ancien système "à ramener"), donc garde tout l'historique des inventaires passés. Propre à
+ * chaque pop-up (contrairement à ChaussureStock.stock_initial, qui reste unique et partagé). */
+export interface ChaussureInventaire {
+  id: string;
+  pop_up_id: string;
+  couleur: CouleurChaussure;
+  taille: TailleChaussure;
+  quantite_comptee: number;
+  profile_id: string;
+  created_at: string;
+}
+
+/** Une ligne produit d'une transaction SumUp (cf. sync-ventes-sumup) — pop_up_id/horodatage
+ * dénormalisés depuis ventes_sumup pour que ces lignes restent lisibles par le pop-up concerné
+ * sans passer par la table financière (réservée aux admins, cf. ventes_sumup). */
+export interface VenteSumupLigne {
+  id: string;
+  vente_id: string;
+  pop_up_id: string | null;
+  horodatage: string;
+  nom_produit: string;
+  /** Porte parfois la variante choisie à la vente, ex. "43-44 · Noir" pour "Clogs" — cf.
+   * resoudreVentesSumup, qui la parse en priorité avant de retomber sur chaussures_mapping_sumup.
+   * Chaîne vide si SumUp n'a vraiment aucune description, null tant que non encore vérifié (cf.
+   * sync-ventes-sumup, passe de réparation). */
+  description: string | null;
+  quantite: number;
+  created_at: string;
+}
+
+/** Correspondance entre un nom de produit du catalogue SumUp et une couleur/taille chez nous —
+ * gérée à la main par un admin (pas de parsing automatique du nom, plus fiable). */
+export interface ChaussureMappingSumup {
+  id: string;
+  nom_produit: string;
+  couleur: CouleurChaussure;
+  taille: TailleChaussure;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Attribution directe d'un email SumUp à un pop-up (pas à une personne, contrairement à
+ * InformationsRh.sumup_email) — consultée en priorité sur le GPS par sync-ventes-sumup. */
+export interface SumupEmailPopUp {
+  id: string;
+  email: string;
+  pop_up_id: string;
+  created_at: string;
   updated_at: string;
 }
 

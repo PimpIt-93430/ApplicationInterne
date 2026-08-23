@@ -85,7 +85,7 @@ export function StockAccueil({ profile }: { profile: Profile }) {
     return <ProduitsMenu onOuvrirSousCategorie={setCategorie} onRetour={() => setCategorie('menu')} />;
   }
   if (categorie === 'chaussures') {
-    return <ChaussuresScreen onRetour={() => setCategorie('produits')} />;
+    return <ChaussuresScreen onRetour={() => setCategorie('produits')} popUpId={popUpActif} />;
   }
   if (categorie === 'coques' || categorie === 'sac' || categorie === 'goodies') {
     const titres = { coques: 'Coques', sac: 'Sac', goodies: 'Goodies' } as const;

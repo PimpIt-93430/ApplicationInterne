@@ -4,6 +4,7 @@ import {
   creerPopUp,
   fetchPopUps,
   modifierCoordonneesPopUp,
+  modifierCreneauxPredefinisPopUp,
   modifierDatesPopUp,
   renommerPopUp,
   supprimerPopUp,
@@ -46,6 +47,24 @@ export function useModifierCoordonneesPopUp() {
   return useMutation({
     mutationFn: (params: { id: string; lat: number | null; lon: number | null }) =>
       modifierCoordonneesPopUp(params.id, params.lat, params.lon),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['pop-ups'] }),
+  });
+}
+
+export function useModifierCreneauxPredefinisPopUp() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params: {
+      id: string;
+      matinDebut: string | null;
+      matinFin: string | null;
+      matinPauseDebut: string | null;
+      matinPauseFin: string | null;
+      apresMidiDebut: string | null;
+      apresMidiFin: string | null;
+      apresMidiPauseDebut: string | null;
+      apresMidiPauseFin: string | null;
+    }) => modifierCreneauxPredefinisPopUp(params.id, params),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['pop-ups'] }),
   });
 }

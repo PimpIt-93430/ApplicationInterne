@@ -678,10 +678,10 @@ export default function CalendrierPopUpScreen() {
     );
   };
 
-  // Remplit automatiquement la semaine à partir de l'horaire récurrent de chaque personne, plus un
-  // horaire 9h-19h au local par défaut pour les admins sans horaire récurrent ce jour-là — cf.
-  // genererPlanning. L'admin peut ensuite encore ajouter/retirer des personnes à la main sur les
-  // créneaux avant de valider et publier.
+  // Remplit automatiquement la semaine à partir de l'horaire récurrent de chaque personne (y
+  // compris les admins, qui n'ont plus aucun horaire par défaut) — cf. genererPlanning. L'admin
+  // peut ensuite encore ajouter/retirer des personnes à la main sur les créneaux avant de valider
+  // et publier.
   // Toujours silencieux : plus aucun bouton ne déclenche cette fonction manuellement, elle ne
   // tourne qu'en arrière-plan (montage de l'écran + abonnement temps réel ci-dessous).
   // Verrou anti-concurrence : sans lui, deux appels quasi simultanés (ex. double-invocation des

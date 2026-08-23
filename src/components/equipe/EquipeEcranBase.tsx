@@ -17,11 +17,15 @@ import { EnteteMenu } from '@/components/nav/EnteteMenu';
 import { HoraireRecurrentJourCard } from '@/components/reglages/HoraireRecurrentJourCard';
 import { useCongesProfile, useGererConges } from '@/hooks/useConges';
 import { useDocumentsEmploye, useSupprimerDocumentEmploye, useUploaderDocumentEmploye } from '@/hooks/useDocumentsEmploye';
-import { useEnregistrerHoraireRecurrent, useHorairesRecurrents } from '@/hooks/useHorairesRecurrents';
+import {
+  useEnregistrerHoraireRecurrent,
+  useHorairesRecurrents,
+  useSupprimerHoraireRecurrent,
+} from '@/hooks/useHorairesRecurrents';
 import { useEnregistrerInformationsRh, useInformationsRh } from '@/hooks/useInformationsRh';
 import { useModifierProfil } from '@/hooks/useProfiles';
 import { useAuthStore } from '@/store/useAuthStore';
-import { formatHeure, JOURS_LABELS } from '@/utils/dateUtils';
+import { formatDureeHeures, formatHeure, JOURS_LABELS, totalHeuresRecurrentesParSemaine } from '@/utils/dateUtils';
 import type { Conge, InformationsRh, PopUp, Profile, Role, TypeContrat } from '@/types/database.types';
 
 export const LIBELLE_TYPE_CONTRAT: Record<TypeContrat, string> = {
@@ -411,8 +415,11 @@ function OngletPlanification({
 }) {
   const { data: horaires, isLoading } = useHorairesRecurrents(profil.id);
   const enregistrer = useEnregistrerHoraireRecurrent();
+  const supprimer = useSupprimerHoraireRecurrent();
 
   if (isLoading) return <ActivityIndicator color="#6366F1" />;
+
+  const totalHeures = totalHeuresRecurrentesParSemaine(horaires ?? []);
 
   return (
     <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
@@ -433,12 +440,24 @@ function OngletPlanification({
               profileId={profil.id}
               jourSemaine={jourSemaine}
               label={label}
-              regle={horaires?.find((h) => h.jour_semaine === jourSemaine)}
+              regles={(horaires ?? []).filter((h) => h.jour_semaine === jourSemaine)}
               popUpsDisponibles={lieuxAttribues}
               onEnregistrer={(horaire) => enregistrer.mutate(horaire)}
+              onSupprimer={(id) => supprimer.mutate(id)}
             />
           </View>
         ))}
+      </View>
+
+      <View style={styles.recapHeures}>
+        <View style={styles.recapHeuresLigne}>
+          <Text style={styles.recapHeuresLabel}>Semaine 1</Text>
+          <Text style={styles.recapHeuresValeur}>{formatDureeHeures(totalHeures.premiere)}</Text>
+        </View>
+        <View style={styles.recapHeuresLigne}>
+          <Text style={styles.recapHeuresLabel}>Semaine 2</Text>
+          <Text style={styles.recapHeuresValeur}>{formatDureeHeures(totalHeures.deuxieme)}</Text>
+        </View>
       </View>
     </ScrollView>
   );
@@ -897,6 +916,24 @@ export const styles = StyleSheet.create({
 
   grillePlanification: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   colonneJour: { flexGrow: 1, flexBasis: 140, maxWidth: 200 },
+
+  recapHeures: {
+    marginTop: 16,
+    flexDirection: 'row',
+    gap: 12,
+  },
+  recapHeuresLigne: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  recapHeuresLabel: { fontSize: 13, fontWeight: '600', color: '#64748B' },
+  recapHeuresValeur: { fontSize: 16, fontWeight: '700', color: '#1E293B' },
 
   ligneConge: {
     marginBottom: 8,

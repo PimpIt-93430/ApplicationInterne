@@ -96,6 +96,12 @@ export function PanneauCreationShift({
   const [salariesChoisis, setSalariesChoisis] = useState<Profile[]>([]);
   const [rechercheSalarie, setRechercheSalarie] = useState('');
   const [joursChoisis, setJoursChoisis] = useState<string[]>([]);
+  // Plage "un jour sur deux" (ou tous les jours) : évite de cliquer chaque date une par une pour
+  // un rythme alterné (ex. un alternant qui travaille un jour sur deux).
+  const [plageOuverte, setPlageOuverte] = useState(false);
+  const [plageDebut, setPlageDebut] = useState('');
+  const [plageFin, setPlageFin] = useState('');
+  const [plageUnJourSurDeux, setPlageUnJourSurDeux] = useState(true);
   const [popUpChoisiId, setPopUpChoisiId] = useState('');
   const [popUpOuvert, setPopUpOuvert] = useState(false);
   const [etiquette, setEtiquette] = useState('');
@@ -128,6 +134,10 @@ export function PanneauCreationShift({
     setSalariesChoisis(profilInitial ? [profilInitial] : []);
     setRechercheSalarie('');
     setJoursChoisis(dateInitiale ? [dateInitiale] : []);
+    setPlageOuverte(false);
+    setPlageDebut('');
+    setPlageFin('');
+    setPlageUnJourSurDeux(true);
     setPopUpChoisiId(popUpIdInitial ?? popUps[0]?.id ?? '');
     setPopUpOuvert(false);
     // Préremplie depuis le shift existant en mode édition (une seule case cliquée), vide sinon.
@@ -183,6 +193,20 @@ export function PanneauCreationShift({
     setJoursChoisis((prev) => (prev.includes(dateIso) ? prev : [...prev, dateIso].sort()));
   };
   const retirerJour = (dateIso: string) => setJoursChoisis((prev) => prev.filter((d) => d !== dateIso));
+
+  const ajouterPlage = () => {
+    if (!plageDebut || !plageFin || plageFin < plageDebut) return;
+    const pas = plageUnJourSurDeux ? 2 : 1;
+    const curseur = new Date(`${plageDebut}T00:00:00`);
+    const fin = new Date(`${plageFin}T00:00:00`);
+    while (curseur <= fin) {
+      ajouterJour(curseur.toISOString().slice(0, 10));
+      curseur.setDate(curseur.getDate() + pas);
+    }
+    setPlageDebut('');
+    setPlageFin('');
+    setPlageOuverte(false);
+  };
 
   const handleCreerShift = async () => {
     if (salariesChoisis.length === 0) {
@@ -696,6 +720,53 @@ export function PanneauCreationShift({
                 style={styles.rechercheInputWeb as unknown as CSSProperties}
               />
 
+              <Pressable onPress={() => setPlageOuverte((v) => !v)} style={{ marginTop: 8 }}>
+                <Text style={styles.lienTexte}>
+                  {plageOuverte ? 'Masquer' : '+ Ajouter une plage (ex. un jour sur deux)'}
+                </Text>
+              </Pressable>
+              {plageOuverte && (
+                <View style={{ marginTop: 8 }}>
+                  <View style={styles.ligneChamps}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.sousLabel}>Du</Text>
+                      <input
+                        type="date"
+                        value={plageDebut}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) => setPlageDebut(e.target.value)}
+                        style={styles.champInputWeb as unknown as CSSProperties}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.sousLabel}>Au</Text>
+                      <input
+                        type="date"
+                        value={plageFin}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) => setPlageFin(e.target.value)}
+                        style={styles.champInputWeb as unknown as CSSProperties}
+                      />
+                    </View>
+                  </View>
+                  <Pressable onPress={() => setPlageUnJourSurDeux((v) => !v)} style={[styles.ligneCase, { marginTop: 8 }]}>
+                    <View style={[styles.case, plageUnJourSurDeux && styles.caseCochee]}>
+                      {plageUnJourSurDeux && <Ionicons name="checkmark" size={12} color="white" />}
+                    </View>
+                    <Text style={styles.caseTexte}>Un jour sur deux (sinon, tous les jours de la plage)</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={ajouterPlage}
+                    disabled={!plageDebut || !plageFin || plageFin < plageDebut}
+                    style={[
+                      styles.boutonValider,
+                      { marginTop: 8 },
+                      (!plageDebut || !plageFin || plageFin < plageDebut) && { opacity: 0.5 },
+                    ]}
+                  >
+                    <Text style={styles.boutonValiderTexte}>Ajouter ces jours</Text>
+                  </Pressable>
+                </View>
+              )}
+
               <Text style={[styles.label, { marginTop: 16 }]}>Lieu</Text>
               <Pressable onPress={() => setPopUpOuvert((v) => !v)} style={styles.champSelect}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -1038,6 +1109,7 @@ const styles = StyleSheet.create({
   segmentTexte: { color: '#64748B', fontWeight: '600' },
   segmentTexteActif: { fontWeight: '600', color: '#4F46E5' },
   label: { marginBottom: 6, fontSize: 13, fontWeight: '600', color: '#334155' },
+  lienTexte: { fontSize: 12, fontWeight: '600', color: '#4F46E5' },
   sousLabel: { marginBottom: 4, fontSize: 12, color: '#94A3B8' },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
   chipPersonne: {
