@@ -6,11 +6,12 @@ import { PanneauDemandesConge } from '@/components/calendrier/PanneauDemandesCon
 import { PanneauHistoriqueRH } from '@/components/demandes/PanneauHistoriqueRH';
 import { PanneauValidationEquipe } from '@/components/demandes/PanneauValidationEquipe';
 import { SectionHeuresRH } from '@/components/demandes/SectionHeuresRH';
+import { TableauRH } from '@/components/demandes/TableauRH';
 import { BarreOnglets } from '@/components/ui/BarreOnglets';
 import { useDemandesCongeEnAttente } from '@/hooks/useConges';
 import { useProfilEffectif } from '@/hooks/useProfilEffectif';
 
-type Onglet = 'conges' | 'absences' | 'equipe';
+type Onglet = 'conges' | 'absences' | 'equipe' | 'rh';
 
 /** Onglet "Demande et RH" de la barre de navigation basse : compteur d'heures + solde de congés en
  * haut (SectionHeuresRH), puis congés (demande soumise à validation manager/admin), absences
@@ -63,7 +64,10 @@ export function DemandesEcran() {
                 ...(estAdmin ? [] : [{ valeur: 'conges' as const, label: 'Congés' }]),
                 { valeur: 'absences', label: 'Absences' },
                 ...(estManagerOuAdmin
-                  ? [{ valeur: 'equipe' as const, label: 'Équipe', badge: (demandesEnAttente ?? []).length }]
+                  ? [
+                      { valeur: 'equipe' as const, label: 'Équipe', badge: (demandesEnAttente ?? []).length },
+                      { valeur: 'rh' as const, label: 'RH' },
+                    ]
                   : []),
               ]}
             />
@@ -72,6 +76,8 @@ export function DemandesEcran() {
           <View className="flex-1">
             {onglet === 'equipe' && estManagerOuAdmin ? (
               <PanneauValidationEquipe />
+            ) : onglet === 'rh' && estManagerOuAdmin ? (
+              <TableauRH />
             ) : onglet === 'absences' || estAdmin ? (
               <PanneauAbsences />
             ) : (

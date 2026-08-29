@@ -321,11 +321,13 @@ function EditeurHoraireSemaine({
             />
           </View>
 
-          <View className="flex-row items-center gap-2">
-            <Switch value={pauseActive} onValueChange={modifierPauseActive} />
-            <Text className="text-xs text-slate-500">Pause</Text>
+          <View className="flex-row flex-wrap items-center gap-2">
+            <View className="flex-row items-center gap-2">
+              <Switch value={pauseActive} onValueChange={modifierPauseActive} />
+              <Text className="text-xs text-slate-500">Pause</Text>
+            </View>
             {pauseActive && (
-              <>
+              <View className="flex-row items-center gap-2">
                 <TextInput
                   value={pauseDebut}
                   onChangeText={modifierPauseDebut}
@@ -339,7 +341,7 @@ function EditeurHoraireSemaine({
                   placeholder="14:00"
                   className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-center"
                 />
-              </>
+              </View>
             )}
           </View>
         </>

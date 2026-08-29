@@ -1,11 +1,14 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { CarteShiftJournee } from './CarteShiftJournee';
 import { PanneauEditionShiftEquipe } from './PanneauEditionShiftEquipe';
 import { SelecteurSemaineCombo } from './SelecteurSemaineCombo';
+import { VueParEmployes } from './VueParEmployes';
 import { BarreOnglets } from '@/components/ui/BarreOnglets';
 import { Dropdown } from '@/components/ui/Dropdown';
+import { useJoursEcolePeriode } from '@/hooks/useAlternance';
 import { useCongesPeriode, useCongesProfile } from '@/hooks/useConges';
 import { useShiftsSemaine } from '@/hooks/usePlanning';
 import { usePopUps } from '@/hooks/usePopUps';
@@ -79,6 +82,9 @@ export function PlanningMobile() {
   // Le manager voit par défaut exactement la même vue équipe qu'un alternant (lecture seule,
   // façon Combo) — "Modifier" bascule vers la liste éditable par personne (cf. rendu plus bas).
   const [modeEdition, setModeEdition] = useState(false);
+  // Vue "par jour" (façon Combo, historique) par défaut — "par employé" (grille avec École/heures,
+  // cf. VueParEmployes) accessible via le bouton dédié, pas affichée d'entrée.
+  const [vueEquipe, setVueEquipe] = useState<'jour' | 'employes'>('jour');
   // Décoché par défaut (cf. commentaire sur profilsEquipe) : ne s'affiche qu'en mode édition, pour
   // pouvoir malgré tout attribuer un admin à un pop-up sans personne d'autre dessus.
   const [voirAdmins, setVoirAdmins] = useState(false);
@@ -95,6 +101,9 @@ export function PlanningMobile() {
   // Congés de toute l'équipe (pas seulement les siens) — utilisés uniquement par la grille manager
   // ci-dessous ; RLS ne renvoie de toute façon que ce que le profil connecté peut voir.
   const { data: congesEquipe } = useCongesPeriode(dateDebut, dateFin);
+  // Jours d'école : uniquement pour la vue "Équipe(s)" en lecture (cf. VueParEmployes plus bas,
+  // résumé École/Travail par personne).
+  const { data: joursEcole } = useJoursEcolePeriode(dateDebut, dateFin);
 
   const mapAffectations = useMemo(() => construireMapAffectations(affectations ?? []), [affectations]);
   const mesPopUps = useMemo(
@@ -198,6 +207,18 @@ export function PlanningMobile() {
               />
             </View>
           )}
+          {!modeEdition && (
+            <Pressable
+              onPress={() => setVueEquipe((v) => (v === 'jour' ? 'employes' : 'jour'))}
+              className={`h-9 w-9 items-center justify-center rounded-full ${vueEquipe === 'employes' ? 'bg-indigo-600' : 'bg-slate-100'}`}
+            >
+              <Ionicons
+                name={vueEquipe === 'employes' ? 'people' : 'people-outline'}
+                size={18}
+                color={vueEquipe === 'employes' ? 'white' : '#4F46E5'}
+              />
+            </Pressable>
+          )}
           {(estManager || estAdmin) && (
             <Pressable
               onPress={() => setModeEdition((v) => !v)}
@@ -229,6 +250,24 @@ export function PlanningMobile() {
 
       {chargement ? (
         <ActivityIndicator size="large" color="#6366F1" style={{ marginTop: 24 }} />
+      ) : onglet === 'equipe' && !modeEdition && vueEquipe === 'employes' ? (
+        // Vue par employé (lecture) : une ligne par personne, une colonne par jour, avec École/
+        // Congé/Repos et le total d'heures travail+école de la semaine — cf. demande "voir
+        // rapidement combien d'heures ils font". Taper une cellule ouvre le même panneau d'édition
+        // que le mode "Modifier" (PanneauEditionShiftEquipe), pas de flux séparé.
+        <VueParEmployes
+          jours={jours}
+          profils={profilsEquipe}
+          shifts={shiftsAffiches}
+          onPressCellule={(profil, dateIso) => setCelluleEditee({ profil, dateIso })}
+          popUpParId={popUpParId}
+          joursEcole={joursEcole ?? []}
+          conges={congesEquipe ?? []}
+          mapAffectations={mapAffectations}
+          popUps={popUpsTous ?? []}
+          couleurPopUpSelectionne={popUpParId.get(popUpEquipe ?? '')?.couleur}
+          hauteurLigne={36}
+        />
       ) : (
         <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 }}>
           {jours.map((jour) => {
@@ -351,6 +390,7 @@ export function PlanningMobile() {
         profil={celluleEditee?.profil ?? null}
         dateIso={celluleEditee?.dateIso ?? ''}
         popUpId={popUpEquipe}
+        popUp={popUpParId.get(popUpEquipe ?? '')}
         shiftsExistants={shiftsCelluleEditee}
         conge={
           celluleEditee

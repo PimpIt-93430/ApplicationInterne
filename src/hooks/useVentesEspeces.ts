@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react';
 import { Alert } from 'react-native';
 
 import { supabase } from '@/api/supabaseClient';
-import { ajouterVenteEspece, annulerVenteEspece, fetchVentesEspecesPopUp } from '@/api/ventesEspeces';
+import { ajouterVenteEspece, annulerVenteEspece, fetchVentesEspecesPeriode, fetchVentesEspecesPopUp } from '@/api/ventesEspeces';
 
 /** Plusieurs personnes du même pop-up peuvent avoir l'écran ouvert en même temps : abonnement
  * Realtime pour que l'ajout/l'annulation d'une vente par l'une apparaisse chez les autres sans
@@ -34,6 +34,13 @@ export function useVentesEspecesPopUp(popUpId: string | undefined) {
     queryKey,
     queryFn: () => fetchVentesEspecesPopUp(popUpId as string),
     enabled: !!popUpId,
+  });
+}
+
+export function useVentesEspecesPeriode(dateDebut: string, dateFin: string) {
+  return useQuery({
+    queryKey: ['ventes-especes-periode', dateDebut, dateFin],
+    queryFn: () => fetchVentesEspecesPeriode(dateDebut, dateFin),
   });
 }
 

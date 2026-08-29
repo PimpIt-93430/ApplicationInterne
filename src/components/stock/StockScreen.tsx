@@ -677,6 +677,8 @@ function PanneauCommande({
   pinIdsInitialementCoches,
   onBasculerImmediat,
   onEnvoyer,
+  onAnnuler,
+  annulationEnCours,
   onFermer,
 }: {
   lignes: LigneCommande[];
@@ -691,6 +693,10 @@ function PanneauCommande({
    * n'est perdu. `onEnvoyer` n'est alors jamais appelé. */
   onBasculerImmediat?: (pinId: string, inclus: boolean) => void;
   onEnvoyer?: (pinIds: string[]) => void;
+  /** Mode modification uniquement : annule l'envoi (commande + lignes supprimées, pins remis "à
+   * commander" — déjà le cas puisque l'envoi ne les avait jamais retirés). */
+  onAnnuler?: () => void;
+  annulationEnCours?: boolean;
   onFermer: () => void;
 }) {
   const modeModification = pinIdsInitialementCoches !== undefined;
@@ -797,9 +803,31 @@ function PanneauCommande({
       </ScrollView>
 
       {modeModification ? (
-        <Pressable onPress={onFermer} className="mt-4 items-center rounded-xl bg-slate-100 py-3.5">
-          <Text className="text-base font-bold text-slate-700">Terminé</Text>
-        </Pressable>
+        <>
+          <Pressable onPress={onFermer} className="mt-4 items-center rounded-xl bg-slate-100 py-3.5">
+            <Text className="text-base font-bold text-slate-700">Terminé</Text>
+          </Pressable>
+          {onAnnuler && (
+            <Pressable
+              onPress={() =>
+                Alert.alert(
+                  "Annuler l'envoi",
+                  "La commande sera supprimée — les pins resteront marqués \"à commander\" et tu pourras renvoyer une commande normalement.",
+                  [
+                    { text: 'Retour', style: 'cancel' },
+                    { text: "Annuler l'envoi", style: 'destructive', onPress: onAnnuler },
+                  ],
+                )
+              }
+              disabled={annulationEnCours}
+              className="mt-3 items-center py-2"
+            >
+              <Text className="text-sm font-semibold text-red-600">
+                {annulationEnCours ? 'Annulation…' : "Annuler l'envoi de la commande"}
+              </Text>
+            </Pressable>
+          )}
+        </>
       ) : (
         <Pressable
           onPress={confirmerEnvoi}
@@ -1337,13 +1365,22 @@ function VueHistoriqueCommandes({
   );
 }
 
-/** Détail (lecture seule) d'une commande passée : quels pins, trouvés ou pas au moment de la
- * préparation par le local. */
+/** Détail d'une commande passée : quels pins, trouvés ou pas au moment de la préparation par le
+ * local. Un admin peut aussi annuler l'envoi depuis ici tant que le local ne l'a pas encore prise
+ * en charge (statut "envoyee") — même règle et même mutation que le bouton "Modifier" côté
+ * pop-up, seulement accessible en plus depuis l'Historique pour un admin qui doit rattraper un
+ * envoi fait par erreur. */
 function PanneauDetailCommandeHistorique({
   commandeId,
+  estAdmin,
+  onAnnuler,
+  annulationEnCours,
   onFermer,
 }: {
   commandeId: string;
+  estAdmin: boolean;
+  onAnnuler: () => void;
+  annulationEnCours: boolean;
   onFermer: () => void;
 }) {
   const { data } = useCommandeDetail(commandeId);
@@ -1357,6 +1394,7 @@ function PanneauDetailCommandeHistorique({
   }
 
   const { commande, popUpNom, lignes } = data;
+  const peutAnnuler = estAdmin && commande.statut === 'envoyee';
 
   return (
     <FeuilleModale onClose={onFermer}>
@@ -1384,6 +1422,23 @@ function PanneauDetailCommandeHistorique({
           </View>
         ))}
       </ScrollView>
+
+      {peutAnnuler && (
+        <Pressable
+          onPress={() =>
+            Alert.alert('Annuler l\'envoi', 'Supprimer cette commande envoyée au local ?', [
+              { text: 'Non', style: 'cancel' },
+              { text: 'Oui, annuler', style: 'destructive', onPress: onAnnuler },
+            ])
+          }
+          disabled={annulationEnCours}
+          className="mt-3 items-center rounded-2xl bg-red-50 py-3"
+        >
+          <Text className="font-semibold text-red-600">
+            {annulationEnCours ? 'Annulation…' : "Annuler l'envoi"}
+          </Text>
+        </Pressable>
+      )}
 
       <Pressable onPress={onFermer} className="mt-3 items-center py-2">
         <Text className="font-semibold text-indigo-600">Fermer</Text>
@@ -1448,8 +1503,12 @@ export function StockScreen({
   const { data: remplissages, isLoading: chargementRapport } = useRemplissages(popUpActif);
   const { data: commandesTerminees, isLoading: chargementHistorique } = useCommandesTerminees(popUpActif);
   const { data: commandeActive } = useCommandeActivePopUp(popUpActif);
-  const { envoyer: envoyerCommandeMutation, marquerRecue, basculerLigne: basculerLigneCommandeMutation } =
-    useGererCommandePopUp(popUpActif);
+  const {
+    envoyer: envoyerCommandeMutation,
+    marquerRecue,
+    basculerLigne: basculerLigneCommandeMutation,
+    annuler: annulerCommandeMutation,
+  } = useGererCommandePopUp(popUpActif);
   const { basculerFait, basculerTout, validerPrete } = useGererPreparationCommande();
 
   const [vue, setVue] = useState<'boites' | 'catalogue' | 'rapport'>('boites');
@@ -1901,6 +1960,16 @@ export function StockScreen({
               },
             )
           }
+          onAnnuler={
+            commandeActive.commande.statut === 'envoyee'
+              ? () =>
+                  annulerCommandeMutation.mutate(commandeActive.commande.id, {
+                    onSuccess: () => setCommandeModifOuverte(false),
+                    onError: (e) => Alert.alert('Erreur', e instanceof Error ? e.message : "Impossible d'annuler."),
+                  })
+              : undefined
+          }
+          annulationEnCours={annulerCommandeMutation.isPending}
           onFermer={() => setCommandeModifOuverte(false)}
         />
       )}
@@ -1908,6 +1977,14 @@ export function StockScreen({
       {commandeHistoriqueOuverte && (
         <PanneauDetailCommandeHistorique
           commandeId={commandeHistoriqueOuverte}
+          estAdmin={estAdmin}
+          annulationEnCours={annulerCommandeMutation.isPending}
+          onAnnuler={() =>
+            annulerCommandeMutation.mutate(commandeHistoriqueOuverte, {
+              onSuccess: () => setCommandeHistoriqueOuverte(null),
+              onError: (e) => Alert.alert('Erreur', e instanceof Error ? e.message : "Impossible d'annuler."),
+            })
+          }
           onFermer={() => setCommandeHistoriqueOuverte(null)}
         />
       )}

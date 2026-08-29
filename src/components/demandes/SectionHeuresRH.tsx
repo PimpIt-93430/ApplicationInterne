@@ -1,4 +1,12 @@
-import { differenceInCalendarDays, endOfMonth, endOfYear, format, startOfMonth, startOfYear } from 'date-fns';
+import {
+  differenceInCalendarDays,
+  differenceInCalendarMonths,
+  endOfMonth,
+  endOfYear,
+  format,
+  startOfMonth,
+  startOfYear,
+} from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useMemo } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
@@ -10,9 +18,16 @@ import { useShiftsSemaine } from '@/hooks/usePlanning';
 import type { Conge } from '@/types/database.types';
 import { dateEnISO, estDimanche, formatDureeHeures, totalHeuresTravaillees } from '@/utils/dateUtils';
 
-/** Standard légal français (5 semaines), même chiffre pour tout le monde pour l'instant — pas
- * encore de vrai système d'acquisition par personne en base. */
-const JOURS_CONGE_PAR_AN = 25;
+/** Congés acquis par accumulation de 2.5 jours par mois écoulé (règle simplifiée, même calcul que
+ * TableauRH.tsx — cf. son en-tête : pas encore la vraie règle légale, en attendant confirmation),
+ * comptés depuis le 1ᵉʳ janvier ou depuis le début de contrat si celui-ci tombe cette année (cf.
+ * retour utilisateur du 2026-08-28 : "imaginons il commence le 1 septembre, le 1 octobre tu mets
+ * 2.5" — quelqu'un qui démarre en cours d'année n'accumule rien avant son arrivée). */
+const CONGES_ACQUIS_PAR_MOIS = 2.5;
+
+function formatJours(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
 
 /** Une journée d'école (CFA) compte comme du temps de travail pour l'alternant, à hauteur d'une
  * journée standard (35h/semaine sur 5 jours). */
@@ -73,7 +88,20 @@ export function SectionHeuresRH({
         .reduce((total, c) => total + joursDansPeriode(c, anneeCourante.debut, anneeCourante.fin), 0),
     [conges, anneeCourante],
   );
-  const congesRestants = Math.max(0, JOURS_CONGE_PAR_AN - congesPrisCetteAnnee);
+
+  const congesAcquis = useMemo(() => {
+    const aujourdhui = dateEnISO(new Date());
+    const debutAnneeIso = dateEnISO(anneeCourante.debut);
+    const dateDebutContrat = informationsRh?.date_debut_contrat;
+    const debutReference = dateDebutContrat && dateDebutContrat > debutAnneeIso ? dateDebutContrat : debutAnneeIso;
+    const moisEcoules = Math.max(
+      0,
+      differenceInCalendarMonths(new Date(`${aujourdhui}T00:00:00`), new Date(`${debutReference}T00:00:00`)),
+    );
+    return moisEcoules * CONGES_ACQUIS_PAR_MOIS;
+  }, [informationsRh, anneeCourante]);
+
+  const congesRestants = Math.max(0, congesAcquis - congesPrisCetteAnnee);
 
   const chargement = chargementShifts;
 
@@ -97,7 +125,7 @@ export function SectionHeuresRH({
 
       <View className="mb-3 flex-row gap-3">
         <View className="flex-1 rounded-2xl bg-white p-4 shadow-sm">
-          <Text className="text-2xl font-bold text-slate-900">{congesRestants}</Text>
+          <Text className="text-2xl font-bold text-slate-900">{formatJours(congesRestants)}</Text>
           <Text className="mt-0.5 text-xs text-slate-400">jours de congé restants</Text>
         </View>
         <View className="flex-1 rounded-2xl bg-white p-4 shadow-sm">

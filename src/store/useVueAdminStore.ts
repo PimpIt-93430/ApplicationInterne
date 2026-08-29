@@ -1,15 +1,16 @@
 import { create } from 'zustand';
 
-export type VueAdmin = 'admin' | 'alternant' | 'manager';
-
 interface VueAdminState {
-  vue: VueAdmin;
-  definirVue: (vue: VueAdmin) => void;
+  /** Profil actuellement prévisualisé par un admin (n'importe qui — alternant, manager, employé
+   * — pas seulement les deux profils de test d'avant, cf. retour utilisateur du 2026-08-24 :
+   * "je veux pouvoir aller sur tous les profils"), ou null pour voir l'app comme soi-même. */
+  profilPreviewId: string | null;
+  definirProfilPreview: (profilId: string | null) => void;
 }
 
-/** Permet à un admin de prévisualiser l'app comme un alternant ou un manager (bascule d'affichage
- * uniquement). */
+/** Permet à un admin de se connecter au profil de n'importe qui pour voir l'app exactement comme
+ * cette personne (bascule d'affichage uniquement, cf. sélecteur dans Profil). */
 export const useVueAdminStore = create<VueAdminState>((set) => ({
-  vue: 'admin',
-  definirVue: (vue) => set({ vue }),
+  profilPreviewId: null,
+  definirProfilPreview: (profilPreviewId) => set({ profilPreviewId }),
 }));

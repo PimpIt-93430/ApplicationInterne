@@ -131,12 +131,13 @@ export function ChaussuresScreen({
     );
   };
 
-  // Reprend le dernier comptage enregistré en base dans la grille éditable (au lieu de repartir de
-  // zéro), pour corriger une erreur de saisie sans tout recompter.
+  // Reprend le stock estimé affiché (pas le dernier comptage brut) dans la grille éditable : c'est
+  // la meilleure estimation dispo de la réalité au moment où on repart recompter, plus proche du
+  // vrai compte que la dernière valeur figée si des ventes sont passées depuis.
   const modifierInventaire = () => {
     const nouveauComptage: Record<string, string> = {};
     for (const item of avecARamener) {
-      if (item.dernierInventaire) nouveauComptage[item.id] = String(item.dernierInventaire.quantite_comptee);
+      if (item.stockEstime !== null) nouveauComptage[item.id] = String(item.stockEstime);
     }
     setComptage(nouveauComptage);
     setModeEdition(true);
@@ -191,8 +192,10 @@ export function ChaussuresScreen({
           {onglet === 'inventaire' && !!popUpId && !modeEdition && (
             <>
               <Text className="mb-3 text-xs text-slate-400">
-                Dernier comptage enregistré, par couleur et par taille — "—" si aucun inventaire n'a
-                encore été fait pour cette case.
+                Stock estimé en temps réel, par couleur et par taille — dernier comptage moins les
+                ventes SumUp survenues depuis (bouge à chaque vente). "—" si aucun inventaire n'a
+                encore été fait pour cette case. Refais un inventaire de temps en temps pour recaler
+                sur le vrai compte.
               </Text>
               {COULEURS.map((couleur) => (
                 <View key={couleur} className="mb-4 rounded-2xl border border-slate-200 bg-white p-4">
@@ -205,7 +208,7 @@ export function ChaussuresScreen({
                           <Text className="mb-1 text-[11px] font-semibold text-slate-400">{item.taille}</Text>
                           <View className="h-11 w-14 items-center justify-center rounded-lg border border-slate-200 bg-slate-50">
                             <Text className="text-sm font-semibold text-slate-700">
-                              {item.dernierInventaire ? item.dernierInventaire.quantite_comptee : '—'}
+                              {item.stockEstime !== null ? item.stockEstime : '—'}
                             </Text>
                           </View>
                         </View>

@@ -269,6 +269,18 @@ export interface DocumentEmploye {
   created_at: string;
 }
 
+/** Guide global (procédures pop-up, fonctionnement caisse, etc.) — contrairement à
+ * DocumentEmploye, pas rattaché à une personne : lisible par tout le monde, écrit par un admin
+ * seulement (cf. Profil > "Afficher les informations"). */
+export interface Guide {
+  id: string;
+  titre: string;
+  nom_fichier: string;
+  chemin_stockage: string;
+  uploaded_by: string;
+  created_at: string;
+}
+
 export type TypeMouvementStock = 'reception' | 'ajustement' | 'pesee' | 'estimation';
 
 export type TaillePin = 'petit' | 'moyen' | 'gros';
@@ -354,6 +366,73 @@ export interface ChaussureMappingSumup {
   nom_produit: string;
   couleur: CouleurChaussure;
   taille: TailleChaussure;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ModeleCoque = 'Iphone 13' | 'Iphone 14' | 'Iphone 15' | 'Iphone 16' | 'Iphone 17';
+export type VarianteCoque = 'Normal' | 'Pro' | 'Pro Max' | 'Plus';
+export type CouleurCoqueSac = 'Rose' | 'Noir';
+
+/** Même principe que ChaussureStock (stock visé, unique et partagé entre pop-ups). */
+export interface CoqueStock {
+  id: string;
+  modele: ModeleCoque;
+  variante: VarianteCoque;
+  couleur: CouleurCoqueSac;
+  stock_initial: number;
+  updated_at: string;
+}
+
+/** Même principe que ChaussureInventaire (comptage réel par pop-up, jamais écrasé). */
+export interface CoqueInventaire {
+  id: string;
+  pop_up_id: string;
+  modele: ModeleCoque;
+  variante: VarianteCoque;
+  couleur: CouleurCoqueSac;
+  quantite_comptee: number;
+  profile_id: string;
+  created_at: string;
+}
+
+/** Même principe que ChaussureMappingSumup. */
+export interface CoqueMappingSumup {
+  id: string;
+  nom_produit: string;
+  modele: ModeleCoque;
+  variante: VarianteCoque;
+  couleur: CouleurCoqueSac;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ProduitSac = 'Grandes Pochettes' | 'Petites Pochettes' | "Sac Pimp-it + 6 pin's";
+
+/** Même principe que ChaussureStock — "produit" (lequel des 3 articles) plutôt que "taille". */
+export interface SacStock {
+  id: string;
+  produit: ProduitSac;
+  couleur: CouleurCoqueSac;
+  stock_initial: number;
+  updated_at: string;
+}
+
+export interface SacInventaire {
+  id: string;
+  pop_up_id: string;
+  produit: ProduitSac;
+  couleur: CouleurCoqueSac;
+  quantite_comptee: number;
+  profile_id: string;
+  created_at: string;
+}
+
+export interface SacMappingSumup {
+  id: string;
+  nom_produit: string;
+  produit: ProduitSac;
+  couleur: CouleurCoqueSac;
   created_at: string;
   updated_at: string;
 }

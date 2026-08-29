@@ -37,12 +37,11 @@ export function liensNavigation(estAdmin: boolean, aDroitEquipe = false): LienNa
     icone: 'cube-outline',
   };
   const profil: LienNavigation = { label: 'Profil', route: '/(app)/profil', icone: 'person-outline' };
-  // Web uniquement (equipe.web.tsx) : pas d'écran mobile équivalent pour l'instant, même
-  // convention que Finance ci-dessous.
+  // Web (equipe.web.tsx) et mobile (equipe.tsx) ont désormais chacun leur écran équipe scopé au(x)
+  // pop-up(s) du droit "équipe" (cf. retour utilisateur du 2026-08-24 : accès manager complet mais
+  // limité à son pop-up et son équipe).
   const equipeManager: LienNavigation | null =
-    Platform.OS === 'web' && !estAdmin && aDroitEquipe
-      ? { label: 'Équipe', route: '/(app)/equipe', icone: 'people-outline' }
-      : null;
+    !estAdmin && aDroitEquipe ? { label: 'Équipe', route: '/(app)/equipe', icone: 'people-outline' } : null;
   const liensAdmin: LienNavigation[] = estAdmin
     ? [
         { label: 'Pop-up', route: '/(app)/admin/popups', icone: 'storefront-outline' },
@@ -77,10 +76,10 @@ export function MenuLateral() {
   const ouvert = useMenuStore((s) => s.ouvert);
   const fermer = useMenuStore((s) => s.fermer);
   const profile = useAuthStore((s) => s.profile);
-  const vue = useVueAdminStore((s) => s.vue);
+  const profilPreviewId = useVueAdminStore((s) => s.profilPreviewId);
   const translateX = useRef(new Animated.Value(-LARGEUR)).current;
 
-  const estAdmin = profile?.role === 'admin' && vue === 'admin';
+  const estAdmin = profile?.role === 'admin' && !profilPreviewId;
   const { data: mesDroits } = useMesDroits(profile?.id);
   const aDroitEquipe = aAccesFonctionnalite(mesDroits ?? [], 'equipe');
 

@@ -124,7 +124,10 @@ export default function CalendrierPopUpScreen() {
   // roulette, il bascule sur la vue équipe complète de ce lieu, éditable.
   const [selectionId, setSelectionId] = useState<string>('moi');
   const estMonCalendrier = selectionId === 'moi';
-  const popUpId = estMonCalendrier ? undefined : selectionId;
+  // "employes" (mobile uniquement, cf. rendu plus bas) : même vue par employés que le sélecteur
+  // web, en lecture seule — éditer un créneau reste réservé au site (PanneauCreationShift).
+  const estVueEquipeMobile = selectionId === 'employes';
+  const popUpId = estMonCalendrier || estVueEquipeMobile ? undefined : selectionId;
   const popUpActuel = popUps?.find((p) => p.id === popUpId);
 
   const { data: profils, isLoading: chargementProfils } = useActiveProfiles();
@@ -312,12 +315,14 @@ export default function CalendrierPopUpScreen() {
   const [pickerHeureOuvert, setPickerHeureOuvert] = useState<'debut' | 'fin' | null>(null);
 
   // Web (vue équipe agrégée, cf. plus bas) n'a plus besoin des horaires d'un pop-up précis pour
-  // s'afficher — seul le mobile (qui garde son propre pop-up sélectionné) attend chargementHoraires.
+  // s'afficher — seul le mobile en vue "un pop-up précis" (qui garde son propre pop-up
+  // sélectionné) attend chargementHoraires ; la vue équipe mobile (estVueEquipeMobile), comme le
+  // web, agrège tous les lieux et n'a pas de popUpId à attendre.
   const chargement =
     chargementPopUps ||
     chargementProfils ||
     chargementShifts ||
-    (Platform.OS !== 'web' && !estMonCalendrier && (chargementHoraires || !popUpId));
+    (Platform.OS !== 'web' && !estMonCalendrier && !estVueEquipeMobile && (chargementHoraires || !popUpId));
 
   // Invalide la requête de la semaine ET celle, séparée, de la vue par mois (web) — cette
   // dernière n'a pas d'abonnement Realtime, donc sans ce second invalidate elle resterait figée
@@ -911,11 +916,15 @@ export default function CalendrierPopUpScreen() {
         <View style={styles.dropdownZone}>
           <Pressable onPress={() => setDropdownOuvert((v) => !v)} style={styles.dropdownBouton}>
             <View style={styles.dropdownLigne}>
-              {!estMonCalendrier && (
+              {!estMonCalendrier && !estVueEquipeMobile && (
                 <View style={[styles.pastille, { backgroundColor: popUpActuel?.couleur ?? '#6366F1' }]} />
               )}
               <Text style={styles.dropdownTexte}>
-                {estMonCalendrier ? 'Mon calendrier' : (popUpActuel?.nom ?? 'Choisir un pop-up')}
+                {estMonCalendrier
+                  ? 'Mon calendrier'
+                  : estVueEquipeMobile
+                    ? 'Équipe (tous les employés)'
+                    : (popUpActuel?.nom ?? 'Choisir un pop-up')}
               </Text>
             </View>
             <Text style={styles.dropdownFleche}>{dropdownOuvert ? '︿' : '⌄'}</Text>
@@ -931,6 +940,16 @@ export default function CalendrierPopUpScreen() {
                 style={styles.dropdownOption}
               >
                 <Text style={styles.dropdownOptionTexte}>Mon calendrier</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setSelectionId('employes');
+                  setDropdownOuvert(false);
+                }}
+                style={styles.dropdownOption}
+              >
+                <Ionicons name="people-outline" size={16} color="#64748B" />
+                <Text style={styles.dropdownOptionTexte}>Équipe (tous les employés)</Text>
               </Pressable>
               {(popUps ?? []).map((p) => (
                 <Pressable
@@ -1029,6 +1048,24 @@ export default function CalendrierPopUpScreen() {
         </View>
       ) : estMonCalendrier ? (
         <CalendrierPersonnel profile={profile} />
+      ) : estVueEquipeMobile ? (
+        <VueParEmployes
+          jours={jours}
+          profils={profils ?? []}
+          shifts={shifts ?? []}
+          // Lecture seule sur téléphone : PanneauCreationShift (édition) reste web-only, cf. son
+          // en-tête — modifier un créneau depuis cette vue agrégée nécessite l'ordinateur pour
+          // l'instant.
+          onPressCellule={() =>
+            Alert.alert('Lecture seule', "Pour modifier un créneau depuis cette vue, passe par l'ordinateur.")
+          }
+          popUpParId={popUpParId}
+          joursEcole={joursEcole ?? []}
+          conges={conges ?? []}
+          mapAffectations={mapAffectations}
+          popUps={popUps ?? []}
+          hauteurLigne={40}
+        />
       ) : (
         <ScrollView contentContainerStyle={{ paddingBottom: 16 }}>
           <View style={{ flexDirection: 'row', paddingHorizontal: 12 }}>

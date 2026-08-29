@@ -114,6 +114,21 @@ export async function envoyerCommande(params: {
   return commande.id;
 }
 
+/** Annule l'envoi d'une commande pas encore prise en charge par le local (statut "envoyee"
+ * uniquement — RLS migration 0042, verrouillé dès "prete") : supprime la commande et ses lignes.
+ * Les pins restent marqués "à commander" sur les boîtes du pop-up (flag séparé, jamais touché par
+ * l'envoi) — rien n'est perdu, la commande peut être renvoyée normalement ensuite. */
+export async function annulerCommande(commandeId: string): Promise<void> {
+  const { error: errorLignes } = await supabase.from('commande_lignes').delete().eq('commande_id', commandeId);
+  if (errorLignes) throw errorLignes;
+
+  // Une suppression bloquée par une policy RLS ne renvoie jamais d'erreur côté Supabase (0 ligne
+  // affectée, réponse "succès" quand même) — .select() vérifie ce qui a vraiment été supprimé.
+  const { data, error } = await supabase.from('commandes_pop_up').delete().eq('id', commandeId).select('id');
+  if (error) throw error;
+  if (!data || data.length === 0) throw new Error('Suppression bloquée (commande déjà prise en charge ?)');
+}
+
 /** Coche/décoche un seul pin d'une commande déjà envoyée, enregistré immédiatement (pas seulement
  * au clic sur "Mettre à jour") — pour que rien ne soit perdu si la personne quitte le panneau par
  * erreur en cours de route : chaque coche compte tout de suite, pas seulement à la validation. */

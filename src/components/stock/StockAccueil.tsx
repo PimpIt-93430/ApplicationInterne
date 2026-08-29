@@ -3,8 +3,10 @@ import { Platform, Pressable, Text, View } from 'react-native';
 
 import { ChaussuresScreen } from '@/components/stock/ChaussuresScreen';
 import { ConsommablesScreen } from '@/components/stock/ConsommablesScreen';
+import { CoquesScreen } from '@/components/stock/CoquesScreen';
 import { EcranBientotDisponible } from '@/components/stock/EcranBientotDisponible';
 import { ProduitsMenu } from '@/components/stock/ProduitsMenu';
+import { SacsScreen } from '@/components/stock/SacsScreen';
 import { StockScreen } from '@/components/stock/StockScreen';
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
 import { Dropdown } from '@/components/ui/Dropdown';
@@ -53,9 +55,11 @@ function TuileCategorie({
 }
 
 /** Point d'entrée de Stock : trois catégories (Pin's / Chaussures / Consommables), chacune avec
- * son propre écran. Pour un admin (plusieurs lieux), le choix du pop-up se fait une seule fois ici
- * en arrivant et reste le même en changeant de catégorie (`popUpId`/`onChangePopUpId` passés en
- * props contrôlées à StockScreen/ConsommablesScreen) ; un non-admin n'a qu'un lieu, pas de choix. */
+ * son propre écran. Le choix du pop-up se fait une seule fois ici en arrivant et reste le même en
+ * changeant de catégorie (`popUpId`/`onChangePopUpId` passés en props contrôlées à StockScreen/
+ * ConsommablesScreen). Un admin choisit toujours parmi tous les lieux ; un non-admin n'a le choix
+ * que s'il est attribué à plusieurs pop-up (ex. Makeda, Créteil Soleil + Oparinord), sinon son
+ * unique lieu s'affiche sans sélecteur. */
 export function StockAccueil({ profile }: { profile: Profile }) {
   const [categorie, setCategorie] = useState<Categorie>('menu');
   const estAdmin = profile.role === 'admin';
@@ -63,13 +67,15 @@ export function StockAccueil({ profile }: { profile: Profile }) {
   const { data: popUpsTous } = usePopUps();
   const { data: affectations } = useAffectationsPopUp();
   const mapAffectations = useMemo(() => construireMapAffectations(affectations ?? []), [affectations]);
-  const monPopUp = estAdmin ? null : popUpsAttribues(profile, mapAffectations, popUpsTous ?? [])[0];
+  const mesPopUps = estAdmin ? (popUpsTous ?? []) : popUpsAttribues(profile, mapAffectations, popUpsTous ?? []);
+  const plusieursPopUps = estAdmin || mesPopUps.length > 1;
 
-  // Choix du lieu pour un admin (qui en a plusieurs) — fait une seule fois ici en arrivant sur
-  // Stock, puis reste le même en passant de "Pin's" à "Consommables" (cf. StockScreen/
-  // ConsommablesScreen, désormais contrôlés par ce state plutôt que d'avoir chacun le leur).
+  // Choix du lieu — fait une seule fois ici en arrivant sur Stock, puis reste le même en passant de
+  // "Pin's" à "Consommables" (cf. StockScreen/ConsommablesScreen, désormais contrôlés par ce state
+  // plutôt que d'avoir chacun le leur).
   const [popUpId, setPopUpId] = useState<string | undefined>(undefined);
-  const popUpActif = estAdmin ? (popUpId ?? popUpsTous?.[0]?.id) : monPopUp?.id;
+  const popUpActif = popUpId ?? mesPopUps[0]?.id;
+  const monPopUp = mesPopUps.find((p) => p.id === popUpActif);
 
   if (categorie === 'pins') {
     return (
@@ -87,9 +93,14 @@ export function StockAccueil({ profile }: { profile: Profile }) {
   if (categorie === 'chaussures') {
     return <ChaussuresScreen onRetour={() => setCategorie('produits')} popUpId={popUpActif} />;
   }
-  if (categorie === 'coques' || categorie === 'sac' || categorie === 'goodies') {
-    const titres = { coques: 'Coques', sac: 'Sac', goodies: 'Goodies' } as const;
-    return <EcranBientotDisponible titre={titres[categorie]} onRetour={() => setCategorie('produits')} />;
+  if (categorie === 'coques') {
+    return <CoquesScreen onRetour={() => setCategorie('produits')} popUpId={popUpActif} />;
+  }
+  if (categorie === 'sac') {
+    return <SacsScreen onRetour={() => setCategorie('produits')} popUpId={popUpActif} />;
+  }
+  if (categorie === 'goodies') {
+    return <EcranBientotDisponible titre="Goodies" onRetour={() => setCategorie('produits')} />;
   }
   if (categorie === 'consommables') {
     return (
@@ -103,7 +114,7 @@ export function StockAccueil({ profile }: { profile: Profile }) {
 
   return (
     <View className="flex-1 bg-slate-50">
-      {estAdmin ? (
+      {plusieursPopUps ? (
         <>
           <EnteteMenu titre="Stock" />
           <View className="px-4 pb-2">
@@ -112,7 +123,7 @@ export function StockAccueil({ profile }: { profile: Profile }) {
             </Text>
             <Dropdown
               value={popUpActif}
-              options={(popUpsTous ?? []).map((p) => ({ value: p.id, label: p.nom, couleur: p.couleur }))}
+              options={mesPopUps.map((p) => ({ value: p.id, label: p.nom, couleur: p.couleur }))}
               onChange={setPopUpId}
             />
           </View>

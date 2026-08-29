@@ -11,6 +11,18 @@ export async function fetchVentesEspecesPopUp(popUpId: string): Promise<VenteEsp
   return data;
 }
 
+/** Toutes les ventes espèces déclarées de la période, tous pop-up confondus — pour le récap
+ * Carte/Espèce appli/Espèce SumUp (écran Ventes > Chiffres). */
+export async function fetchVentesEspecesPeriode(dateDebut: string, dateFin: string): Promise<VenteEspece[]> {
+  const { data, error } = await supabase
+    .from('ventes_especes')
+    .select('*')
+    .gte('created_at', dateDebut)
+    .lte('created_at', dateFin);
+  if (error) throw error;
+  return data;
+}
+
 export async function ajouterVenteEspece(popUpId: string, profileId: string, montant: number) {
   const { error } = await supabase
     .from('ventes_especes')

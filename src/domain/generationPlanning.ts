@@ -87,7 +87,7 @@ function lundiDeLaSemaine(dateIso: string): Date {
  * qui correspond, la parité étant calée sur la semaine d'ouverture du pop-up (date_debut) — pas
  * sur une date arbitraire, pour que "1ère semaine" veuille dire la même chose pour tout le monde.
  * Un horaire "toutes" (ou un pop-up sans date_debut connue) s'applique toujours. */
-function semaineCorrespondPourFrequence(horaire: HoraireRecurrentProfil, date: string, popUps: PopUp[]): boolean {
+export function semaineCorrespondPourFrequence(horaire: HoraireRecurrentProfil, date: string, popUps: PopUp[]): boolean {
   if (horaire.semaine_reference === 'toutes') return true;
   const popUp = popUps.find((p) => p.id === horaire.pop_up_id);
   if (!popUp?.date_debut) return true;

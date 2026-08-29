@@ -1,0 +1,16 @@
+-- Cf. discussion 2026-08-29 : cron toutes les 24h qui envoie vers Shopify les numéros de suivi
+-- Boxtal des commandes déjà traitées qui n'en ont pas encore. L'Edge Function correspondante
+-- (envoyer-suivis-boxtal) tourne sur Deno, séparé du Hub Next.js — pas d'accès à ses variables
+-- d'environnement ni au dashboard Supabase pour y poser des "Edge Function secrets" (pas d'accès
+-- CLI/Management API depuis cet outil). Mêmes identifiants que ceux déjà utilisés dans le Hub
+-- (.env.local), lus via get_vault_secret (même mécanisme que le secret cron existant, cf. migration
+-- 0075) plutôt que Deno.env.get().
+--
+-- Les valeurs elles-mêmes ne sont volontairement PAS dans ce fichier (production, ne doivent jamais
+-- se retrouver en clair dans un fichier suivi par git) — posées directement en session via
+-- vault.create_secret(valeur, nom), comme le secret cron_sync_ventes_sumup_secret l'avait déjà été
+-- pour la synchro SumUp. Noms posés (déjà faits, pas à refaire) :
+--   shopify_store, shopify_client_id, shopify_client_secret,
+--   boxtal_access_key, boxtal_secret_key,
+--   cron_envoyer_suivis_boxtal_secret
+select 1; -- migration "marqueur" — rien à appliquer, la logique réelle est en 0083 (cron)

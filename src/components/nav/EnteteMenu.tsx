@@ -18,11 +18,15 @@ function routeSansGroupe(route: string): string {
 export function EnteteMenu({ titre, masquerTitre = false }: { titre: string; masquerTitre?: boolean }) {
   const ouvrir = useMenuStore((s) => s.ouvrir);
   const profile = useAuthStore((s) => s.profile);
-  const vue = useVueAdminStore((s) => s.vue);
+  const profilPreviewId = useVueAdminStore((s) => s.profilPreviewId);
   const pathname = usePathname();
 
   const { data: mesDroits } = useMesDroits(profile?.id);
-  const estAdmin = profile?.role === 'admin' && vue === 'admin';
+  const estAdmin = profile?.role === 'admin' && !profilPreviewId;
+  // Sur mobile, un manager a lui aussi accès au tiroir (Équipe scopée à son pop-up, cf.
+  // liensNavigation) — pas seulement un admin, contrairement à avant (retour utilisateur du
+  // 2026-08-24).
+  const estManager = profile?.type_contrat === 'manager' && !profilPreviewId;
 
   if (Platform.OS === 'web') {
     const aDroitEquipe = aAccesFonctionnalite(mesDroits ?? [], 'equipe');
@@ -59,7 +63,7 @@ export function EnteteMenu({ titre, masquerTitre = false }: { titre: string; mas
 
   return (
     <View className="flex-row items-center gap-3 px-4 pb-2 pt-14">
-      {estAdmin && (
+      {(estAdmin || estManager) && (
         <Pressable onPress={ouvrir} className="h-9 w-9 items-center justify-center rounded-lg bg-slate-100">
           <Text className="text-lg text-slate-700">☰</Text>
         </Pressable>

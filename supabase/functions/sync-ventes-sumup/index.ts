@@ -1,14 +1,21 @@
 // Synchronise les ventes SumUp dans public.ventes_sumup, pour l'écran Finance (admin uniquement).
-// Déclenchée par l'admin (montage de l'écran + bouton "Actualiser"), ET par un cron nocturne
-// (21h heure de Paris, cf. migration 0070 — pg_cron + pg_net, deux jobs UTC pour couvrir hiver/été
-// puisque pg_cron programme en UTC, chacun ne tirant réellement que si l'heure Paris vaut bien 21h
-// au moment de l'exécution) pour que les ventes restent à jour même si personne n'ouvre Finance.
+// Déclenchée par l'admin (montage de l'écran + bouton "Actualiser"), ET par un cron toutes les 15
+// minutes (cf. migration 0076 — pg_cron + pg_net) pour que le CA du jour soit à jour même si
+// personne n'ouvre Finance, y compris tôt le matin (un cron une fois par nuit, cf. ancienne
+// migration 0070, laissait le CA à zéro jusqu'à la première ouverture de l'écran dans la journée).
 //
-// Deux passes distinctes et volontairement séparées :
-//   1) Repart de la dernière vente déjà enregistrée chez nous (max(horodatage)) et ne va chercher
-//      à SumUp que ce qui est arrivé après — pas de rescan ni de comparaison ligne à ligne d'une
-//      fenêtre glissante. Simple, mais ne rattrape pas un remboursement tardif sur une vente déjà
-//      synchronisée (cf. passe 2, qui elle tourne sur tout l'historique).
+// Trois passes distinctes et volontairement séparées :
+//   1) Repart d'au plus tôt entre la dernière vente déjà enregistrée chez nous (max(horodatage)) et
+//      FENETRE_JOURS_RATTRAPAGE_STATUT jours en arrière — pas juste "ce qui est arrivé après la
+//      dernière vente connue", pour que la fenêtre revoie systématiquement aussi les ventes
+//      récentes déjà connues et détecte un changement de statut dessus (ex. un remboursement
+//      décidé après coup, SUCCESSFUL → REFUNDED sur SumUp — sans ce plancher, dès qu'une vente plus
+//      récente était synchronisée la fenêtre passait devant, et le remboursement n'était plus
+//      jamais rattrapé, cf. retour utilisateur : "les remboursements de la journée" absents des
+//      chiffres Finance).
+//   1bis) Sur cette même fenêtre, une vente déjà connue dont le statut a changé reçoit juste une
+//      mise à jour de `statut` (pas un retraitement complet : les lignes produit déjà écrites ne
+//      changent pas et ne doivent pas être dupliquées).
 //   2) Réattribue pop_up_id/profile_id sur TOUTES les ventes déjà connues (pas seulement celles de
 //      cette synchro), en pur calcul local (proximité GPS, email SumUp mappé) : ça permet à un
 //      ajout tardif de coordonnées de pop-up ou de mapping salarié de corriger rétroactivement des
@@ -29,6 +36,10 @@ function reponseJson(corps: unknown, status: number) {
 
 const SUMUP_API = 'https://api.sumup.com';
 const FENETRE_JOURS_DEFAUT = 45;
+// Fenêtre de rattrapage des changements de statut (remboursements notamment) sur des ventes déjà
+// connues — cf. en-tête du fichier. 14 jours couvre largement le délai habituel entre une vente et
+// son remboursement éventuel, sans re-scanner tout l'historique à chaque appel.
+const FENETRE_JOURS_RATTRAPAGE_STATUT = 14;
 // Dimensionné pour un premier backfill (potentiellement des mois d'historique), pas pour le
 // volume quotidien d'une petite structure — pour ne pas tronquer silencieusement le premier import.
 const MAX_PAGES = 100;
@@ -100,17 +111,44 @@ Deno.serve(async (req: Request) => {
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
   const sumupApiKey = Deno.env.get('SUMUP_API_KEY')!;
+  const clientAdmin = createClient(supabaseUrl, serviceRoleKey);
 
-  // Appel système (cron nocturne 21h Paris, cf. migration 0070) : authentifié directement par la
-  // clé service role plutôt que par une session utilisateur — personne n'est connecté à cette
-  // heure-là. Sinon, n'importe quel compte connecté peut déclencher la synchro (pas admin-only,
+  // Appel système (cron toutes les 15 minutes, cf. migration 0076) : reconnu via un secret dédié
+  // transmis dans l'en-tête `x-cron-secret`, comparé à vault.decrypted_secrets (lu via la fonction
+  // SQL get_vault_secret, seule façon d'accéder à Vault depuis une Edge Function qui n'a qu'un
+  // accès PostgREST). Le cron transmet aussi un Authorization: Bearer <clé anon> — nécessaire pour
+  // passer la vérification JWT de la plateforme (verify_jwt: true), mais c'est bien x-cron-secret
+  // qui élève l'appel au rang d'appel système, pas ce header. Ancien schéma (comparaison à la clé
+  // service_role elle-même) abandonné : ce secret n'a jamais pu être posé dans Vault (page
+  // service_role introuvable par un outil distant), le cron échouait silencieusement chaque nuit
+  // depuis sa création — cf. migration 0075 pour le détail.
+  //
+  // Sinon, n'importe quel compte connecté peut déclencher la synchro (pas admin-only,
   // volontairement — cf. discussion : l'écran Chaussures doit pouvoir se resynchroniser pour un
   // employé non-admin qui fait l'inventaire sur place). Rien de sensible n'est exposé par cet
   // appel : la réponse ne contient que des compteurs, et la lecture des ventes elles-mêmes reste
   // verrouillée par les RLS habituelles (ventes_sumup admin-only, ventes_sumup_lignes scopée par
   // pop-up) — seule l'écriture privilégiée (rôle exclusif du client service ci-dessous) change de
   // rien à ces droits de lecture.
-  const estAppelSysteme = authHeader === `Bearer ${serviceRoleKey}`;
+  const cronSecretHeader = req.headers.get('x-cron-secret');
+  let estAppelSysteme = false;
+  if (cronSecretHeader) {
+    const { data: secretAttendu } = await clientAdmin.rpc('get_vault_secret', {
+      p_nom: 'cron_sync_ventes_sumup_secret',
+    });
+    estAppelSysteme = !!secretAttendu && cronSecretHeader === secretAttendu;
+  }
+  // Présence de l'en-tête (indépendamment de sa validité) suffit à qualifier l'appelant pour le
+  // suivi ci-dessous — un secret Vault absent/désaligné doit apparaître comme un échec du cron, pas
+  // disparaître silencieusement dans un 401 générique (cf. régression historique, migration 0075).
+  const declenchePar = cronSecretHeader ? 'cron' : 'app';
+  // cf. migration 0077 — trace la dernière exécution (succès ou échec) pour un signal de fraîcheur
+  // observable dans le Hub, `cron.job_run_details` ne renseignant que l'envoi de la requête HTTP.
+  const journaliser = async (ok: boolean, message: string) => {
+    await clientAdmin
+      .from('ventes_sumup_sync_etat')
+      .upsert({ id: true, derniere_execution_le: new Date().toISOString(), ok, message, declenche_par: declenchePar });
+  };
   if (!estAppelSysteme) {
     const clientAppelant = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
@@ -120,19 +158,20 @@ Deno.serve(async (req: Request) => {
       error: erreurUser,
     } = await clientAppelant.auth.getUser();
     if (erreurUser || !user) {
+      await journaliser(false, 'Authentification échouée (secret cron absent/invalide ou session app expirée)');
       return reponseJson({ error: 'Non authentifié' }, 401);
     }
   }
-
-  const clientAdmin = createClient(supabaseUrl, serviceRoleKey);
   const sumupHeaders = { Authorization: `Bearer ${sumupApiKey}` };
 
   const body = await req.json().catch(() => ({}) as { depuis?: string; jusqua?: string });
   const maintenant = new Date();
   const jusqua = body?.jusqua ?? maintenant.toISOString();
 
-  // Point de départ : la dernière vente déjà connue chez nous (pas de fenêtre glissante à
-  // rescanner) — `depuis` en paramètre reste possible pour un backfill ponctuel plus ancien.
+  // Point de départ : au plus tôt entre la dernière vente déjà connue chez nous et
+  // FENETRE_JOURS_RATTRAPAGE_STATUT jours en arrière (cf. en-tête du fichier — comparaison de
+  // chaînes ISO8601 valide pour l'ordre chronologique, même format des deux côtés) — `depuis` en
+  // paramètre reste possible pour un backfill ponctuel plus ancien.
   let depuis = body?.depuis;
   if (!depuis) {
     const { data: derniereVente } = await clientAdmin
@@ -141,7 +180,10 @@ Deno.serve(async (req: Request) => {
       .order('horodatage', { ascending: false })
       .limit(1)
       .maybeSingle();
-    depuis = derniereVente?.horodatage ?? new Date(maintenant.getTime() - FENETRE_JOURS_DEFAUT * 86400000).toISOString();
+    const depuisDerniereVente =
+      derniereVente?.horodatage ?? new Date(maintenant.getTime() - FENETRE_JOURS_DEFAUT * 86400000).toISOString();
+    const depuisRattrapage = new Date(maintenant.getTime() - FENETRE_JOURS_RATTRAPAGE_STATUT * 86400000).toISOString();
+    depuis = depuisDerniereVente < depuisRattrapage ? depuisDerniereVente : depuisRattrapage;
   }
 
   // Un seul compte SumUp (un seul SIRET) : le merchant_code est résolu à chaque appel plutôt que
@@ -150,19 +192,27 @@ Deno.serve(async (req: Request) => {
   if (!repMe.ok) {
     const corpsErreur = await repMe.text().catch(() => '');
     console.error(`GET /v0.1/me a échoué : ${repMe.status} ${corpsErreur}`);
+    await journaliser(false, `GET /v0.1/me a échoué (${repMe.status})`);
     return reponseJson({ error: `Connexion SumUp impossible (${repMe.status}) : ${corpsErreur.slice(0, 300)}` }, 502);
   }
   const me = await repMe.json();
   const merchantCode: string | undefined = me.merchant_profile?.merchant_code;
   if (!merchantCode) {
     console.error(`merchant_code introuvable, réponse /v0.1/me : ${JSON.stringify(me).slice(0, 500)}`);
+    await journaliser(false, 'merchant_code introuvable dans la réponse SumUp');
     return reponseJson({ error: 'merchant_code introuvable' }, 502);
   }
 
   // 1a. Liste des transactions de la fenêtre, en suivant la pagination (l'API renvoie le lien
   // "next" comme une simple chaîne de requête à ajouter au même endpoint).
+  // order=descending (le plus récent d'abord) : quand un gros arriéré s'accumule (ex. cron
+  // nocturne en panne pendant des jours, cf. migration 0070), `nouvelles` est traité dans cet
+  // ordre, et le plafond MAX_DETAILS_PAR_APPEL touche donc toujours l'historique le plus ancien en
+  // premier — jamais les ventes du jour, qui restaient invisibles sur Finance tant que tout
+  // l'arriéré plus ancien n'était pas rattrapé (symptôme observé : "les ventes d'aujourd'hui
+  // n'apparaissent pas" alors que la synchro rapportait bien des centaines de transactions vues).
   const resumes: TransactionResume[] = [];
-  let requete = `limit=100&oldest_time=${encodeURIComponent(depuis)}&newest_time=${encodeURIComponent(jusqua)}&order=ascending`;
+  let requete = `limit=100&oldest_time=${encodeURIComponent(depuis)}&newest_time=${encodeURIComponent(jusqua)}&order=descending`;
   let pages = 0;
   while (requete && pages < MAX_PAGES) {
     pages += 1;
@@ -172,6 +222,7 @@ Deno.serve(async (req: Request) => {
     if (!rep.ok) {
       const corpsErreur = await rep.text().catch(() => '');
       console.error(`GET /transactions/history a échoué : ${rep.status} ${corpsErreur}`);
+      await journaliser(false, `GET /transactions/history a échoué (${rep.status})`);
       return reponseJson(
         { error: `Échec de récupération des transactions SumUp (${rep.status}) : ${corpsErreur.slice(0, 300)}` },
         502,
@@ -183,18 +234,35 @@ Deno.serve(async (req: Request) => {
     requete = suivant?.href ?? '';
   }
 
-  // 1b. Ne garde que les transactions pas encore connues chez nous (par id) — `depuis` étant déjà
-  // la dernière vente enregistrée, ça ne devrait normalement être qu'une poignée de ventes neuves.
+  // 1b. Sépare les transactions pas encore connues chez nous (traitement complet, y compris
+  // détail/produits) de celles déjà connues dont le statut a changé depuis (ex. remboursement —
+  // simple mise à jour de `statut`, cf. 1bis plus bas, jamais un retraitement complet qui
+  // dupliquerait les lignes produit déjà écrites).
   const idsResumes = resumes.map((t) => t.id ?? t.transaction_id).filter((id): id is string => !!id);
-  const { data: idsConnus } = await clientAdmin
+  const { data: connues } = await clientAdmin
     .from('ventes_sumup')
-    .select('sumup_transaction_id')
+    .select('sumup_transaction_id, statut')
     .in('sumup_transaction_id', idsResumes.length > 0 ? idsResumes : ['__aucune__']);
-  const ensembleIdsConnus = new Set((idsConnus ?? []).map((v) => v.sumup_transaction_id));
+  const statutConnuParId = new Map((connues ?? []).map((v) => [v.sumup_transaction_id as string, v.statut as string]));
   const nouvelles = resumes.filter((r) => {
     const id = r.id ?? r.transaction_id;
-    return !!id && !ensembleIdsConnus.has(id);
+    return !!id && !statutConnuParId.has(id);
   });
+  const statutsChanges = resumes.filter((r) => {
+    const id = r.id ?? r.transaction_id;
+    if (!id) return false;
+    const statutConnu = statutConnuParId.get(id);
+    return statutConnu !== undefined && statutConnu !== r.status;
+  });
+  let statutsMisAJour = 0;
+  for (const r of statutsChanges) {
+    const id = (r.id ?? r.transaction_id)!;
+    const { error: erreurMajStatut } = await clientAdmin
+      .from('ventes_sumup')
+      .update({ statut: r.status, updated_at: new Date().toISOString() })
+      .eq('sumup_transaction_id', id);
+    if (!erreurMajStatut) statutsMisAJour += 1;
+  }
 
   let lignesEnAttente: Record<string, unknown>[] = [];
   // Produits SumUp par transaction, en attente d'écriture — on ne connaît le vente_id (uuid généré
@@ -292,7 +360,9 @@ Deno.serve(async (req: Request) => {
     }
     await ecrireLot();
   } catch (e) {
-    return reponseJson({ error: e instanceof Error ? e.message : 'Échec de l’écriture des ventes' }, 500);
+    const message = e instanceof Error ? e.message : 'Échec de l’écriture des ventes';
+    await journaliser(false, message);
+    return reponseJson({ error: message }, 500);
   }
 
   // 1c. Répare les lignes déjà écrites avant l'ajout de `description` (cf. migration 0071) — ou
@@ -395,10 +465,13 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  await journaliser(true, `OK — ${resumes.length} vues, ${totalEcrites} nouvelles/modifiées, ${reattributions} réattributions`);
+
   return reponseJson(
     {
       transactions_vues: resumes.length,
       nouvelles_ou_modifiees: totalEcrites,
+      statuts_mis_a_jour: statutsMisAJour,
       reattributions,
       plafond_details_atteint: detailsRestants <= 0,
     },

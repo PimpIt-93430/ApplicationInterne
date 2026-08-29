@@ -6,15 +6,20 @@ import type {
   TailleChaussure,
   VenteSumupLigne,
 } from '@/types/database.types';
+import { calculerARamenerGenerique } from '@/utils/inventaireStock';
 
 export interface ChaussureAvecARamener extends ChaussureStock {
   dernierInventaire: ChaussureInventaire | null;
   /** Ventes SumUp mappées à cette couleur/taille survenues depuis le dernier inventaire — 0 tant
    * qu'aucun inventaire n'a été fait (rien à quoi comparer un horodatage). */
   venduDepuisInventaire: number;
-  /** stock_initial - (dernier inventaire compté - ventes depuis ce comptage), jamais négatif. 0
-   * tant qu'aucun inventaire n'a été fait pour cette couleur/taille (on ne peut pas savoir ce qui
-   * manque sans avoir compté). */
+  /** dernier inventaire compté - ventes depuis ce comptage, jamais négatif — "ce qu'il devrait
+   * rester" en stock à cet instant. null tant qu'aucun inventaire n'a été fait (rien à estimer).
+   * Affiché tel quel (cf. ChaussuresScreen) pour que l'effet d'une vente soit visible directement,
+   * plutôt que caché dans le seul calcul d'"à ramener". */
+  stockEstime: number | null;
+  /** stock_initial - stockEstime, jamais négatif. 0 tant qu'aucun inventaire n'a été fait pour
+   * cette couleur/taille (on ne peut pas savoir ce qui manque sans avoir compté). */
   aRamener: number;
 }
 
@@ -77,26 +82,12 @@ export function calculerARamener(
   inventaires: ChaussureInventaire[],
   ventes: VenteChaussure[] = [],
 ): ChaussureAvecARamener[] {
-  const dernierParItem = new Map<string, ChaussureInventaire>();
-  for (const inv of inventaires) {
-    const cle = `${inv.couleur}|${inv.taille}`;
-    const existant = dernierParItem.get(cle);
-    if (!existant || inv.created_at > existant.created_at) dernierParItem.set(cle, inv);
-  }
-  return stock.map((item) => {
-    const dernierInventaire = dernierParItem.get(`${item.couleur}|${item.taille}`) ?? null;
-    const venduDepuisInventaire = dernierInventaire
-      ? ventes
-          .filter(
-            (v) =>
-              v.couleur === item.couleur && v.taille === item.taille && v.horodatage > dernierInventaire.created_at,
-          )
-          .reduce((somme, v) => somme + v.quantite, 0)
-      : 0;
-    const stockEstime = dernierInventaire
-      ? Math.max(0, dernierInventaire.quantite_comptee - venduDepuisInventaire)
-      : null;
-    const aRamener = stockEstime !== null ? Math.max(0, item.stock_initial - stockEstime) : 0;
-    return { ...item, dernierInventaire, venduDepuisInventaire, aRamener };
-  });
+  return calculerARamenerGenerique(
+    stock,
+    inventaires,
+    ventes,
+    (item) => `${item.couleur}|${item.taille}`,
+    (inv) => `${inv.couleur}|${inv.taille}`,
+    (vente) => `${vente.couleur}|${vente.taille}`,
+  );
 }

@@ -1,6 +1,8 @@
 import { addDays, format, getISOWeek, startOfWeek } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
+import type { JourEcoleAlternant } from '@/types/database.types';
+
 export const JOURS_LABELS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
 
 /** Renvoie les 7 dates (lundi -> dimanche) de la semaine contenant `date`. */
@@ -113,6 +115,30 @@ export function totalHeuresTravaillees(
     .filter((s) => s.profile_id === profileId)
     .reduce((total, s) => total + dureeShiftMinutes(s), 0);
   return minutes / 60;
+}
+
+/** Un jour d'école compte forfaitairement pour ce nombre d'heures (cf. retour utilisateur du
+ * 2026-08-24 : "pour les jours d'école faut compter 7h stp") — plus simple et plus prévisible
+ * qu'aller chercher l'horaire récurrent habituel de ce jour-là. */
+const HEURES_ECOLE_PAR_JOUR = 7;
+
+/** Total d'heures (décimal) d'une personne sur la semaine affichée, travail + école — un jour
+ * d'école remplace ce qu'elle aurait normalement travaillé ce jour-là (elle est exclue de la
+ * génération auto du planning ce jour précis, cf. genererPlanning), donc créditée d'un forfait
+ * (HEURES_ECOLE_PAR_JOUR) plutôt que 0 : sans ça, la charge hebdo d'un alternant semblerait
+ * anormalement basse les semaines chargées en cours. */
+export function totalHeuresSemaineAvecEcole(
+  jours: Date[],
+  shifts: { profile_id: string; heure_debut: string; heure_fin: string; pause_debut?: string | null; pause_fin?: string | null }[],
+  joursEcole: JourEcoleAlternant[],
+  profileId: string,
+): { heuresTravaillees: number; heuresEcole: number; total: number } {
+  const heuresTravaillees = totalHeuresTravaillees(shifts, profileId);
+  const joursEcoleCount = jours.filter((jour) =>
+    joursEcole.some((j) => j.profile_id === profileId && j.date === dateEnISO(jour)),
+  ).length;
+  const heuresEcole = joursEcoleCount * HEURES_ECOLE_PAR_JOUR;
+  return { heuresTravaillees, heuresEcole, total: heuresTravaillees + heuresEcole };
 }
 
 /** Total d'heures (décimal) d'un horaire récurrent pour chacune des deux semaines d'un rythme

@@ -7,7 +7,7 @@ import type { ChangeEvent, CSSProperties } from 'react';
 import { Alert, Animated, PanResponder, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { insererShifts, supprimerShift } from '@/api/planning';
-import type { Conge, PlanningShift, Profile } from '@/types/database.types';
+import type { Conge, PlanningShift, PopUp, Profile } from '@/types/database.types';
 import { formatCreneauShift } from '@/utils/dateUtils';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -15,10 +15,43 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 type ModePicker = 'debut' | 'fin' | 'pauseDebut' | 'pauseFin' | null;
 type Preset = 'matin' | 'apres_midi' | 'personnalise';
 
-const PRESETS: Record<Exclude<Preset, 'personnalise'>, { label: string; debut: string; pauseDebut: string; pauseFin: string; fin: string }> = {
+type DefinitionPreset = { label: string; debut: string; pauseDebut: string; pauseFin: string; fin: string };
+
+// Génériques, utilisés seulement quand le pop-up n'a pas ses propres créneaux réglés (cf. écran
+// Pop-up, colonnes matin_debut/matin_fin/apres_midi_debut/apres_midi_fin) — même repli que
+// HoraireRecurrentJourCard, pour rester cohérent entre l'horaire récurrent d'un employé et
+// l'ajout ponctuel d'un créneau depuis la grille équipe.
+const PRESETS_GENERIQUES: Record<Exclude<Preset, 'personnalise'>, DefinitionPreset> = {
   matin: { label: 'Matin (10h-18h)', debut: '10:00', pauseDebut: '13:00', pauseFin: '14:00', fin: '18:00' },
   apres_midi: { label: 'Après-midi (13h-20h30)', debut: '13:00', pauseDebut: '16:00', pauseFin: '16:30', fin: '20:30' },
 };
+
+/** Créneaux Matin/Après-midi réglés pour ce pop-up (écran Pop-up) s'il y en a, sinon repli sur les
+ * génériques ci-dessus — corrige le bug où "Après-midi" appliquait toujours 13h-20h30 même quand
+ * le lieu avait ses propres horaires (ex. Oparinord : 13h-20h), cf. retour utilisateur. */
+function presetsPourPopUp(popUp: PopUp | undefined): Record<Exclude<Preset, 'personnalise'>, DefinitionPreset> {
+  const matin =
+    popUp?.matin_debut && popUp?.matin_fin
+      ? {
+          label: `Matin (${popUp.matin_debut.slice(0, 5)}-${popUp.matin_fin.slice(0, 5)})`,
+          debut: popUp.matin_debut.slice(0, 5),
+          fin: popUp.matin_fin.slice(0, 5),
+          pauseDebut: (popUp.matin_pause_debut ?? PRESETS_GENERIQUES.matin.pauseDebut).slice(0, 5),
+          pauseFin: (popUp.matin_pause_fin ?? PRESETS_GENERIQUES.matin.pauseFin).slice(0, 5),
+        }
+      : PRESETS_GENERIQUES.matin;
+  const apresMidi =
+    popUp?.apres_midi_debut && popUp?.apres_midi_fin
+      ? {
+          label: `Après-midi (${popUp.apres_midi_debut.slice(0, 5)}-${popUp.apres_midi_fin.slice(0, 5)})`,
+          debut: popUp.apres_midi_debut.slice(0, 5),
+          fin: popUp.apres_midi_fin.slice(0, 5),
+          pauseDebut: (popUp.apres_midi_pause_debut ?? PRESETS_GENERIQUES.apres_midi.pauseDebut).slice(0, 5),
+          pauseFin: (popUp.apres_midi_pause_fin ?? PRESETS_GENERIQUES.apres_midi.pauseFin).slice(0, 5),
+        }
+      : PRESETS_GENERIQUES.apres_midi;
+  return { matin, apres_midi: apresMidi };
+}
 
 function formatDateAffichee(dateIso: string): string {
   const txt = new Date(`${dateIso}T00:00:00`).toLocaleDateString('fr-FR', {
@@ -54,6 +87,7 @@ export function PanneauEditionShiftEquipe({
   profil,
   dateIso,
   popUpId,
+  popUp,
   shiftsExistants,
   conge,
   creeParId,
@@ -63,6 +97,9 @@ export function PanneauEditionShiftEquipe({
   profil: Profile | null;
   dateIso: string;
   popUpId: string | undefined;
+  /** Pour lire les créneaux Matin/Après-midi propres à ce lieu (cf. presetsPourPopUp) — repli sur
+   * les génériques si absent/non fourni. */
+  popUp: PopUp | undefined;
   shiftsExistants: PlanningShift[];
   /** Congé/indisponibilité de cette personne ce jour-là, s'il y en a un — avertit avant d'ajouter
    * un créneau plutôt que de l'empêcher (cf. même logique que admin/calendrier.tsx). */
@@ -93,10 +130,12 @@ export function PanneauEditionShiftEquipe({
     setPickerOuvert(null);
   }, [visible, dateIso, profil?.id]);
 
+  const presets = presetsPourPopUp(popUp);
+
   // Un tap sur "Matin"/"Après-midi" remplit les 4 horaires d'un coup (fini les 4 allers-retours au
   // sélecteur natif) ; les champs restent modifiables juste en dessous pour ajuster au cas par cas.
   const appliquerPreset = (preset: Exclude<Preset, 'personnalise'>) => {
-    const p = PRESETS[preset];
+    const p = presets[preset];
     setHeureDebut(heureVersDate(p.debut));
     setHeureDebutPause(heureVersDate(p.pauseDebut));
     setHeureFinPause(heureVersDate(p.pauseFin));
@@ -269,14 +308,14 @@ export function PanneauEditionShiftEquipe({
         ) : (
           <>
             <View style={styles.lignePresets}>
-              {(Object.keys(PRESETS) as Exclude<Preset, 'personnalise'>[]).map((preset) => (
+              {(Object.keys(presets) as Exclude<Preset, 'personnalise'>[]).map((preset) => (
                 <Pressable
                   key={preset}
                   onPress={() => appliquerPreset(preset)}
                   style={[styles.chipPreset, presetActif === preset && styles.chipPresetActif]}
                 >
                   <Text style={[styles.chipPresetTexte, presetActif === preset && styles.chipPresetTexteActif]}>
-                    {PRESETS[preset].label}
+                    {presets[preset].label}
                   </Text>
                 </Pressable>
               ))}

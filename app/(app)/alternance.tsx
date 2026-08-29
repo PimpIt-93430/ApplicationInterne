@@ -39,14 +39,14 @@ const LEGENDE_BROUILLON: LegendeCalendrier[] = [
 export default function AlternanceScreen() {
   const profileReel = useAuthStore((s) => s.profile);
   const profile = useProfilEffectif();
-  const vue = useVueAdminStore((s) => s.vue);
+  const profilPreviewId = useVueAdminStore((s) => s.profilPreviewId);
   const estAlternant = profile?.type_contrat === 'alternant';
-  // Basé sur le rôle réel ET la vue active (pas juste le rôle réel) : sinon un admin qui
-  // prévisualise "vue alternant" (Namory) verrait quand même le panneau de validation admin sur le
-  // même écran que le formulaire de demande de Namory — et pourrait s'auto-valider. En "vue
-  // alternant"/"vue manager", l'écran doit se comporter exactement comme ce que voit cette
-  // personne, pas comme un admin déguisé (même principe que estAdminEnVueAdmin ailleurs).
-  const estAdmin = profileReel?.role === 'admin' && vue === 'admin';
+  // Basé sur le rôle réel ET la prévisualisation active (pas juste le rôle réel) : sinon un admin
+  // connecté au profil d'un alternant verrait quand même le panneau de validation admin sur le
+  // même écran que le formulaire de demande de cette personne — et pourrait s'auto-valider. En
+  // prévisualisation, l'écran doit se comporter exactement comme ce que voit cette personne, pas
+  // comme un admin déguisé (même principe que estAdminEnVueAdmin ailleurs).
+  const estAdmin = profileReel?.role === 'admin' && !profilPreviewId;
   const estManager = profile?.type_contrat === 'manager';
 
   const { data: profils } = useActiveProfiles();

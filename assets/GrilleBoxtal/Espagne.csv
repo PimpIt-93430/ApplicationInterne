@@ -1,0 +1,90 @@
+"Transporteur","Offre","Départ","Arrivée","Type de poids
+
+WEIGHT_BASED - le poids est le poids réel
+
+VOLUME_BASED - le poids volumétrique est appliqué. Voir https://help.boxtal.com/fr/fr/article/understanding-volumetric-weight","De 1 g à 250 g
+
+prix minimal pour la tranche (euros HT)","De 251 g à 500 g
+
+prix minimal pour la tranche (euros HT)","De 501 g à 1 kg
+
+prix minimal pour la tranche (euros HT)","De 1.001 kg à 2 kg
+
+prix minimal pour la tranche (euros HT)","De 2.001 kg à 3 kg
+
+prix minimal pour la tranche (euros HT)","De 3.001 kg à 5 kg
+
+prix minimal pour la tranche (euros HT)","De 5.001 kg à 7 kg
+
+prix minimal pour la tranche (euros HT)","De 7.001 kg à 10 kg
+
+prix minimal pour la tranche (euros HT)","De 10.001 kg à 15 kg
+
+prix minimal pour la tranche (euros HT)","De 15.001 kg à 20 kg
+
+prix minimal pour la tranche (euros HT)","De 20.001 kg à 30 kg
+
+prix minimal pour la tranche (euros HT)","À partir de 30.001 kg
+
+prix minimal pour la tranche (euros HT)","De 1 g à 250 g
+
+prix maximal pour la tranche (euros HT)","De 251 g à 500 g
+
+prix maximal pour la tranche (euros HT)","De 501 g à 1 kg
+
+prix maximal pour la tranche (euros HT)","De 1.001 kg à 2 kg
+
+prix maximal pour la tranche (euros HT)","De 2.001 kg à 3 kg
+
+prix maximal pour la tranche (euros HT)","De 3.001 kg à 5 kg
+
+prix maximal pour la tranche (euros HT)","De 5.001 kg à 7 kg
+
+prix maximal pour la tranche (euros HT)","De 7.001 kg à 10 kg
+
+prix maximal pour la tranche (euros HT)","De 10.001 kg à 15 kg
+
+prix maximal pour la tranche (euros HT)","De 15.001 kg à 20 kg
+
+prix maximal pour la tranche (euros HT)","De 20.001 kg à 30 kg
+
+prix maximal pour la tranche (euros HT)","À partir de 30.001 kg
+
+prix maximal pour la tranche (euros HT)","De 1 g à 250 g
+
+prix maximal envoi non mécanisable pour la tranche (euros HT)","De 251 g à 500 g
+
+prix maximal envoi non mécanisable pour la tranche (euros HT)","De 501 g à 1 kg
+
+prix maximal envoi non mécanisable pour la tranche (euros HT)","De 1.001 kg à 2 kg
+
+prix maximal envoi non mécanisable pour la tranche (euros HT)","De 2.001 kg à 3 kg
+
+prix maximal envoi non mécanisable pour la tranche (euros HT)","De 3.001 kg à 5 kg
+
+prix maximal envoi non mécanisable pour la tranche (euros HT)","De 5.001 kg à 7 kg
+
+prix maximal envoi non mécanisable pour la tranche (euros HT)","De 7.001 kg à 10 kg
+
+prix maximal envoi non mécanisable pour la tranche (euros HT)","De 10.001 kg à 15 kg
+
+prix maximal envoi non mécanisable pour la tranche (euros HT)","De 15.001 kg à 20 kg
+
+prix maximal envoi non mécanisable pour la tranche (euros HT)","De 20.001 kg à 30 kg
+
+prix maximal envoi non mécanisable pour la tranche (euros HT)","À partir de 30.001 kg
+
+prix maximal envoi non mécanisable pour la tranche (euros HT)"
+"Chronopost","Chrono 2Shop Europe","Point de dépôt","Point de retrait","WEIGHT_BASED","5.79","5.79","6.05","6.42","9.29","10.04","11.56","13.07","15.33","19.11","","","","","","10.8","12.31","14.58","18.36","22.14","5.79","5.79","6.05","6.42","9.29","10.8","12.31","14.58","18.36","22.14",,,,,,
+"Chronopost","Chrono Classic","Point de dépôt","Domicile","WEIGHT_BASED","13.03","13.03","13.03","14.37","15.72","17.07","19.76","22.45","26.5","33.23","39.96","","","","","","18.41","21.1","25.14","31.88","38.61","52.08","17.47","17.47","17.47","18.81","20.16","22.85","25.54","29.59","36.32","43.06","56.52",,,
+"Chronopost","Chrono Classic collecte","Domicile","Domicile","WEIGHT_BASED","15.03","15.03","15.03","16.37","17.72","19.07","21.76","24.45","28.5","35.23","41.96","","","","","","20.41","23.1","27.14","33.88","40.61","54.08","19.47","19.47","19.47","20.81","22.16","24.85","27.54","31.59","38.32","45.06","58.52",,,
+"Chronopost","Chrono Express","Point de dépôt","Domicile","VOLUME_BASED","18.25","18.25","22.4","25.27","29.59","33.93","42.61","51.29","64.6","89.31","114.51","173.66","","","","27.43","31.77","40.45","49.11","62.12","86.85","111.56","170.71","348.12","18.25","18.25","22.4","27.43","31.77","40.45","49.11","62.12","86.85","111.56","170.71","348.12"
+"Chronopost","Chrono Express collecte","Domicile","Domicile","VOLUME_BASED","20.25","20.25","24.4","27.27","31.59","35.93","44.61","53.29","66.6","91.31","116.51","175.66","","","","29.43","33.77","42.45","51.11","64.12","88.85","113.56","172.71","350.12","20.25","20.25","24.4","29.43","33.77","42.45","51.11","64.12","88.85","113.56","172.71","350.12"
+"Chronopost","Chrono Relais Europe","Point de dépôt","Point de retrait","VOLUME_BASED","12.4","12.4","12.4","13.65","14.9","16.15","18.72","21.34","25.25","31.79","38.33","51.41","","","","","","17.41","20.03","23.94","30.48","37.02","50.1","89.32","16.48","16.48","16.48","17.73","18.99","21.49","24.1","28.03","34.57","41.11","54.18","93.41"
+"Delivengo","Delivengo easy","Point de dépôt","Domicile","WEIGHT_BASED","8.45","9.9","11.5","16.45","","","","","","","","",,,,,,,,,,,,,,,,,,,,,,,,
+"Happy Post","Happy Post avec Suivi sans Signature","Point de dépôt","Domicile","WEIGHT_BASED","9.22","9.22","9.62","11.2","12.69","13.99","17.96","20.55","24.66","32.46","43.2","","","","","","15.29","19.26","23.13","30.35","37.63","46.34","","","","","","","","","","","",,,
+"Mondial Relay","Mondial Points Relais - Europe","Point de dépôt","Point de retrait","WEIGHT_BASED","5","5","6.15","7.85","9.21","9.21","12.69","13.21","20.08","20.08","21.12","","","","","","12.69","","","","","24.11","","","","","","","","","","","",,,
+"Mondial Relay","Mondial Domicile Europe","Point de dépôt","Domicile","WEIGHT_BASED","9.21","9.21","9.38","11.02","12.84","12.84","19.47","19.47","21.9","36.29","36.29","","","","","","","","","","","","","","","","","","","","","","",,,
+"Colissimo","Colissimo International Domicile - avec signature","Point de dépôt","Domicile","WEIGHT_BASED","10.34","10.43","13.15","14.74","15.68","16.45","18.01","19.56","24.03","29.9","34.39","","","13.2","","","17.23","18.58","21.12","26.29","30.78","39.78","17.78","17.87","20.63","22.17","23.11","24.66","26.02","28.54","33.72","38.22","47.22",,,
+"Colissimo","Colissimo International Point Retrait","Point de dépôt","Point de retrait","WEIGHT_BASED","7.92","8.21","9.6","12.5","13.44","13.94","14.91","15.88","19.66","26.5","","","10.98","","","14.41","15.39","16.85","24.07","28.55","","","","","","","","","","",,,,,,
+"Sodexi","Sodexi Express International","Domicile","Domicile","VOLUME_BASED","81.84","81.84","81.84","84.15","88.1","92.64","102.24","111.41","127.78","150.58","173.46","276.61","","","","86.53","91.07","100.3","109.45","123.19","146.01","168.92","268.25","2231.61","130.93","130.93","130.93","135.62","140.15","149.38","158.54","172.28","195.09","218.01","268.25","2231.61"

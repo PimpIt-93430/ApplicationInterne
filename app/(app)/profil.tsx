@@ -5,9 +5,10 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { signOut } from '@/api/auth';
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
 import { ModalInviterPersonne } from '@/components/profil/ModalInviterPersonne';
+import { Dropdown } from '@/components/ui/Dropdown';
 import { useProfilEffectif } from '@/hooks/useProfilEffectif';
 import { usePopUps } from '@/hooks/usePopUps';
-import { useAffectationsPopUp } from '@/hooks/useProfiles';
+import { useActiveProfiles, useAffectationsPopUp } from '@/hooks/useProfiles';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useVueAdminStore } from '@/store/useVueAdminStore';
 import { construireMapAffectations, popUpsAttribues } from '@/utils/affectations';
@@ -26,16 +27,22 @@ export default function ProfilScreen() {
   const profile = useProfilEffectif();
   const { data: popUpsTous } = usePopUps();
   const { data: affectations } = useAffectationsPopUp();
+  const { data: profilsTous } = useActiveProfiles();
 
   const estAdminReel = profileReel?.role === 'admin';
   const estAdminAffiche = profile?.role === 'admin';
   const estAlternant = profile?.type_contrat === 'alternant';
   const estManager = profile?.type_contrat === 'manager';
-  const { vue, definirVue } = useVueAdminStore();
+  const { profilPreviewId, definirProfilPreview } = useVueAdminStore();
   // Comme le reste des actions admin (cf. estAdminEnVueAdmin ailleurs) : masqué quand l'admin
-  // prévisualise en "vue alternant"/"vue manager", pour rester fidèle à ce que cette personne voit.
-  const estAdminEnVueAdmin = estAdminReel && vue === 'admin';
+  // est connecté au profil de quelqu'un d'autre, pour rester fidèle à ce que cette personne voit.
+  const estAdminEnVueAdmin = estAdminReel && !profilPreviewId;
   const [inviterOuvert, setInviterOuvert] = useState(false);
+
+  // N'importe qui d'autre (pas soi-même) — l'admin peut se connecter à n'importe quel profil, pas
+  // seulement un rôle générique, pour voir l'app exactement comme cette personne (cf. retour
+  // utilisateur du 2026-08-24 : "je veux pouvoir aller sur tous les profils").
+  const autresProfils = (profilsTous ?? []).filter((p) => p.id !== profileReel?.id);
 
   // Nom du lieu affiché à côté du rôle (ex. "Manager · Val d'Europe") — le premier lieu attribué,
   // pas pertinent pour un admin (attribué à tous, cf. estAttribueA).
@@ -72,37 +79,35 @@ export default function ProfilScreen() {
 
       {estAdminReel && (
         <View className="mb-6">
-          <Text className="mb-2 text-sm font-semibold text-slate-500">Mode d'affichage</Text>
-          <View className="flex-row rounded-xl bg-slate-100 p-1">
-            <Pressable
-              onPress={() => definirVue('admin')}
-              className={`flex-1 items-center rounded-lg py-2 ${vue === 'admin' ? 'bg-white' : ''}`}
-            >
-              <Text className={vue === 'admin' ? 'font-semibold text-indigo-600' : 'text-slate-500'}>
-                Admin
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => definirVue('alternant')}
-              className={`flex-1 items-center rounded-lg py-2 ${vue === 'alternant' ? 'bg-white' : ''}`}
-            >
-              <Text className={vue === 'alternant' ? 'font-semibold text-indigo-600' : 'text-slate-500'}>
-                Alternant
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => definirVue('manager')}
-              className={`flex-1 items-center rounded-lg py-2 ${vue === 'manager' ? 'bg-white' : ''}`}
-            >
-              <Text className={vue === 'manager' ? 'font-semibold text-indigo-600' : 'text-slate-500'}>
-                Manager
-              </Text>
-            </Pressable>
-          </View>
+          <Text className="mb-2 text-sm font-semibold text-slate-500">Se connecter en tant que</Text>
+          <Dropdown
+            value={profilPreviewId ?? 'moi'}
+            options={[
+              { value: 'moi', label: `Moi (${profileReel?.nom_complet || 'Admin'})` },
+              ...autresProfils.map((p) => ({
+                value: p.id,
+                label: `${p.nom_complet || p.email} · ${LIBELLE_TYPE_CONTRAT[p.type_contrat] ?? p.type_contrat}`,
+                couleur: p.couleur,
+              })),
+            ]}
+            onChange={(v) => definirProfilPreview(v === 'moi' ? null : v)}
+          />
+          {!!profilPreviewId && (
+            <Text className="mt-2 text-xs text-slate-400">
+              Tu vois et agis actuellement avec le profil de {profile?.nom_complet || 'cette personne'} —
+              choisis "Moi" ci-dessus pour revenir à ton profil admin.
+            </Text>
+          )}
         </View>
       )}
 
       <View className="mb-6 gap-2">
+        <Link href="/(app)/guides" asChild>
+          <Pressable className="flex-row items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3">
+            <Text className="text-base text-slate-800">Afficher les informations</Text>
+            <Text className="text-slate-300">›</Text>
+          </Pressable>
+        </Link>
         {(estAlternant || estManager || estAdminReel) && (
           <Link href="/(app)/alternance" asChild>
             <Pressable className="flex-row items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3">

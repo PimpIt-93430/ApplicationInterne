@@ -66,10 +66,10 @@ function RaccourciSecondaire({
 export default function AccueilScreen() {
   const profileReel = useAuthStore((s) => s.profile);
   const profile = useProfilEffectif();
-  const vue = useVueAdminStore((s) => s.vue);
+  const profilPreviewId = useVueAdminStore((s) => s.profilPreviewId);
   const ouvrirMenu = useMenuStore((s) => s.ouvrir);
 
-  const estAdmin = profileReel?.role === 'admin' && vue === 'admin';
+  const estAdmin = profileReel?.role === 'admin' && !profilPreviewId;
   const premierPrenom = (profile?.nom_complet || '').trim().split(' ')[0];
 
   // Pas d'onglet "Accueil" dans la barre basse mobile (inutile pour l'instant, admin inclus

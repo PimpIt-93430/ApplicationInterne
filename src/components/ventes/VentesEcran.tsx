@@ -7,7 +7,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 
 import { Dropdown } from '@/components/ui/Dropdown';
 import { usePopUps } from '@/hooks/usePopUps';
 import { useProfilEffectif } from '@/hooks/useProfilEffectif';
-import { useAffectationsPopUp } from '@/hooks/useProfiles';
+import { useActiveProfiles, useAffectationsPopUp } from '@/hooks/useProfiles';
 import { useGererVentesEspeces, useVentesEspecesPopUp } from '@/hooks/useVentesEspeces';
 import type { VenteEspece } from '@/types/database.types';
 import { construireMapAffectations, popUpsAttribues } from '@/utils/affectations';
@@ -22,7 +22,15 @@ function formatMontant(montant: number): string {
 // et de filer aussitôt.
 const DELAI_RETOUR_SECONDES = 3;
 
-function LigneVente({ vente, onAnnuler }: { vente: VenteEspece; onAnnuler: () => void }) {
+function LigneVente({
+  vente,
+  nomVendeur,
+  onAnnuler,
+}: {
+  vente: VenteEspece;
+  nomVendeur: string | undefined;
+  onAnnuler: () => void;
+}) {
   const annulee = vente.statut === 'annulee';
   return (
     <View className="mb-2 flex-row items-center justify-between rounded-xl border border-slate-100 bg-white px-3.5 py-3">
@@ -32,6 +40,7 @@ function LigneVente({ vente, onAnnuler }: { vente: VenteEspece; onAnnuler: () =>
         </Text>
         <Text className="mt-0.5 text-xs text-slate-400">
           {format(new Date(vente.created_at), 'd MMM yyyy à HH:mm', { locale: fr })}
+          {nomVendeur ? ` · ${nomVendeur}` : ''}
           {annulee ? ' · Annulée' : ''}
         </Text>
       </View>
@@ -47,24 +56,30 @@ function LigneVente({ vente, onAnnuler }: { vente: VenteEspece; onAnnuler: () =>
 /** Écran "Ventes" (managers et admins) : encaissement en espèces déclaré manuellement (bouton "OK"
  * → confirmation immédiate, pas de validation ultérieure) + historique, avec possibilité d'annuler
  * une vente — une vente annulée n'est jamais retirée de la liste, juste barrée/grisée (cf.
- * migration 0048 : verrouillée en base, toujours visible pour l'admin). Un manager n'a qu'un lieu
- * (pas de sélecteur) ; un admin choisit le pop-up concerné avant d'enregistrer. */
+ * migration 0048 : verrouillée en base, toujours visible pour l'admin). Un manager n'a en général
+ * qu'un lieu (pas de sélecteur) mais pas toujours (ex. Makeda attribuée à Créteil Soleil et
+ * Oparinord) — le sélecteur apparaît dès que la personne a plusieurs pop-up, pas seulement pour un
+ * admin (même principe que PlanningMobile, qui l'affichait déjà ainsi). */
 export function VentesEcran() {
   const profile = useProfilEffectif();
   const estAdmin = profile?.role === 'admin';
+  const estManager = profile?.type_contrat === 'manager';
   const { data: popUpsTous } = usePopUps();
   const { data: affectations } = useAffectationsPopUp();
+  const { data: profils } = useActiveProfiles();
+  const nomParProfileId = useMemo(
+    () => new Map((profils ?? []).map((p) => [p.id, p.nom_complet])),
+    [profils],
+  );
   const mapAffectations = useMemo(() => construireMapAffectations(affectations ?? []), [affectations]);
   const mesPopUps = useMemo(
     () => (profile ? popUpsAttribues(profile, mapAffectations, popUpsTous ?? []) : []),
     [profile, mapAffectations, popUpsTous],
   );
 
-  // Un admin choisit explicitement à quel pop-up rattacher la vente (il n'en a pas "un" par défaut
-  // — mesPopUps renvoie tous les lieux pour lui, cf. popUpsAttribues) ; un manager garde son unique
-  // lieu attribué, pas de sélecteur nécessaire.
+  const plusieursPopUps = mesPopUps.length > 1;
   const [popUpSelectionne, setPopUpSelectionne] = useState<string | undefined>(undefined);
-  const popUpActifId = estAdmin ? (popUpSelectionne ?? mesPopUps[0]?.id) : mesPopUps[0]?.id;
+  const popUpActifId = plusieursPopUps ? (popUpSelectionne ?? mesPopUps[0]?.id) : mesPopUps[0]?.id;
   const popUpActif = mesPopUps.find((p) => p.id === popUpActifId);
 
   const { data: ventes, isLoading } = useVentesEspecesPopUp(popUpActif?.id);
@@ -133,7 +148,7 @@ export function VentesEcran() {
         <Text className="text-2xl font-bold text-slate-900">Ventes</Text>
       </View>
 
-      {estAdmin && mesPopUps.length > 0 && (
+      {plusieursPopUps && (
         <View className="px-4 pb-2">
           <Text className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
             Pop-up
@@ -172,9 +187,9 @@ export function VentesEcran() {
             </Pressable>
           </View>
 
-          {estAdmin && (
+          {(estAdmin || estManager) && (
             <Pressable
-              onPress={() => router.push('/(app)/admin/recap-ventes')}
+              onPress={() => router.push('/(app)/recap-ventes')}
               className="mb-5 items-center rounded-2xl bg-slate-900 py-5"
             >
               <Text className="text-lg font-bold text-white">Voir tous les chiffres</Text>
@@ -188,7 +203,12 @@ export function VentesEcran() {
             <Text className="text-sm text-slate-400">Aucune vente enregistrée.</Text>
           ) : (
             (ventes ?? []).map((v) => (
-              <LigneVente key={v.id} vente={v} onAnnuler={() => annuler.mutate(v.id)} />
+              <LigneVente
+                key={v.id}
+                vente={v}
+                nomVendeur={nomParProfileId.get(v.profile_id)}
+                onAnnuler={() => annuler.mutate(v.id)}
+              />
             ))
           )}
         </ScrollView>

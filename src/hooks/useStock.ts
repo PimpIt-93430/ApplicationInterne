@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 
 import {
   ajusterStockGeneral,
+  annulerCommande,
   attribuerPinsACase,
   basculerCommandePin,
   basculerLigneCommande,
@@ -334,6 +335,18 @@ export function useGererCommandePopUp(popUpId: string | undefined) {
     },
   });
 
+  // Annule une commande envoyée par erreur ou pas finie — tant que le local ne l'a pas prise en
+  // charge (RLS migration 0042). Les pins restent "à commander" (invalidation de la grille pour que
+  // ça se voie tout de suite si l'écran était déjà ouvert ailleurs).
+  const annuler = useMutation({
+    mutationFn: (commandeId: string) => annulerCommande(commandeId),
+    onSuccess: () => {
+      invalidateActive();
+      queryClient.invalidateQueries({ queryKey: ['stock-grille', popUpId] });
+      queryClient.invalidateQueries({ queryKey: ['stock-commandes-terminees', popUpId] });
+    },
+  });
+
   // Coche/décoche un pin d'une commande déjà envoyée, enregistré tout de suite (pas seulement au
   // clic sur un bouton "Mettre à jour") — si la personne quitte le panneau par erreur en cours de
   // route, rien n'est perdu : chaque coche est déjà sauvegardée. Seulement possible tant que la
@@ -345,7 +358,7 @@ export function useGererCommandePopUp(popUpId: string | undefined) {
     onSuccess: invalidateActive,
   });
 
-  return { envoyer, marquerRecue, basculerLigne };
+  return { envoyer, marquerRecue, basculerLigne, annuler };
 }
 
 // Côté local : préparer une commande (cocher/peser pin par pin), puis la valider comme prête.
