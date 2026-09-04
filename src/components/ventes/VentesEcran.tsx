@@ -189,7 +189,12 @@ export function VentesEcran() {
 
           {(estAdmin || estManager) && (
             <Pressable
-              onPress={() => router.push('/(app)/recap-ventes')}
+              onPress={() =>
+                router.push({
+                  pathname: '/(app)/recap-ventes',
+                  params: { popUpId: popUpActif.id, popUpNom: popUpActif.nom },
+                })
+              }
               className="mb-5 items-center rounded-2xl bg-slate-900 py-5"
             >
               <Text className="text-lg font-bold text-white">Voir tous les chiffres</Text>

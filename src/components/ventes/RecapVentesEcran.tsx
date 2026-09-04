@@ -14,7 +14,7 @@ import {
   startOfYear,
 } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { createElement, useEffect, useState } from 'react';
 import type { ChangeEvent, CSSProperties } from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -60,8 +60,14 @@ function TuileChiffre({ label, valeur }: { label: string; valeur: string }) {
 /** Récap simple des chiffres SumUp + espèces (bouton "Voir tous les chiffres" depuis Ventes) :
  * jour/semaine/mois/année ou un jour précis choisi à la main — pas de filtres ni de graphique ici,
  * volontairement minimal (cf. discussion : trop de choses en même temps). L'écran Finance existant
- * reste disponible pour le détail (historique, répartitions, filtres) si besoin plus tard. */
+ * reste disponible pour le détail (historique, répartitions, filtres) si besoin plus tard.
+ *
+ * Scopé au pop-up actif de l'écran Ventes (popUpId/popUpNom passés en param de route) : pour un
+ * manager mono-pop-up la RLS suffisait déjà, mais un admin ou quelqu'un affecté à plusieurs pop-up
+ * (cf. VentesEcran) voyait sinon toujours le cumul de tous les pop-up quel que soit celui
+ * sélectionné avant de cliquer "Voir tous les chiffres" — cf. retour utilisateur du 2026-09-01. */
 export function RecapVentesEcran() {
+  const { popUpId, popUpNom } = useLocalSearchParams<{ popUpId?: string; popUpNom?: string }>();
   const [periode, setPeriode] = useState<Periode>('jour');
   const [jourPrecis, setJourPrecis] = useState(new Date());
   const [pickerOuvert, setPickerOuvert] = useState(false);
@@ -86,7 +92,9 @@ export function RecapVentesEcran() {
     if (p === 'jour_precis' && Platform.OS !== 'web') setPickerOuvert(true);
   };
 
-  const ventesReussies = (ventes ?? []).filter((v) => v.statut === 'SUCCESSFUL');
+  const ventesReussies = (ventes ?? []).filter(
+    (v) => v.statut === 'SUCCESSFUL' && (!popUpId || v.pop_up_id === popUpId),
+  );
   const caTotal = ventesReussies.reduce((s, v) => s + v.montant, 0);
   const nbVentes = ventesReussies.length;
   const panierMoyen = nbVentes > 0 ? caTotal / nbVentes : 0;
@@ -100,12 +108,12 @@ export function RecapVentesEcran() {
     .filter((v) => v.moyen_paiement === 'CASH')
     .reduce((s, v) => s + v.montant, 0);
   const caEspecesDeclarees = (ventesEspeces ?? [])
-    .filter((v) => v.statut === 'confirmee')
+    .filter((v) => v.statut === 'confirmee' && (!popUpId || v.pop_up_id === popUpId))
     .reduce((s, v) => s + v.montant, 0);
 
   return (
     <View style={styles.ecran}>
-      <EnteteRetour titre="Chiffres" onRetour={() => router.back()} />
+      <EnteteRetour titre={popUpNom ? `Chiffres — ${popUpNom}` : 'Chiffres'} onRetour={() => router.back()} />
 
       <View style={styles.segment}>
         {PERIODES.map((p) => (

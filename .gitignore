@@ -51,3 +51,6 @@ yarn-error.*
 /Log_Apple/
 /Screen/
 /assets/Calendrier/
+
+# Contient des clés API La Poste en clair (KEY_*.txt) — jamais dans le repo, cf. lib/laposte.ts
+/assets/La poste/

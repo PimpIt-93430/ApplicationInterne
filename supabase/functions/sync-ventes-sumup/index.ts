@@ -419,12 +419,32 @@ Deno.serve(async (req: Request) => {
   const { data: emailsPopUp } = await clientAdmin.from('sumup_emails_pop_up').select('email, pop_up_id');
   const popUpParEmail = new Map((emailsPopUp ?? []).map((e) => [e.email.toLowerCase(), e.pop_up_id]));
 
-  const { data: toutesLesVentes } = await clientAdmin
-    .from('ventes_sumup')
-    .select('id, lat, lon, sumup_email, pop_up_id, profile_id, distance_pop_up_metres');
+  // PostgREST plafonne une sélection sans .range() à 1000 lignes par défaut : avec plus de ventes
+  // que ça en base, la réattribution s'arrêtait silencieusement avant d'avoir tout revu (des
+  // ventes récentes avec un email pourtant mappé restaient orphelines, cf. retour utilisateur :
+  // "Créteil soleil n'est pas attribué au mail que je t'avais dit"). On pagine explicitement.
+  const TAILLE_PAGE = 1000;
+  const toutesLesVentes: {
+    id: string;
+    lat: number | null;
+    lon: number | null;
+    sumup_email: string | null;
+    pop_up_id: string | null;
+    profile_id: string | null;
+    distance_pop_up_metres: number | null;
+  }[] = [];
+  for (let debut = 0; ; debut += TAILLE_PAGE) {
+    const { data: page } = await clientAdmin
+      .from('ventes_sumup')
+      .select('id, lat, lon, sumup_email, pop_up_id, profile_id, distance_pop_up_metres')
+      .range(debut, debut + TAILLE_PAGE - 1);
+    if (!page || page.length === 0) break;
+    toutesLesVentes.push(...page);
+    if (page.length < TAILLE_PAGE) break;
+  }
 
   let reattributions = 0;
-  for (const vente of toutesLesVentes ?? []) {
+  for (const vente of toutesLesVentes) {
     // Un email explicitement rattaché à un pop-up (sumup_emails_pop_up) prime sur le GPS : plus
     // fiable/intentionnel qu'une proximité calculée, et ne dépend pas de coordonnées GPS
     // renseignées ni précises. distanceTrouvee reste null dans ce cas (pas de calcul GPS fait).

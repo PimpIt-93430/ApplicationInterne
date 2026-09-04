@@ -10,6 +10,7 @@ import {
   basculerLigneCommandeFaite,
   basculerToutesLignesCommande,
   creerPin,
+  definirStockGeneral,
   envoyerCommande,
   fetchAttributionsPins,
   fetchCommandeActivePopUp,
@@ -23,7 +24,6 @@ import {
   fetchRemplissagesDepuisDerniereCommande,
   marquerCommandeRecue,
   modifierPin,
-  peserStockGeneral,
   retirerPinDeCase,
   signalerPinInconnu,
   supprimerRemplissage as supprimerRemplissageApi,
@@ -443,9 +443,9 @@ export function useGererCatalogue() {
     onSuccess: invalidate,
   });
 
-  const peser = useMutation({
-    mutationFn: (params: { pinId: string; popUpLocalId: string; poidsPese: number; profileId: string }) =>
-      peserStockGeneral(params),
+  const definir = useMutation({
+    mutationFn: (params: { pinId: string; popUpLocalId: string; quantite: number; profileId: string }) =>
+      definirStockGeneral(params),
     onSuccess: invalidate,
   });
 
@@ -454,5 +454,5 @@ export function useGererCatalogue() {
     onSuccess: invalidate,
   });
 
-  return { creer, modifier, ajusterStock, peser, signaler };
+  return { creer, modifier, ajusterStock, definir, signaler };
 }

@@ -565,47 +565,37 @@ export async function ajusterStockGeneral(params: {
 }
 
 /**
- * Pesée du stock local : on pèse ce qu'il reste d'un pin après avoir servi une ou plusieurs
- * commandes pop-up, et la quantité est recalculée à partir du poids unitaire du pin
- * (`poids_unitaire`, en g) plutôt que saisie à la main. `popUpId` est celui du pop-up "local"
+ * Comptage du stock local : quantité saisie directement (remplace l'ancienne pesée/poids_unitaire,
+ * retour utilisateur du 2026-09-02 — les pins arrivent maintenant en paquets de quantité connue,
+ * ex. 100, plus simple et rapide à compter qu'à peser). `popUpId` est celui du pop-up "local"
  * (`pop_ups.est_local`) — pas null — pour que la policy RLS existante sur `stock_mouvements`
- * (admin OU personne attribuée à ce pop-up) laisse un non-admin du local peser sans nouvelle
+ * (admin OU personne attribuée à ce pop-up) laisse un non-admin du local compter sans nouvelle
  * migration ; ça sert aussi de traçabilité cohérente avec le reste du stock (chaque mouvement
- * rattaché à un lieu). `quantite_delta` volontairement laissé à null (comme l'ancien système de
- * pesée par boîte) : l'historique affiche alors `quantite_calculee` plutôt qu'un delta, cf.
- * PanneauPin.
+ * rattaché à un lieu).
  */
-export async function peserStockGeneral(params: {
+export async function definirStockGeneral(params: {
   pinId: string;
   popUpLocalId: string;
-  poidsPese: number;
+  quantite: number;
   profileId: string;
-}): Promise<number> {
-  const { pinId, popUpLocalId, poidsPese, profileId } = params;
-  const pin = await fetchPin(pinId);
-  if (!pin.poids_unitaire || pin.poids_unitaire <= 0) {
-    throw new Error('Poids unité manquant pour ce pin — renseigne-le dans le Catalogue avant de peser.');
-  }
-
-  const quantiteCalculee = Math.max(0, Math.round(poidsPese / pin.poids_unitaire));
+}): Promise<void> {
+  const { pinId, popUpLocalId, quantite, profileId } = params;
+  const quantiteValide = Math.max(0, Math.round(quantite));
 
   const { error: errorMaj } = await supabase
     .from('stock_pins')
-    .update({ stock_general: quantiteCalculee, updated_at: new Date().toISOString() })
+    .update({ stock_general: quantiteValide, updated_at: new Date().toISOString() })
     .eq('id', pinId);
   if (errorMaj) throw errorMaj;
 
   const { error: errorMouvement } = await supabase.from('stock_mouvements').insert({
     pin_id: pinId,
     pop_up_id: popUpLocalId,
-    type: 'pesee' as TypeMouvementStock,
-    poids_pese: poidsPese,
-    quantite_calculee: quantiteCalculee,
+    type: 'ajustement' as TypeMouvementStock,
+    quantite_calculee: quantiteValide,
     profile_id: profileId,
   });
   if (errorMouvement) throw errorMouvement;
-
-  return quantiteCalculee;
 }
 
 export async function creerPin(params: {

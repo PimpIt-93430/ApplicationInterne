@@ -6,6 +6,7 @@ import {
   modifierCoordonneesPopUp,
   modifierCreneauxPredefinisPopUp,
   modifierDatesPopUp,
+  modifierObjectifEspecesPopUp,
   renommerPopUp,
   supprimerPopUp,
 } from '@/api/popUps';
@@ -65,6 +66,15 @@ export function useModifierCreneauxPredefinisPopUp() {
       apresMidiPauseDebut: string | null;
       apresMidiPauseFin: string | null;
     }) => modifierCreneauxPredefinisPopUp(params.id, params),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['pop-ups'] }),
+  });
+}
+
+export function useModifierObjectifEspecesPopUp() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params: { id: string; objectif: number | null }) =>
+      modifierObjectifEspecesPopUp(params.id, params.objectif),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['pop-ups'] }),
   });
 }

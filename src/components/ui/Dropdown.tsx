@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 
 export interface DropdownOption {
   value: string;
@@ -39,28 +39,37 @@ export function Dropdown({
       </Pressable>
 
       {ouvert && (
-        <View className="absolute left-0 right-0 top-full z-20 mt-1 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
-          {options.map((option) => (
-            <Pressable
-              key={option.value}
-              onPress={() => {
-                onChange(option.value);
-                setOuvert(false);
-              }}
-              className={`flex-row items-center gap-2 rounded-lg px-3 py-2.5 ${
-                option.value === value ? 'bg-indigo-50' : ''
-              }`}
-            >
-              {option.couleur && (
-                <View className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: option.couleur }} />
-              )}
-              <Text
-                className={`text-base ${option.value === value ? 'font-semibold text-indigo-600' : 'text-slate-700'}`}
+        <View
+          className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg"
+          style={{ maxHeight: 260 }}
+        >
+          {/* Liste défilante (cf. retour utilisateur : sur Profil "Se connecter en tant que", la
+              liste dépassait l'écran et les derniers noms n'étaient plus cliquables) — max-height
+              fixe plutôt qu'une hauteur dépendant du nombre d'options, qui peut varier beaucoup
+              d'un écran à l'autre utilisant ce composant partagé. */}
+          <ScrollView className="p-1" nestedScrollEnabled keyboardShouldPersistTaps="handled">
+            {options.map((option) => (
+              <Pressable
+                key={option.value}
+                onPress={() => {
+                  onChange(option.value);
+                  setOuvert(false);
+                }}
+                className={`flex-row items-center gap-2 rounded-lg px-3 py-2.5 ${
+                  option.value === value ? 'bg-indigo-50' : ''
+                }`}
               >
-                {option.label}
-              </Text>
-            </Pressable>
-          ))}
+                {option.couleur && (
+                  <View className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: option.couleur }} />
+                )}
+                <Text
+                  className={`text-base ${option.value === value ? 'font-semibold text-indigo-600' : 'text-slate-700'}`}
+                >
+                  {option.label}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
         </View>
       )}
     </View>

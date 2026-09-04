@@ -46,6 +46,10 @@ export interface PopUp {
   matin_pause_fin: string | null;
   apres_midi_pause_debut: string | null;
   apres_midi_pause_fin: string | null;
+  /** Objectif fixé par un admin : % du total espèces (appli + SumUp non déclarées) qui doit passer
+   * par la déclaration manuelle (écran Ventes) — cf. ObjectifEspecesRH (RH). Nullable tant que
+   * l'admin ne l'a pas réglé. */
+  objectif_pourcentage_espece_appli: number | null;
 }
 
 /** Attribution d'une personne à un lieu où elle peut être planifiée. Une personne peut être
@@ -578,5 +582,18 @@ export interface StockMouvement {
   case_position: string | null;
   note: string | null;
   profile_id: string | null;
+  created_at: string;
+}
+
+/** Dépôt en banque du cash SumUp ("Espèce SumUp"), tous pop-up confondus : `periode_debut`/
+ * `periode_fin` sont la période couverte par ce dépôt (pas forcément le jour du dépôt lui-même,
+ * cf. `date_depot`) — admin uniquement, cf. migration 0088. */
+export interface DepotEspece {
+  id: string;
+  periode_debut: string;
+  periode_fin: string;
+  date_depot: string;
+  montant: number;
+  profile_id: string;
   created_at: string;
 }

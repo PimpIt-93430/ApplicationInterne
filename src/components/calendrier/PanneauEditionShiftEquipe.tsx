@@ -424,6 +424,14 @@ export function PanneauEditionShiftEquipe({
         {pickerOuvert &&
           Platform.OS !== 'web' &&
           createElement(DateTimePicker, {
+            // Cf. retour utilisateur du 2026-09-05 : "je mets le matin, il finit à 19h, je peux pas
+            // bouger et mettre 17h, la roulette va automatiquement à 1h du matin" — sans `key`,
+            // React ne remonte jamais la vue native quand on passe d'un champ à l'autre (debut/fin/
+            // pauseDebut/pauseFin réutilisent la même instance de UIDatePicker sur iOS), qui garde
+            // alors un état de scroll interne périmé et « saute » à une valeur incohérente au
+            // premier geste sur le nouveau champ. La clé force un remontage propre à chaque
+            // ouverture d'un champ différent.
+            key: pickerOuvert,
             value:
               pickerOuvert === 'debut'
                 ? heureDebut

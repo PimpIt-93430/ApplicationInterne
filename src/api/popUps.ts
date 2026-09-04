@@ -94,6 +94,16 @@ export async function modifierCreneauxPredefinisPopUp(
   if (error) throw error;
 }
 
+/** Objectif RH (% du total espèces qui doit passer par la déclaration appli plutôt que rester en
+ * CASH côté SumUp) — réservé aux admins côté UI, cf. ObjectifEspecesRH. `null` retire l'objectif. */
+export async function modifierObjectifEspecesPopUp(id: string, objectif: number | null) {
+  const { error } = await supabase
+    .from('pop_ups')
+    .update({ objectif_pourcentage_espece_appli: objectif })
+    .eq('id', id);
+  if (error) throw error;
+}
+
 export async function supprimerPopUp(id: string) {
   const { error } = await supabase.from('pop_ups').delete().eq('id', id);
   if (error) throw error;
