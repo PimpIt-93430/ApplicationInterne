@@ -692,7 +692,7 @@ function PanneauCommande({
    * au clic sur un bouton) — si la personne quitte le panneau par erreur en cours de route, rien
    * n'est perdu. `onEnvoyer` n'est alors jamais appelé. */
   onBasculerImmediat?: (pinId: string, inclus: boolean) => void;
-  onEnvoyer?: (pinIds: string[]) => void;
+  onEnvoyer?: (lignes: { pinId: string; quantite: number }[]) => void;
   /** Mode modification uniquement : annule l'envoi (commande + lignes supprimées, pins remis "à
    * commander" — déjà le cas puisque l'envoi ne les avait jamais retirés). */
   onAnnuler?: () => void;
@@ -710,6 +710,16 @@ function PanneauCommande({
   );
 
   const lignesRetenues = lignes.filter((l) => !pinsExclus.has(l.pin.id));
+
+  // Quantité par pin envoyée au pop-up — 100 par défaut, palier de 100 — cf. retour utilisateur du
+  // 2026-09-05 : "il faut que le pin's soit décrémenté de 100 200 ou 300 ou met 100 par defaut
+  // avec une possibilité de monter 200 300 etc". Non éditable en mode modification (commande déjà
+  // envoyée) : une ligne ré-ajoutée repart à 100 (cf. basculerLigneCommande côté serveur).
+  const [qtyParPin, setQtyParPin] = useState<Record<string, number>>({});
+  const quantitePin = (pinId: string) => qtyParPin[pinId] ?? 100;
+  const ajusterQuantite = (pinId: string, delta: number) => {
+    setQtyParPin((prev) => ({ ...prev, [pinId]: Math.max(100, quantitePin(pinId) + delta) }));
+  };
 
   const basculerPin = (pinId: string) => {
     let inclusApres = false;
@@ -743,7 +753,10 @@ function PanneauCommande({
       `Le local va préparer ces pins pour ${popUpNom}. Tu ne pourras pas envoyer de nouvelle commande tant que celle-ci n'est pas reçue.`,
       [
         { text: 'Annuler', style: 'cancel' },
-        { text: 'Envoyer', onPress: () => onEnvoyer?.(lignesRetenues.map((l) => l.pin.id)) },
+        {
+          text: 'Envoyer',
+          onPress: () => onEnvoyer?.(lignesRetenues.map((l) => ({ pinId: l.pin.id, quantite: quantitePin(l.pin.id) }))),
+        },
       ],
     );
   };
@@ -770,33 +783,50 @@ function PanneauCommande({
           lignes.map((ligne) => {
             const retenu = !pinsExclus.has(ligne.pin.id);
             return (
-              <Pressable
-                key={ligne.pin.id}
-                onPress={() => basculerPin(ligne.pin.id)}
-                className="mb-2 flex-row items-center gap-3 rounded-xl bg-slate-50 p-2"
-              >
-                {ligne.pin.photo_url ? (
-                  <Image
-                    source={{ uri: ligne.pin.photo_url }}
-                    className="h-14 w-14 rounded-lg bg-slate-100"
-                  />
-                ) : (
-                  <View className="h-14 w-14 items-center justify-center rounded-lg bg-slate-100">
-                    <Text className="text-lg text-slate-300">?</Text>
+              <View key={ligne.pin.id} className="mb-2 flex-row items-center gap-3 rounded-xl bg-slate-50 p-2">
+                <Pressable onPress={() => basculerPin(ligne.pin.id)} className="flex-1 flex-row items-center gap-3">
+                  {ligne.pin.photo_url ? (
+                    <Image
+                      source={{ uri: ligne.pin.photo_url }}
+                      className="h-14 w-14 rounded-lg bg-slate-100"
+                    />
+                  ) : (
+                    <View className="h-14 w-14 items-center justify-center rounded-lg bg-slate-100">
+                      <Text className="text-lg text-slate-300">?</Text>
+                    </View>
+                  )}
+                  <Text numberOfLines={2} className="flex-1 text-sm font-semibold text-slate-800">
+                    {ligne.pin.nom}
+                  </Text>
+                  <Text className="text-xs text-slate-400">{ligne.nbBoites} boîte(s)</Text>
+                  <View
+                    className={`h-7 w-7 items-center justify-center rounded-md border-2 ${
+                      retenu ? 'border-emerald-600 bg-emerald-600' : 'border-slate-300'
+                    }`}
+                  >
+                    {retenu && <Text className="text-xs font-bold text-white">✓</Text>}
+                  </View>
+                </Pressable>
+                {!modeModification && retenu && (
+                  <View className="flex-row items-center gap-1.5">
+                    <Pressable
+                      onPress={() => ajusterQuantite(ligne.pin.id, -100)}
+                      className="h-7 w-7 items-center justify-center rounded-md bg-slate-200"
+                    >
+                      <Text className="text-sm font-bold text-slate-600">−</Text>
+                    </Pressable>
+                    <Text className="w-10 text-center text-sm font-semibold text-slate-700">
+                      {quantitePin(ligne.pin.id)}
+                    </Text>
+                    <Pressable
+                      onPress={() => ajusterQuantite(ligne.pin.id, 100)}
+                      className="h-7 w-7 items-center justify-center rounded-md bg-slate-200"
+                    >
+                      <Text className="text-sm font-bold text-slate-600">+</Text>
+                    </Pressable>
                   </View>
                 )}
-                <Text numberOfLines={2} className="flex-1 text-sm font-semibold text-slate-800">
-                  {ligne.pin.nom}
-                </Text>
-                <Text className="text-xs text-slate-400">{ligne.nbBoites} boîte(s)</Text>
-                <View
-                  className={`h-7 w-7 items-center justify-center rounded-md border-2 ${
-                    retenu ? 'border-emerald-600 bg-emerald-600' : 'border-slate-300'
-                  }`}
-                >
-                  {retenu && <Text className="text-xs font-bold text-white">✓</Text>}
-                </View>
-              </Pressable>
+              </View>
             );
           })
         )}
@@ -1917,9 +1947,9 @@ export function StockScreen({
           lignes={commandeLignes}
           popUpNom={popUps.find((p) => p.id === popUpActif)?.nom ?? ''}
           enCours={envoyerCommandeMutation.isPending}
-          onEnvoyer={(pinIds) =>
+          onEnvoyer={(lignes) =>
             envoyerCommandeMutation.mutate(
-              { profileId: profile.id, pinIds },
+              { profileId: profile.id, lignes },
               {
                 onSuccess: () => setCommandeOuverte(false),
                 onError: (e) => Alert.alert('Erreur', e instanceof Error ? e.message : "Impossible d'envoyer."),

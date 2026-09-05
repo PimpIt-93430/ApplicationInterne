@@ -508,6 +508,9 @@ export interface CommandeLigne {
   commande_id: string;
   pin_id: string;
   fait: boolean;
+  /** Quantité envoyée de ce pin au pop-up — cf. migration 0097, retour utilisateur du 2026-09-05 :
+   * "il faut que le pin's soit décrémenté de 100 200 ou 300 ou met 100 par defaut". */
+  quantite: number;
   updated_at: string;
 }
 

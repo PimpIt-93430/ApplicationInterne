@@ -315,7 +315,7 @@ export function useGererCommandePopUp(popUpId: string | undefined) {
     queryClient.invalidateQueries({ queryKey: ['stock-commande-active', popUpId] });
 
   const envoyer = useMutation({
-    mutationFn: (params: { profileId: string; pinIds: string[] }) =>
+    mutationFn: (params: { profileId: string; lignes: { pinId: string; quantite: number }[] }) =>
       envoyerCommande({ popUpId: popUpId as string, ...params }),
     onSuccess: () => {
       invalidateActive();
@@ -353,7 +353,7 @@ export function useGererCommandePopUp(popUpId: string | undefined) {
   // commande est encore "envoyee" côté base (RLS, migration 0042) : verrouillé dès que le local
   // valide.
   const basculerLigne = useMutation({
-    mutationFn: (params: { commandeId: string; pinId: string; inclus: boolean }) =>
+    mutationFn: (params: { commandeId: string; pinId: string; inclus: boolean; quantite?: number }) =>
       basculerLigneCommande(params),
     onSuccess: invalidateActive,
   });

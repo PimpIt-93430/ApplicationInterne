@@ -90,15 +90,34 @@ export function formatEmplacement(
   return null;
 }
 
+/** Applique un delta (positif = incrément, négatif = décrément, jamais sous 0) au stock local
+ * d'un pin — cf. retour utilisateur du 2026-09-05 : "a chaque fois que le local envoie une
+ * commande a un pop up il faut que le pin's soit décrémenté [...] comme ca on suit la quantité de
+ * pin's dans le local aussi". Même logique côté Hub (app/(hub)/stock/pins/actions.ts), les deux
+ * écrivent la même table stock_pins. */
+async function appliquerDeltaStockPin(pinId: string, delta: number): Promise<void> {
+  const { data: pin, error: errLecture } = await supabase
+    .from('stock_pins')
+    .select('stock_general')
+    .eq('id', pinId)
+    .single();
+  if (errLecture) throw errLecture;
+  const nouveauStock = Math.max(0, Number(pin.stock_general) + delta);
+  const { error: errMaj } = await supabase.from('stock_pins').update({ stock_general: nouveauStock }).eq('id', pinId);
+  if (errMaj) throw errMaj;
+}
+
 /** Crée une commande à partir des pins actuellement "à commander" sur ce pop-up et l'envoie au
  * local — une seule commande "en vol" (pas encore reçue) à la fois par pop-up (contrainte en
- * base, migration 0037) : échoue si une commande précédente n'a pas encore été marquée reçue. */
+ * base, migration 0037) : échoue si une commande précédente n'a pas encore été marquée reçue.
+ * Décrémente aussi le stock local de chaque pin envoyé (quantité par pin, 100 par défaut côté UI —
+ * cf. migration 0097, retour utilisateur du 2026-09-05), best-effort par ligne. */
 export async function envoyerCommande(params: {
   popUpId: string;
   profileId: string;
-  pinIds: string[];
+  lignes: { pinId: string; quantite: number }[];
 }): Promise<string> {
-  const { popUpId, profileId, pinIds } = params;
+  const { popUpId, profileId, lignes } = params;
   const { data: commande, error: errorCommande } = await supabase
     .from('commandes_pop_up')
     .insert({ pop_up_id: popUpId, envoyee_par: profileId })
@@ -108,8 +127,16 @@ export async function envoyerCommande(params: {
 
   const { error: errorLignes } = await supabase
     .from('commande_lignes')
-    .insert(pinIds.map((pinId) => ({ commande_id: commande.id, pin_id: pinId })));
+    .insert(lignes.map((l) => ({ commande_id: commande.id, pin_id: l.pinId, quantite: l.quantite })));
   if (errorLignes) throw errorLignes;
+
+  for (const l of lignes) {
+    try {
+      await appliquerDeltaStockPin(l.pinId, -l.quantite);
+    } catch (e) {
+      console.warn(`Décrément stock local échoué pour le pin ${l.pinId}:`, e instanceof Error ? e.message : e);
+    }
+  }
 
   return commande.id;
 }
@@ -136,18 +163,40 @@ export async function basculerLigneCommande(params: {
   commandeId: string;
   pinId: string;
   inclus: boolean;
+  quantite?: number;
 }) {
   const { commandeId, pinId, inclus } = params;
   if (inclus) {
-    const { error } = await supabase.from('commande_lignes').insert({ commande_id: commandeId, pin_id: pinId });
+    const quantite = params.quantite ?? 100;
+    const { error } = await supabase.from('commande_lignes').insert({ commande_id: commandeId, pin_id: pinId, quantite });
     if (error) throw error;
+    try {
+      await appliquerDeltaStockPin(pinId, -quantite);
+    } catch (e) {
+      console.warn(`Décrément stock local échoué pour le pin ${pinId}:`, e instanceof Error ? e.message : e);
+    }
   } else {
+    const { data: ligneExistante } = await supabase
+      .from('commande_lignes')
+      .select('quantite')
+      .eq('commande_id', commandeId)
+      .eq('pin_id', pinId)
+      .maybeSingle();
+
     const { error } = await supabase
       .from('commande_lignes')
       .delete()
       .eq('commande_id', commandeId)
       .eq('pin_id', pinId);
     if (error) throw error;
+
+    if (ligneExistante) {
+      try {
+        await appliquerDeltaStockPin(pinId, Number(ligneExistante.quantite));
+      } catch (e) {
+        console.warn(`Ré-incrément stock local échoué pour le pin ${pinId}:`, e instanceof Error ? e.message : e);
+      }
+    }
   }
 }
 
