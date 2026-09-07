@@ -55,6 +55,16 @@ const MAX_DETAILS_PAR_APPEL = 250;
 // Écrit au fil de l'eau plutôt qu'en un seul upsert final : si l'invocation est interrompue
 // (timeout), le travail déjà fait reste enregistré au lieu d'être perdu.
 const TAILLE_LOT_UPSERT = 50;
+// Taille des lots pour les mises à jour groupées par .in() (statuts, réattribution) — les filtres
+// PostgREST passent par la query string : au-delà de quelques centaines d'ids, l'URL générée
+// devient déraisonnable. Choisi assez grand pour rester efficace, assez petit pour rester sûr.
+const TAILLE_LOT_MAJ = 200;
+
+function versLots<T>(items: T[], taille: number): T[][] {
+  const lots: T[][] = [];
+  for (let i = 0; i < items.length; i += taille) lots.push(items.slice(i, i + taille));
+  return lots;
+}
 
 function distanceMetres(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const rayonTerre = 6371000;
@@ -164,6 +174,12 @@ Deno.serve(async (req: Request) => {
   }
   const sumupHeaders = { Authorization: `Bearer ${sumupApiKey}` };
 
+  // Repères de timing temporaires (cf. incident du 2026-09-06/07 : la fonction timeout côté
+  // plateforme sans jamais logguer d'erreur applicative — ces repères servent à localiser la
+  // phase réellement lente avant de décider quoi optimiser). À retirer une fois le diagnostic fait.
+  const t0 = Date.now();
+  const chrono = (etape: string) => console.log(`[chrono] ${etape} : ${Date.now() - t0}ms`);
+
   const body = await req.json().catch(() => ({}) as { depuis?: string; jusqua?: string });
   const maintenant = new Date();
   const jusqua = body?.jusqua ?? maintenant.toISOString();
@@ -202,6 +218,7 @@ Deno.serve(async (req: Request) => {
     await journaliser(false, 'merchant_code introuvable dans la réponse SumUp');
     return reponseJson({ error: 'merchant_code introuvable' }, 502);
   }
+  chrono('GET /v0.1/me terminé');
 
   // 1a. Liste des transactions de la fenêtre, en suivant la pagination (l'API renvoie le lien
   // "next" comme une simple chaîne de requête à ajouter au même endpoint).
@@ -233,36 +250,62 @@ Deno.serve(async (req: Request) => {
     const suivant = ((page.links ?? []) as { rel: string; href: string }[]).find((l) => l.rel === 'next');
     requete = suivant?.href ?? '';
   }
+  chrono(`liste transactions terminée (${pages} page(s), ${resumes.length} résumé(s))`);
 
   // 1b. Sépare les transactions pas encore connues chez nous (traitement complet, y compris
   // détail/produits) de celles déjà connues dont le statut a changé depuis (ex. remboursement —
   // simple mise à jour de `statut`, cf. 1bis plus bas, jamais un retraitement complet qui
   // dupliquerait les lignes produit déjà écrites).
+  // Batché comme les écritures ci-dessous : sur une fenêtre chargée (rattrapage 14 jours),
+  // idsResumes peut dépasser le millier — un seul .in() avec autant d'ids dans la query string
+  // PostgREST devenait lui-même le point de blocage (observé : plus de 60s sans réponse sur cette
+  // seule requête, avant même d'avoir écrit une seule ligne) — cf. incident du 2026-09-07.
   const idsResumes = resumes.map((t) => t.id ?? t.transaction_id).filter((id): id is string => !!id);
-  const { data: connues } = await clientAdmin
-    .from('ventes_sumup')
-    .select('sumup_transaction_id, statut')
-    .in('sumup_transaction_id', idsResumes.length > 0 ? idsResumes : ['__aucune__']);
-  const statutConnuParId = new Map((connues ?? []).map((v) => [v.sumup_transaction_id as string, v.statut as string]));
+  const connues: { sumup_transaction_id: string; statut: string }[] = [];
+  for (const lot of versLots(idsResumes, TAILLE_LOT_MAJ)) {
+    const { data: page } = await clientAdmin.from('ventes_sumup').select('sumup_transaction_id, statut').in('sumup_transaction_id', lot);
+    connues.push(...((page ?? []) as { sumup_transaction_id: string; statut: string }[]));
+  }
+  const statutConnuParId = new Map(connues.map((v) => [v.sumup_transaction_id, v.statut]));
   const nouvelles = resumes.filter((r) => {
     const id = r.id ?? r.transaction_id;
     return !!id && !statutConnuParId.has(id);
   });
+  chrono(`tri connues/nouvelles terminé (${connues?.length ?? 0} connue(s), ${nouvelles.length} nouvelle(s))`);
+  // r.status manquant/vide (ex. forme de réponse SumUp différente sur un item) ne doit jamais être
+  // traité comme "changé" : sinon `statutConnu !== r.status` reste vrai à CHAQUE appel pour cette
+  // vente indéfiniment (écrire `statut: undefined` est un no-op JSON, le statut connu ne bouge
+  // jamais réellement) — cf. incident du 2026-09-06 : ça a fait boucler la mise à jour sur des
+  // centaines de ventes déjà connues à chaque cycle, en écriture une par une, jusqu'à épuiser le
+  // temps d'exécution de la fonction avant même d'atteindre la réattribution (plus aucune synchro
+  // n'aboutissait, `ventes_sumup_sync_etat` restait figé sur le dernier succès malgré le cron actif).
   const statutsChanges = resumes.filter((r) => {
     const id = r.id ?? r.transaction_id;
-    if (!id) return false;
+    if (!id || !r.status) return false;
     const statutConnu = statutConnuParId.get(id);
     return statutConnu !== undefined && statutConnu !== r.status;
   });
+  // Un aller-retour par ligne (potentiellement des centaines sur une fenêtre chargée) épuisait le
+  // temps d'exécution — regroupées par valeur de statut cible (une poignée de valeurs possibles :
+  // SUCCESSFUL/FAILED/REFUNDED/...), un seul .in() par groupe (par lots) suffit.
   let statutsMisAJour = 0;
+  const idsParStatut = new Map<string, string[]>();
   for (const r of statutsChanges) {
     const id = (r.id ?? r.transaction_id)!;
-    const { error: erreurMajStatut } = await clientAdmin
-      .from('ventes_sumup')
-      .update({ statut: r.status, updated_at: new Date().toISOString() })
-      .eq('sumup_transaction_id', id);
-    if (!erreurMajStatut) statutsMisAJour += 1;
+    const liste = idsParStatut.get(r.status) ?? [];
+    liste.push(id);
+    idsParStatut.set(r.status, liste);
   }
+  for (const [statut, ids] of idsParStatut) {
+    for (const lot of versLots(ids, TAILLE_LOT_MAJ)) {
+      const { error: erreurMajStatut } = await clientAdmin
+        .from('ventes_sumup')
+        .update({ statut, updated_at: new Date().toISOString() })
+        .in('sumup_transaction_id', lot);
+      if (!erreurMajStatut) statutsMisAJour += lot.length;
+    }
+  }
+  chrono(`statuts mis à jour (${statutsMisAJour})`);
 
   let lignesEnAttente: Record<string, unknown>[] = [];
   // Produits SumUp par transaction, en attente d'écriture — on ne connaît le vente_id (uuid généré
@@ -356,6 +399,7 @@ Deno.serve(async (req: Request) => {
 
       if (lignesEnAttente.length >= TAILLE_LOT_UPSERT) {
         await ecrireLot();
+        chrono(`lot de ${TAILLE_LOT_UPSERT} nouvelles ventes écrit (${totalEcrites} au total)`);
       }
     }
     await ecrireLot();
@@ -364,6 +408,7 @@ Deno.serve(async (req: Request) => {
     await journaliser(false, message);
     return reponseJson({ error: message }, 500);
   }
+  chrono(`nouvelles ventes écrites (${totalEcrites}, plafond atteint : ${detailsRestants <= 0})`);
 
   // 1c. Répare les lignes déjà écrites avant l'ajout de `description` (cf. migration 0071) — ou
   // plus généralement toute ligne dont on n'a pas encore la description, quelle qu'en soit la
@@ -403,6 +448,7 @@ Deno.serve(async (req: Request) => {
       }
     }
   }
+  chrono(`réparation descriptions terminée (${venteIdsAReparer.length} vente(s))`);
 
   // 2. Réattribution complète (email → pop-up mappé en priorité, sinon proximité GPS ; email →
   // salarié mappé), sur toutes les ventes connues.
@@ -442,8 +488,14 @@ Deno.serve(async (req: Request) => {
     toutesLesVentes.push(...page);
     if (page.length < TAILLE_PAGE) break;
   }
+  chrono(`ventes rechargées pour réattribution (${toutesLesVentes.length})`);
 
+  // Un aller-retour par ligne (jusqu'à plusieurs milliers de ventes) épuisait le temps d'exécution
+  // avant même de traiter les ventes du jour — cf. en-tête de fichier sur l'incident du 2026-09-06.
+  // On calcule d'abord tous les changements en mémoire, puis on écrit par lots groupés par valeurs
+  // cibles identiques (peu de combinaisons réelles : une poignée de pop-ups / salariés mappés).
   let reattributions = 0;
+  const changements: { id: string; popUpId: string | null; profileId: string | null; distance: number | null }[] = [];
   for (const vente of toutesLesVentes) {
     // Un email explicitement rattaché à un pop-up (sumup_emails_pop_up) prime sur le GPS : plus
     // fiable/intentionnel qu'une proximité calculée, et ne dépend pas de coordonnées GPS
@@ -470,20 +522,52 @@ Deno.serve(async (req: Request) => {
       distanceTrouvee !== vente.distance_pop_up_metres
     ) {
       reattributions += 1;
-      await clientAdmin
-        .from('ventes_sumup')
-        .update({ pop_up_id: popUpIdTrouve, profile_id: profileIdTrouve, distance_pop_up_metres: distanceTrouvee })
-        .eq('id', vente.id);
-      // Les lignes produit dénormalisent pop_up_id (cf. migration 0068, RLS scopée par lieu) : à
-      // maintenir à jour ici pour rester cohérentes avec la vente qu'elles détaillent.
-      if (popUpIdTrouve !== vente.pop_up_id) {
-        await clientAdmin
-          .from('ventes_sumup_lignes')
-          .update({ pop_up_id: popUpIdTrouve })
-          .eq('vente_id', vente.id);
-      }
+      changements.push({ id: vente.id, popUpId: popUpIdTrouve, profileId: profileIdTrouve, distance: distanceTrouvee });
     }
   }
+  chrono(`calcul réattributions terminé (${changements.length} changement(s))`);
+
+  const groupesVentes = new Map<
+    string,
+    { popUpId: string | null; profileId: string | null; distance: number | null; ids: string[] }
+  >();
+  for (const c of changements) {
+    const cle = JSON.stringify([c.popUpId, c.profileId, c.distance]);
+    const groupe = groupesVentes.get(cle) ?? { popUpId: c.popUpId, profileId: c.profileId, distance: c.distance, ids: [] };
+    groupe.ids.push(c.id);
+    groupesVentes.set(cle, groupe);
+  }
+  for (const { popUpId, profileId, distance, ids } of groupesVentes.values()) {
+    for (const lot of versLots(ids, TAILLE_LOT_MAJ)) {
+      await clientAdmin
+        .from('ventes_sumup')
+        .update({ pop_up_id: popUpId, profile_id: profileId, distance_pop_up_metres: distance })
+        .in('id', lot);
+    }
+  }
+  chrono('écriture réattributions ventes_sumup terminée');
+
+  // Les lignes produit dénormalisent pop_up_id (cf. migration 0068, RLS scopée par lieu) : à
+  // maintenir à jour pour les seules ventes dont le pop-up a réellement changé, regroupées par
+  // pop-up cible pour la même raison qu'au-dessus.
+  const venteParId = new Map(toutesLesVentes.map((v) => [v.id, v]));
+  const groupesLignes = new Map<string, string[]>();
+  for (const c of changements) {
+    const venteAvant = venteParId.get(c.id);
+    if (venteAvant && c.popUpId !== venteAvant.pop_up_id) {
+      const cle = c.popUpId ?? '__aucun__';
+      const liste = groupesLignes.get(cle) ?? [];
+      liste.push(c.id);
+      groupesLignes.set(cle, liste);
+    }
+  }
+  for (const [cle, venteIds] of groupesLignes) {
+    const popUpId = cle === '__aucun__' ? null : cle;
+    for (const lot of versLots(venteIds, TAILLE_LOT_MAJ)) {
+      await clientAdmin.from('ventes_sumup_lignes').update({ pop_up_id: popUpId }).in('vente_id', lot);
+    }
+  }
+  chrono('écriture réattributions ventes_sumup_lignes terminée');
 
   await journaliser(true, `OK — ${resumes.length} vues, ${totalEcrites} nouvelles/modifiées, ${reattributions} réattributions`);
 
