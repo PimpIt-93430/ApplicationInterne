@@ -110,9 +110,16 @@ function CarteObjectifPopUp({
       ) : (
         <>
           <View className="mb-1 flex-row items-center justify-between">
-            <Text className="text-xs text-slate-500">
-              Espèce appli {formatMontant(especeAppli)} · Espèce SumUp {formatMontant(especeSumup)}
-            </Text>
+            {estAdmin ? (
+              // Cf. retour utilisateur du 2026-09-07 : "les managers aient uniquement un
+              // pourcentage pas le montant" — les montants (chiffre d'affaires) restent réservés
+              // aux admins, un manager ne voit que le % vers l'objectif.
+              <Text className="text-xs text-slate-500">
+                Espèce appli {formatMontant(especeAppli)} · Espèce SumUp {formatMontant(especeSumup)}
+              </Text>
+            ) : (
+              <View />
+            )}
             <Text className="text-sm font-bold" style={{ color: couleurBarre }}>
               {pourcentage}%
             </Text>
