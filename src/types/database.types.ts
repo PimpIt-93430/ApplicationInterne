@@ -547,6 +547,39 @@ export interface CommandeConsommableLigne {
   created_at: string;
 }
 
+export type StatutCommandeProduits = 'demandee' | 'envoyee' | 'recue';
+export type CategorieProduit = 'chaussures' | 'coques' | 'sacs';
+
+/** Cycle de vie d'une commande de Produits (chaussures/coques/sacs) : demandée (par le pop-up) →
+ * envoyée (par le local, une fois préparée) → reçue (par le pop-up) — même principe que
+ * CommandeConsommables (migration 0098), avec une quantité par ligne comme les pin's. */
+export interface CommandeProduits {
+  id: string;
+  pop_up_id: string;
+  statut: StatutCommandeProduits;
+  demandee_par: string | null;
+  demandee_at: string;
+  envoyee_par: string | null;
+  envoyee_at: string | null;
+  recue_par: string | null;
+  recue_at: string | null;
+  created_at: string;
+}
+
+/** `produit_id` pointe vers chaussures_stock/coques_stock/sacs_stock selon `categorie` (pas de FK
+ * unique possible vers 3 tables différentes) — `libelle` dénormalise la description de la variante
+ * au moment de la demande (ex. "Noir — 40-41"), cf. migration 0098. */
+export interface CommandeProduitLigne {
+  id: string;
+  commande_id: string;
+  categorie: CategorieProduit;
+  produit_id: string;
+  libelle: string;
+  quantite: number;
+  fait: boolean;
+  created_at: string;
+}
+
 export type StatutVenteSumup = 'SUCCESSFUL' | 'CANCELLED' | 'FAILED' | 'REFUNDED' | 'CHARGE_BACK';
 
 /** Vente SumUp synchronisée chez nous (cf. supabase/functions/sync-ventes-sumup) — pop_up_id et

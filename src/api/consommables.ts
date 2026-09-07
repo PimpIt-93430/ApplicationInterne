@@ -98,6 +98,50 @@ export async function modifierDescriptionAutreConsommable(params: {
   if (error) throw error;
 }
 
+export interface CommandeConsommablesResume {
+  commande: CommandeConsommables;
+  popUpNom: string;
+  nbLignes: number;
+}
+
+/** Toutes les demandes de consommables en attente (statut "demandee"), tous pop-ups confondus —
+ * jusqu'ici il fallait rebasculer le sélecteur de pop-up pour tomber dessus une par une (cf. écran
+ * Commande générale, retour utilisateur du 2026-09-07 : "dans local voir les commandes aussi"). */
+export async function fetchConsommablesEnAttenteLocal(): Promise<CommandeConsommablesResume[]> {
+  const { data, error } = await supabase
+    .from('commandes_consommables')
+    .select('*, pop_up:pop_ups(nom), lignes:commande_consommables_lignes(id)')
+    .eq('statut', 'demandee')
+    .order('demandee_at', { ascending: true });
+  if (error) throw error;
+  return (
+    data as unknown as (CommandeConsommables & { pop_up: { nom: string } | null; lignes: { id: string }[] })[]
+  ).map((c) => {
+    const { pop_up, lignes, ...commande } = c;
+    return { commande, popUpNom: pop_up?.nom ?? '?', nbLignes: lignes.length };
+  });
+}
+
+export interface CommandeConsommablesHistoriqueResume {
+  commande: CommandeConsommables;
+  nbLignes: number;
+}
+
+/** Historique des demandes de consommables d'un pop-up (tous statuts), du plus récent au plus
+ * ancien. */
+export async function fetchCommandesConsommablesTerminees(popUpId: string): Promise<CommandeConsommablesHistoriqueResume[]> {
+  const { data, error } = await supabase
+    .from('commandes_consommables')
+    .select('*, lignes:commande_consommables_lignes(id)')
+    .eq('pop_up_id', popUpId)
+    .order('demandee_at', { ascending: false });
+  if (error) throw error;
+  return (data as unknown as (CommandeConsommables & { lignes: { id: string }[] })[]).map((c) => {
+    const { lignes, ...commande } = c;
+    return { commande, nbLignes: lignes.length };
+  });
+}
+
 /** Le local marque la demande comme envoyée (préparée/remise au pop-up). */
 export async function marquerConsommablesEnvoyee(params: { commandeId: string; profileId: string }) {
   const { error } = await supabase

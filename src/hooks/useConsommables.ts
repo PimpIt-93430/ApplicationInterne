@@ -5,6 +5,8 @@ import {
   basculerLigneConsommable,
   demanderConsommables,
   fetchCommandeActiveConsommables,
+  fetchCommandesConsommablesTerminees,
+  fetchConsommablesEnAttenteLocal,
   marquerConsommablesEnvoyee,
   marquerConsommablesRecue,
   modifierDescriptionAutreConsommable,
@@ -37,6 +39,38 @@ export function useCommandeActiveConsommables(popUpId: string | undefined) {
   return useQuery({
     queryKey,
     queryFn: () => fetchCommandeActiveConsommables(popUpId as string),
+    enabled: !!popUpId,
+  });
+}
+
+// Onglet "Commandes" du Local : toutes les demandes de consommables en attente, tous pop-ups
+// confondus (cf. écran Commande générale — jusqu'ici il fallait rebasculer le sélecteur de pop-up
+// pour tomber dessus une par une).
+export function useConsommablesEnAttenteLocal() {
+  const queryClient = useQueryClient();
+  const queryKey = ['consommables-commandes-local'];
+  const instanceId = useRef(Math.random().toString(36).slice(2)).current;
+
+  useEffect(() => {
+    const channel = supabase
+      .channel(`consommables-commandes-local-${instanceId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'commandes_consommables' }, () =>
+        queryClient.invalidateQueries({ queryKey }),
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient, instanceId]);
+
+  return useQuery({ queryKey, queryFn: fetchConsommablesEnAttenteLocal });
+}
+
+// Historique des demandes de consommables d'un pop-up.
+export function useCommandesConsommablesTerminees(popUpId: string | undefined) {
+  return useQuery({
+    queryKey: ['consommables-commandes-terminees', popUpId],
+    queryFn: () => fetchCommandesConsommablesTerminees(popUpId as string),
     enabled: !!popUpId,
   });
 }

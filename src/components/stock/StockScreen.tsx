@@ -50,6 +50,7 @@ import {
   usePins,
 } from '@/hooks/useStock';
 import { construireMapAffectations, popUpsAttribues } from '@/utils/affectations';
+import { useCommandeQuantitesStore } from '@/store/useCommandeQuantitesStore';
 import type { Profile, StockPin } from '@/types/database.types';
 
 /** Fiche détail d'un pin, ouverte depuis le catalogue : uniquement poids unité (édition), seuil
@@ -665,6 +666,69 @@ function RapportRemplissages({
   );
 }
 
+/** Aperçu des pins "à commander" avec réglage de la quantité (palier 100) — l'envoi lui-même se
+ * fait depuis Stock > Voir la commande (cf. retour utilisateur du 2026-09-07), mais l'ajustement
+ * reste accessible ici puisque c'est en repérant les boîtes qu'on sait combien il en faut. Partagé
+ * via useCommandeQuantitesStore : la quantité choisie ici est reprise telle quelle au moment de
+ * l'envoi, pas besoin de la re-régler sur l'autre écran. */
+function PanneauAjusterQuantites({ lignes, popUpNom, onFermer }: { lignes: LigneCommande[]; popUpNom: string; onFermer: () => void }) {
+  const quantites = useCommandeQuantitesStore((s) => s.quantites);
+  const ajusterQuantite = useCommandeQuantitesStore((s) => s.ajusterQuantite);
+
+  return (
+    <FeuilleModale onClose={onFermer}>
+      <Text className="mb-1 text-lg font-bold text-slate-900">Commande — {popUpNom}</Text>
+      <Text className="mb-3 text-sm text-slate-400">
+        Pins signalés "à commander" sur les boîtes de ce pop-up. Ajuste la quantité de chacun (100 par
+        défaut) — l'envoi se fait ensuite depuis Stock &gt; Voir la commande.
+      </Text>
+
+      <ScrollView style={{ maxHeight: 480 }}>
+        {lignes.length === 0 ? (
+          <Text className="text-sm text-slate-400">Rien à commander pour l'instant.</Text>
+        ) : (
+          lignes.map((ligne) => (
+            <View key={ligne.pin.id} className="mb-2 flex-row items-center gap-3 rounded-xl bg-slate-50 p-2">
+              {ligne.pin.photo_url ? (
+                <Image source={{ uri: ligne.pin.photo_url }} className="h-14 w-14 rounded-lg bg-slate-100" />
+              ) : (
+                <View className="h-14 w-14 items-center justify-center rounded-lg bg-slate-100">
+                  <Text className="text-lg text-slate-300">?</Text>
+                </View>
+              )}
+              <Text numberOfLines={2} className="flex-1 text-sm font-semibold text-slate-800">
+                {ligne.pin.nom}
+              </Text>
+              <Text className="text-xs text-slate-400">{ligne.nbBoites} boîte(s)</Text>
+              <View className="flex-row items-center gap-1.5">
+                <Pressable
+                  onPress={() => ajusterQuantite(ligne.pin.id, -100)}
+                  className="h-7 w-7 items-center justify-center rounded-md bg-slate-200"
+                >
+                  <Text className="text-sm font-bold text-slate-600">−</Text>
+                </Pressable>
+                <Text className="w-10 text-center text-sm font-semibold text-slate-700">
+                  {quantites[ligne.pin.id] ?? 100}
+                </Text>
+                <Pressable
+                  onPress={() => ajusterQuantite(ligne.pin.id, 100)}
+                  className="h-7 w-7 items-center justify-center rounded-md bg-slate-200"
+                >
+                  <Text className="text-sm font-bold text-slate-600">+</Text>
+                </Pressable>
+              </View>
+            </View>
+          ))
+        )}
+      </ScrollView>
+
+      <Pressable onPress={onFermer} className="mt-4 items-center rounded-xl bg-slate-100 py-3.5">
+        <Text className="text-base font-bold text-slate-700">Terminé</Text>
+      </Pressable>
+    </FeuilleModale>
+  );
+}
+
 /** Aperçu de la commande avant envoi : pins signalés "à commander" sur les boîtes de ce pop-up,
  * tant que rien n'a encore été envoyé au local. Chaque pin est coché par défaut ; décocher un pin
  * l'exclut de cet envoi (il reste "à commander" et repartira dans une prochaine commande) — utile
@@ -1245,7 +1309,9 @@ const LignePreparationCommande = memo(function LignePreparationCommande({
 /** Écran de préparation d'une commande (Local) : coche chaque pin (photo, SKU, bac) — un par un ou
  * tous d'un coup — puis valide comme prête. Historise trouvé/pas trouvé pin par pin (alimente
  * l'ajustement auto de seuil_cible) et prévient le pop-up. */
-function PanneauPreparationCommande({
+/** Exporté pour être réutilisé tel quel par l'écran "Commande générale" (Local > Voir les
+ * commandes) — même panneau de préparation pin par pin, pas de raison de le dupliquer. */
+export function PanneauPreparationCommande({
   commandeId,
   profile,
   basculerFait,
@@ -1519,7 +1585,6 @@ export function StockScreen({
   const { data: commandesTerminees, isLoading: chargementHistorique } = useCommandesTerminees(popUpActif);
   const { data: commandeActive } = useCommandeActivePopUp(popUpActif);
   const {
-    envoyer: envoyerCommandeMutation,
     marquerRecue,
     basculerLigne: basculerLigneCommandeMutation,
     annuler: annulerCommandeMutation,
@@ -1542,8 +1607,8 @@ export function StockScreen({
   const [pinPhotoOuvert, setPinPhotoOuvert] = useState<StockPin | null>(null);
   const [signalementOuvert, setSignalementOuvert] = useState(false);
   const [filtreACompleter, setFiltreACompleter] = useState(false);
-  const [commandeOuverte, setCommandeOuverte] = useState(false);
   const [commandeModifOuverte, setCommandeModifOuverte] = useState(false);
+  const [ajusterQuantitesOuvert, setAjusterQuantitesOuvert] = useState(false);
   const [commandeHistoriqueOuverte, setCommandeHistoriqueOuverte] = useState<string | null>(null);
 
   const nbACompleter = useMemo(() => (pins ?? []).filter((p) => p.a_completer).length, [pins]);
@@ -1791,12 +1856,22 @@ export function StockScreen({
                       {popUpActif && (
                         <View className="mt-5">
                           {!commandeActive ? (
-                            <Pressable
-                              onPress={() => setCommandeOuverte(true)}
-                              className="items-center rounded-2xl bg-indigo-600 py-4"
-                            >
-                              <Text className="text-base font-bold text-white">Voir la commande</Text>
-                            </Pressable>
+                            // L'envoi se fait désormais uniquement depuis l'écran "Voir la commande"
+                            // (Stock > Voir la commande), qui compose pin's/produits/consommables
+                            // ensemble — cf. retour utilisateur du 2026-09-07. Cet onglet reste en
+                            // lecture seule pour l'envoi, mais garde la main sur l'ajustement des
+                            // quantités (100/200/300...) puisque c'est ici que les boîtes/pins sont
+                            // repérés — l'écran d'envoi reprend ces quantités au moment d'envoyer.
+                            commandeLignes.length > 0 && (
+                              <Pressable
+                                onPress={() => setAjusterQuantitesOuvert(true)}
+                                className="items-center rounded-2xl bg-indigo-600 py-4"
+                              >
+                                <Text className="text-base font-bold text-white">
+                                  Voir la commande et ajuster les quantités
+                                </Text>
+                              </Pressable>
+                            )
                           ) : commandeActive.commande.statut === 'envoyee' ? (
                             <Pressable
                               onPress={() => setCommandeModifOuverte(true)}
@@ -1942,21 +2017,11 @@ export function StockScreen({
 
       {pinPhotoOuvert && <ModalePhotoPin pin={pinPhotoOuvert} onFermer={() => setPinPhotoOuvert(null)} />}
 
-      {commandeOuverte && popUpActif && (
-        <PanneauCommande
+      {ajusterQuantitesOuvert && popUpActif && (
+        <PanneauAjusterQuantites
           lignes={commandeLignes}
           popUpNom={popUps.find((p) => p.id === popUpActif)?.nom ?? ''}
-          enCours={envoyerCommandeMutation.isPending}
-          onEnvoyer={(lignes) =>
-            envoyerCommandeMutation.mutate(
-              { profileId: profile.id, lignes },
-              {
-                onSuccess: () => setCommandeOuverte(false),
-                onError: (e) => Alert.alert('Erreur', e instanceof Error ? e.message : "Impossible d'envoyer."),
-              },
-            )
-          }
-          onFermer={() => setCommandeOuverte(false)}
+          onFermer={() => setAjusterQuantitesOuvert(false)}
         />
       )}
 

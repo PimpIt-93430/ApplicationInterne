@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
 
 import { ChaussuresScreen } from '@/components/stock/ChaussuresScreen';
+import { CommandeGeneraleEcran } from '@/components/stock/CommandeGeneraleEcran';
 import { ConsommablesScreen } from '@/components/stock/ConsommablesScreen';
 import { CoquesScreen } from '@/components/stock/CoquesScreen';
 import { EcranBientotDisponible } from '@/components/stock/EcranBientotDisponible';
@@ -15,7 +16,7 @@ import { useAffectationsPopUp } from '@/hooks/useProfiles';
 import type { Profile } from '@/types/database.types';
 import { construireMapAffectations, popUpsAttribues } from '@/utils/affectations';
 
-type Categorie = 'menu' | 'pins' | 'produits' | 'chaussures' | 'coques' | 'sac' | 'goodies' | 'consommables';
+type Categorie = 'menu' | 'pins' | 'produits' | 'chaussures' | 'coques' | 'sac' | 'goodies' | 'consommables' | 'commande';
 
 /** Sur ordinateur, une tuile pleine largeur qui remplit tout l'écran est démesurée (elle n'a de
  * sens que sur un écran de téléphone étroit) : carte compacte à taille fixe à la place, en ligne
@@ -111,6 +112,16 @@ export function StockAccueil({ profile }: { profile: Profile }) {
       />
     );
   }
+  if (categorie === 'commande') {
+    return (
+      <CommandeGeneraleEcran
+        profile={profile}
+        onRetour={() => setCategorie('menu')}
+        popUpId={popUpActif}
+        onChangePopUpId={setPopUpId}
+      />
+    );
+  }
 
   return (
     <View className="flex-1 bg-slate-50">
@@ -151,6 +162,12 @@ export function StockAccueil({ profile }: { profile: Profile }) {
           sousTitre="Suivi du stock"
           couleur="#10B981"
           onPress={() => setCategorie('consommables')}
+        />
+        <TuileCategorie
+          label="Voir la commande"
+          sousTitre="Pin's, produits, consommables"
+          couleur="#EC4899"
+          onPress={() => setCategorie('commande')}
         />
       </View>
     </View>
