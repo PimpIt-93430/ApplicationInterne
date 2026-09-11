@@ -374,6 +374,37 @@ export interface ChaussureMappingSumup {
   updated_at: string;
 }
 
+/** Même principe que ChaussureStock — mêmes couleurs/tailles que les chaussures (cf. retour
+ * utilisateur : "lanières, cest les mêmes couleurs et pointures que les chaussures"). */
+export interface LaniereStock {
+  id: string;
+  couleur: CouleurChaussure;
+  taille: TailleChaussure;
+  stock_initial: number;
+  updated_at: string;
+}
+
+/** Même principe que ChaussureInventaire. */
+export interface LaniereInventaire {
+  id: string;
+  pop_up_id: string;
+  couleur: CouleurChaussure;
+  taille: TailleChaussure;
+  quantite_comptee: number;
+  profile_id: string;
+  created_at: string;
+}
+
+/** Même principe que ChaussureMappingSumup. */
+export interface LaniereMappingSumup {
+  id: string;
+  nom_produit: string;
+  couleur: CouleurChaussure;
+  taille: TailleChaussure;
+  created_at: string;
+  updated_at: string;
+}
+
 export type ModeleCoque = 'Iphone 13' | 'Iphone 14' | 'Iphone 15' | 'Iphone 16' | 'Iphone 17';
 export type VarianteCoque = 'Normal' | 'Pro' | 'Pro Max' | 'Plus';
 export type CouleurCoqueSac = 'Rose' | 'Noir';
@@ -548,9 +579,9 @@ export interface CommandeConsommableLigne {
 }
 
 export type StatutCommandeProduits = 'demandee' | 'envoyee' | 'recue';
-export type CategorieProduit = 'chaussures' | 'coques' | 'sacs';
+export type CategorieProduit = 'chaussures' | 'coques' | 'sacs' | 'lanieres';
 
-/** Cycle de vie d'une commande de Produits (chaussures/coques/sacs) : demandée (par le pop-up) →
+/** Cycle de vie d'une commande de Produits (chaussures/coques/sacs/lanières) : demandée (par le pop-up) →
  * envoyée (par le local, une fois préparée) → reçue (par le pop-up) — même principe que
  * CommandeConsommables (migration 0098), avec une quantité par ligne comme les pin's. */
 export interface CommandeProduits {

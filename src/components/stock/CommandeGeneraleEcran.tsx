@@ -22,6 +22,7 @@ import {
   useVentesSumupLignes,
 } from '@/hooks/useChaussures';
 import { useCoquesInventaires, useCoquesStock, useMappingSumupCoques } from '@/hooks/useCoques';
+import { useLanieresInventaires, useLanieresStock, useMappingSumupLanieres } from '@/hooks/useLanieres';
 import { useSacsInventaires, useSacsStock, useMappingSumupSacs } from '@/hooks/useSacs';
 import {
   useCommandeActiveProduits,
@@ -43,12 +44,18 @@ import {
 } from '@/hooks/useStock';
 import { calculerARamener, resoudreVentesSumup } from '@/utils/chaussures';
 import { calculerARamenerCoques, resoudreVentesSumupCoques } from '@/utils/coques';
+import { calculerARamenerLanieres, resoudreVentesSumupLanieres } from '@/utils/lanieres';
 import { calculerARamenerSacs, resoudreVentesSumupSacs } from '@/utils/sacs';
 import { construireMapAffectations, popUpsAttribues } from '@/utils/affectations';
 import { useCommandeQuantitesStore } from '@/store/useCommandeQuantitesStore';
 import type { CategorieProduit, Profile, TypeConsommable } from '@/types/database.types';
 
-const LABEL_CATEGORIE: Record<CategorieProduit, string> = { chaussures: 'Chaussures', coques: 'Coques', sacs: 'Sacs' };
+const LABEL_CATEGORIE: Record<CategorieProduit, string> = {
+  chaussures: 'Chaussures',
+  coques: 'Coques',
+  sacs: 'Sacs',
+  lanieres: 'Lanières',
+};
 const LABEL_TYPE_CONSOMMABLE: Record<TypeConsommable, string> = Object.fromEntries(
   TYPES_CONSOMMABLES.map((t) => [t.valeur, t.label]),
 ) as Record<TypeConsommable, string>;
@@ -60,9 +67,9 @@ interface LigneProduitCandidate {
   quantite: number;
 }
 
-/** Rassemble les "à ramener" des 3 catégories de Produits pour ce pop-up — même calcul que les
- * onglets Réappro de Chaussures/Coques/Sacs (calculerARamener*), jusqu'ici seulement affiché à
- * titre indicatif dans chaque écran séparé, jamais relié à un vrai envoi de commande. */
+/** Rassemble les "à ramener" des 4 catégories de Produits pour ce pop-up — même calcul que les
+ * onglets Réappro de Chaussures/Coques/Sacs/Lanières (calculerARamener*), jusqu'ici seulement
+ * affiché à titre indicatif dans chaque écran séparé, jamais relié à un vrai envoi de commande. */
 function useProduitsACommander(popUpId: string | undefined): { lignes: LigneProduitCandidate[]; chargement: boolean } {
   const { data: stockChaussures, isLoading: c1 } = useChaussuresStock();
   const { data: inventairesChaussures, isLoading: c2 } = useChaussuresInventaires(popUpId);
@@ -76,6 +83,10 @@ function useProduitsACommander(popUpId: string | undefined): { lignes: LigneProd
   const { data: stockSacs, isLoading: c5 } = useSacsStock();
   const { data: inventairesSacs, isLoading: c6 } = useSacsInventaires(popUpId);
   const { data: mappingSacs } = useMappingSumupSacs();
+
+  const { data: stockLanieres, isLoading: c7 } = useLanieresStock();
+  const { data: inventairesLanieres, isLoading: c8 } = useLanieresInventaires(popUpId);
+  const { data: mappingLanieres } = useMappingSumupLanieres();
 
   const lignes = useMemo(() => {
     if (!popUpId) return [];
@@ -106,6 +117,12 @@ function useProduitsACommander(popUpId: string | undefined): { lignes: LigneProd
       resultat.push({ categorie: 'sacs', produitId: item.id, libelle: `${item.produit} — ${item.couleur}`, quantite: item.aRamener });
     }
 
+    const ventesLanieres = resoudreVentesSumupLanieres(ventesLignes ?? [], mappingLanieres ?? []);
+    for (const item of calculerARamenerLanieres(stockLanieres ?? [], inventairesLanieres ?? [], ventesLanieres)) {
+      if (item.aRamener <= 0) continue;
+      resultat.push({ categorie: 'lanieres', produitId: item.id, libelle: `${item.couleur} — ${item.taille}`, quantite: item.aRamener });
+    }
+
     return resultat;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -120,9 +137,12 @@ function useProduitsACommander(popUpId: string | undefined): { lignes: LigneProd
     stockSacs,
     inventairesSacs,
     mappingSacs,
+    stockLanieres,
+    inventairesLanieres,
+    mappingLanieres,
   ]);
 
-  return { lignes, chargement: c1 || c2 || c3 || c4 || c5 || c6 };
+  return { lignes, chargement: c1 || c2 || c3 || c4 || c5 || c6 || c7 || c8 };
 }
 
 function CaseACocher({ coche }: { coche: boolean }) {
@@ -334,7 +354,9 @@ function VueCommandePopUp({ popUpId, popUpNom, profile }: { popUpId: string; pop
             </View>
           )}
 
-          <Text className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Produits (chaussures, coques, sacs)</Text>
+          <Text className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Produits (chaussures, coques, sacs, lanières)
+          </Text>
           {commandeProduits ? (
             commandeProduits.commande.statut === 'envoyee' ? (
               <CarteStatutCommande

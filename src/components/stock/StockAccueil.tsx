@@ -6,6 +6,7 @@ import { CommandeGeneraleEcran } from '@/components/stock/CommandeGeneraleEcran'
 import { ConsommablesScreen } from '@/components/stock/ConsommablesScreen';
 import { CoquesScreen } from '@/components/stock/CoquesScreen';
 import { EcranBientotDisponible } from '@/components/stock/EcranBientotDisponible';
+import { LanieresScreen } from '@/components/stock/LanieresScreen';
 import { ProduitsMenu } from '@/components/stock/ProduitsMenu';
 import { SacsScreen } from '@/components/stock/SacsScreen';
 import { StockScreen } from '@/components/stock/StockScreen';
@@ -16,7 +17,7 @@ import { useAffectationsPopUp } from '@/hooks/useProfiles';
 import type { Profile } from '@/types/database.types';
 import { construireMapAffectations, popUpsAttribues } from '@/utils/affectations';
 
-type Categorie = 'menu' | 'pins' | 'produits' | 'chaussures' | 'coques' | 'sac' | 'goodies' | 'consommables' | 'commande';
+type Categorie = 'menu' | 'pins' | 'produits' | 'chaussures' | 'coques' | 'sac' | 'lanieres' | 'goodies' | 'consommables' | 'commande';
 
 /** Sur ordinateur, une tuile pleine largeur qui remplit tout l'écran est démesurée (elle n'a de
  * sens que sur un écran de téléphone étroit) : carte compacte à taille fixe à la place, en ligne
@@ -100,6 +101,9 @@ export function StockAccueil({ profile }: { profile: Profile }) {
   if (categorie === 'sac') {
     return <SacsScreen onRetour={() => setCategorie('produits')} popUpId={popUpActif} />;
   }
+  if (categorie === 'lanieres') {
+    return <LanieresScreen onRetour={() => setCategorie('produits')} popUpId={popUpActif} />;
+  }
   if (categorie === 'goodies') {
     return <EcranBientotDisponible titre="Goodies" onRetour={() => setCategorie('produits')} />;
   }
@@ -153,7 +157,7 @@ export function StockAccueil({ profile }: { profile: Profile }) {
         />
         <TuileCategorie
           label="Produits"
-          sousTitre="Chaussures, coques, sac, goodies"
+          sousTitre="Chaussures, coques, sac, lanières, goodies"
           couleur="#F59E0B"
           onPress={() => setCategorie('produits')}
         />

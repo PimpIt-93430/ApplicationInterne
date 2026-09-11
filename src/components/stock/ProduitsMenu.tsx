@@ -3,7 +3,7 @@ import { Platform, Pressable, Text, View } from 'react-native';
 
 import { EnteteRetour } from '@/components/nav/EnteteRetour';
 
-export type SousCategorieProduit = 'chaussures' | 'coques' | 'sac' | 'goodies';
+export type SousCategorieProduit = 'chaussures' | 'coques' | 'sac' | 'lanieres' | 'goodies';
 
 /** Tuile avec icône (place de la photo produit à venir plus tard — même gabarit, juste
  * l'illustration à remplacer une fois les photos disponibles). */
@@ -74,6 +74,12 @@ export function ProduitsMenu({
           icone="bag-handle"
           couleur="#EC4899"
           onPress={() => onOuvrirSousCategorie('sac')}
+        />
+        <TuileProduit
+          label="Lanières"
+          icone="link"
+          couleur="#0EA5E9"
+          onPress={() => onOuvrirSousCategorie('lanieres')}
         />
         <TuileProduit
           label="Goodies"
