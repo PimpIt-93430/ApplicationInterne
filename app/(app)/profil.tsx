@@ -123,6 +123,7 @@ export default function ProfilScreen() {
         { icone: 'person-add-outline', label: 'Inviter une personne', onPress: () => setInviterOuvert(true) },
         { icone: 'card-outline', label: 'SumUp', href: '/(app)/admin/sumup' },
         { icone: 'wallet-outline', label: 'Dépôts espèces', href: '/(app)/admin/depots-especes' },
+        { icone: 'calculator-outline', label: 'Trou de caisse', href: '/(app)/admin/trou-caisse' },
       ]
     : [];
 
