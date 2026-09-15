@@ -1,28 +1,30 @@
-import { supabase } from './supabaseClient';
+import { paginerToutesLesLignes, supabase } from './supabaseClient';
 import type { VenteSumup, VenteSumupLigne } from '@/types/database.types';
 
 export async function fetchVentesSumupPeriode(dateDebut: string, dateFin: string): Promise<VenteSumup[]> {
-  const { data, error } = await supabase
-    .from('ventes_sumup')
-    .select('*')
-    .gte('horodatage', dateDebut)
-    .lte('horodatage', dateFin)
-    .order('horodatage', { ascending: false });
-  if (error) throw error;
-  return data;
+  return paginerToutesLesLignes((debut, fin) =>
+    supabase
+      .from('ventes_sumup')
+      .select('*')
+      .gte('horodatage', dateDebut)
+      .lte('horodatage', dateFin)
+      .order('horodatage', { ascending: false })
+      .range(debut, fin),
+  );
 }
 
 /** Lignes produit des ventes de la période (écran Finance > Historique) — horodatage dénormalisé
  * sur la ligne (cf. migration 0068) donc filtrable directement, pas besoin de passer par une
  * jointure sur ventes_sumup. */
 export async function fetchVentesSumupLignesPeriode(dateDebut: string, dateFin: string): Promise<VenteSumupLigne[]> {
-  const { data, error } = await supabase
-    .from('ventes_sumup_lignes')
-    .select('*')
-    .gte('horodatage', dateDebut)
-    .lte('horodatage', dateFin);
-  if (error) throw error;
-  return data;
+  return paginerToutesLesLignes((debut, fin) =>
+    supabase
+      .from('ventes_sumup_lignes')
+      .select('*')
+      .gte('horodatage', dateDebut)
+      .lte('horodatage', dateFin)
+      .range(debut, fin),
+  );
 }
 
 /** Déclenche l'Edge Function `sync-ventes-sumup` (admin uniquement côté serveur) — récupère les
