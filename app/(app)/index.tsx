@@ -72,9 +72,16 @@ export default function AccueilScreen() {
   const estAdmin = profileReel?.role === 'admin' && !profilPreviewId;
   const premierPrenom = (profile?.nom_complet || '').trim().split(' ')[0];
 
-  // Pas d'onglet "Accueil" dans la barre basse mobile (inutile pour l'instant, admin inclus
-  // désormais) : Planning en tient lieu de première page après connexion. Seul le web garde cet
-  // écran tel quel (tiroir + tuiles, pas dans le périmètre de la barre basse).
+  // Cf. retour utilisateur du 2026-09-15 : "pour les admins tu les fais arriver sur ça" — un admin
+  // (pas en aperçu d'un autre profil) atterrit directement sur "CA du jour", sur les deux
+  // plateformes ; le tiroir/la barre de nav restent disponibles pour aller ailleurs ensuite.
+  if (estAdmin) {
+    return <Redirect href="/(app)/admin/ca-jour" />;
+  }
+
+  // Pas d'onglet "Accueil" dans la barre basse mobile : Planning en tient lieu de première page
+  // après connexion pour tout le monde d'autre qu'un admin. Seul le web garde cet écran tel quel
+  // (tiroir + tuiles, pas dans le périmètre de la barre basse) pour les non-admins.
   if (Platform.OS !== 'web') {
     return <Redirect href="/(app)/calendrier" />;
   }

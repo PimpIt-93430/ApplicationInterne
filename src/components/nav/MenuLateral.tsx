@@ -44,6 +44,10 @@ export function liensNavigation(estAdmin: boolean, aDroitEquipe = false): LienNa
     !estAdmin && aDroitEquipe ? { label: 'Équipe', route: '/(app)/equipe', icone: 'people-outline' } : null;
   const liensAdmin: LienNavigation[] = estAdmin
     ? [
+        // Cf. retour utilisateur du 2026-09-15 : vue d'atterrissage des admins (cf. app/(app)/
+        // index.tsx) — présente aussi ici, sur les deux plateformes, pour y revenir depuis
+        // n'importe quel autre écran.
+        { label: 'CA du jour', route: '/(app)/admin/ca-jour', icone: 'cash-outline' },
         { label: 'Pop-up', route: '/(app)/admin/popups', icone: 'storefront-outline' },
         { label: 'Équipe', route: '/(app)/admin/equipe', icone: 'people-outline' },
         // Web uniquement (admin/finance.web.tsx) : pas d'écran mobile équivalent pour l'instant.
