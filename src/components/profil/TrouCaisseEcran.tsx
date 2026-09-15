@@ -1,22 +1,28 @@
-// Cf. retour utilisateur du 2026-09-15 : "un endroit où je compte chaque jour combien il y a en
-// espèce... j'ai un historique avec qui a travaillé ce jour-là, qui a clôturé, le montant demandé
-// espèce (SumUp + espèce appli), je vois si y'a un jour où j'ai pas l'enveloppe" — même contournement
-// du bug NativeWind que DepotsEspecesEcran.tsx/PanneauAbsences.tsx pour le champ date (StyleSheet
-// plutôt que className sur les parties concernées).
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { format, startOfDay } from 'date-fns';
+// Cf. retour utilisateur du 2026-09-15 : "il faut un tableau qui demande tout seul le montant de
+// cette date à ce pop-up si il n'a jamais été rempli... on est le 12 septembre, le 11 est terminé,
+// tu affiches tous les résultats espèce des 3 pop-up, je rentre les enveloppes, je mets OK et ça va
+// dans l'historique. Si je fais ça le 14, tu me mets le 11, 12 et 13... si je ne veux pas remplir
+// une case, j'ai la possibilité de la supprimer. On commence à partir du 8 septembre." — remplace
+// la saisie manuelle libre (pop-up + date choisis à la main) par une file d'attente générée toute
+// seule : un pop-up (hors "Local") × un jour terminé (hier ou avant, depuis le 8 septembre) sans
+// trou de caisse déjà enregistré ni ignoré = une case à traiter.
+import { eachDayOfInterval, format, subDays } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { createElement, useEffect, useMemo, useState } from 'react';
-import type { ChangeEvent, CSSProperties } from 'react';
-import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { EnteteRetour } from '@/components/nav/EnteteRetour';
-import { Dropdown } from '@/components/ui/Dropdown';
 import { useAuthStore } from '@/store/useAuthStore';
-import { usePersonnelJour, useGererTrouCaisse, useTrousCaisse } from '@/hooks/useTrouCaisse';
+import { fetchPersonnelJour } from '@/api/trouCaisse';
+import { useGererTrouCaisse, useTrousCaisse, useTrousCaisseIgnores } from '@/hooks/useTrouCaisse';
 import { usePopUps } from '@/hooks/usePopUps';
 import { useVentesEspecesPeriode } from '@/hooks/useVentesEspeces';
 import { useVentesSumupPeriode } from '@/hooks/useVentesSumup';
+import type { PopUp } from '@/types/database.types';
+
+// Date de départ du suivi — fixée une fois pour toutes (retour utilisateur explicite), pas de sens
+// de faire remonter la file d'attente avant cette date.
+const DATE_DEBUT_SUIVI = '2026-09-08';
 
 function formatMontant(n: number): string {
   return n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
@@ -26,151 +32,188 @@ function formatDateCourte(dateIso: string): string {
   return new Date(`${dateIso}T00:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-function debutJour(d: Date): Date {
-  const r = new Date(d);
-  r.setHours(0, 0, 0, 0);
-  return r;
+function debutJourDe(dateIso: string): Date {
+  return new Date(`${dateIso}T00:00:00`);
 }
-function finJour(d: Date): Date {
-  const r = new Date(d);
-  r.setHours(23, 59, 59, 999);
-  return r;
+function finJourDe(dateIso: string): Date {
+  const d = new Date(`${dateIso}T00:00:00`);
+  d.setHours(23, 59, 59, 999);
+  return d;
 }
 
-/** Champ date unique, web (input natif) ou natif (bouton + DateTimePicker) — cf. en-tête. */
-function ChampDate({ valeur, onChange }: { valeur: Date; onChange: (d: Date) => void }) {
-  const [ouvert, setOuvert] = useState(false);
+interface CasePendante {
+  popUpId: string;
+  popUpNom: string;
+  popUpCouleur: string;
+  dateIso: string;
+  montantAttendu: number;
+}
+
+/** Une case en attente : montant attendu affiché, saisie du montant compté, OK (enregistre — la
+ * personnel/fermeture est déduite du planning au moment de valider) ou ✕ (ignore définitivement
+ * cette case sans créer de trou). */
+function LignePendante({
+  cas,
+  onValider,
+  onIgnorer,
+}: {
+  cas: CasePendante;
+  onValider: (montantCompte: number) => Promise<void>;
+  onIgnorer: () => void;
+}) {
+  const [montantCompte, setMontantCompte] = useState('');
+  const [enCours, setEnCours] = useState(false);
+
+  const montantNombre = Number(montantCompte.replace(',', '.'));
+  const valide = montantCompte.trim() !== '' && Number.isFinite(montantNombre);
+  const ecart = valide ? montantNombre - cas.montantAttendu : null;
+
+  const valider = async () => {
+    if (!valide || enCours) return;
+    setEnCours(true);
+    try {
+      await onValider(montantNombre);
+    } catch (e) {
+      Alert.alert('Erreur', e instanceof Error ? e.message : "Échec de l'enregistrement.");
+      setEnCours(false);
+    }
+  };
+
   return (
-    <View>
-      {Platform.OS === 'web' ? (
-        createElement('input', {
-          type: 'date',
-          value: format(valeur, 'yyyy-MM-dd'),
-          max: format(new Date(), 'yyyy-MM-dd'),
-          onChange: (e: ChangeEvent<HTMLInputElement>) => {
-            if (e.target.value) onChange(new Date(`${e.target.value}T00:00:00`));
-          },
-          style: styles.inputDateWeb as unknown as CSSProperties,
-        })
-      ) : (
-        <Pressable onPress={() => setOuvert(true)} style={styles.boutonDateNatif}>
-          <Text style={styles.boutonDateNatifTexte}>{format(valeur, 'EEEE d MMM yyyy', { locale: fr })}</Text>
+    <View style={styles.lignePendante}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={[styles.puceCouleur, { backgroundColor: cas.popUpCouleur }]} />
+        <Text style={styles.lignePendanteTitre}>
+          {formatDateCourte(cas.dateIso)} · {cas.popUpNom}
+        </Text>
+        <Pressable
+          onPress={() =>
+            Alert.alert('Ignorer cette case', `${formatDateCourte(cas.dateIso)} · ${cas.popUpNom} ne sera plus jamais demandé.`, [
+              { text: 'Annuler', style: 'cancel' },
+              { text: 'Ignorer', style: 'destructive', onPress: onIgnorer },
+            ])
+          }
+          hitSlop={8}
+          style={{ marginLeft: 'auto' }}
+        >
+          <Text style={styles.lienIgnorer}>✕</Text>
         </Pressable>
-      )}
-      {ouvert &&
-        Platform.OS !== 'web' &&
-        createElement(DateTimePicker, {
-          value: valeur,
-          mode: 'date',
-          maximumDate: new Date(),
-          display: Platform.OS === 'ios' ? 'spinner' : 'default',
-          onChange: (event: { type: string }, d?: Date) => {
-            if (Platform.OS === 'android') setOuvert(false);
-            if (event.type === 'dismissed' || !d) return;
-            onChange(d);
-          },
-        })}
-      {Platform.OS === 'ios' && ouvert && (
-        <Pressable onPress={() => setOuvert(false)} style={styles.boutonOk}>
-          <Text style={styles.boutonOkTexte}>OK</Text>
+      </View>
+      <Text style={styles.lignePendanteAttendu}>Attendu : {formatMontant(cas.montantAttendu)}</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
+        <TextInput
+          value={montantCompte}
+          onChangeText={setMontantCompte}
+          placeholder="Montant compté"
+          keyboardType="decimal-pad"
+          style={styles.inputMontantPendant}
+        />
+        <Pressable onPress={valider} disabled={!valide || enCours} style={[styles.boutonOkPendant, (!valide || enCours) && styles.boutonOkPendantDesactive]}>
+          <Text style={[styles.boutonOkPendantTexte, (!valide || enCours) && styles.boutonOkPendantTexteDesactive]}>
+            {enCours ? '…' : 'OK'}
+          </Text>
         </Pressable>
+      </View>
+      {ecart !== null && Math.abs(ecart) >= 0.01 && (
+        <Text style={styles.lignePendanteEcart}>
+          Écart {ecart > 0 ? '+' : ''}
+          {formatMontant(ecart)}
+        </Text>
       )}
     </View>
   );
 }
 
-/** "Trou de caisse" (Profil > admin) : pour un pop-up et un jour donnés, calcule le montant
- * attendu (SumUp espèce + espèces appli confirmées de ce pop-up ce jour-là) à comparer au montant
- * réellement compté dans l'enveloppe — l'écart est calculé automatiquement (pas de calcul à la
- * main). Personnel présent et suggestion de fermeture pré-remplis depuis le planning (même logique
- * que Hub > Finance > Trou, qui partage la même table `trous_caisse` : un trou saisi ici apparaît
- * aussi côté Hub et inversement). */
+/** "Trou de caisse" (Profil > admin) : file d'attente auto-générée d'un pop-up × un jour terminé
+ * sans trou déjà enregistré depuis le 8 septembre — montant attendu (SumUp espèce + espèces appli
+ * confirmées) calculé tout seul, il ne reste qu'à saisir le montant compté. Personnel présent et
+ * fermeture déduits du planning au moment de valider (même logique que Hub > Finance > Trou, qui
+ * partage la même table `trous_caisse`). */
 export function TrouCaisseEcran({ onRetour }: { onRetour: () => void }) {
   const profile = useAuthStore((s) => s.profile);
-  const { data: popUpsTous } = usePopUps();
+  const { data: popUpsTous, isLoading: chargementPopUps } = usePopUps();
   const popUps = useMemo(() => (popUpsTous ?? []).filter((p) => !p.est_local), [popUpsTous]);
 
-  const [popUpId, setPopUpId] = useState<string>('');
-  useEffect(() => {
-    if (!popUpId && popUps.length > 0) setPopUpId(popUps[0].id);
-  }, [popUps, popUpId]);
-
-  const [date, setDate] = useState(() => startOfDay(new Date()));
-  const dateIso = format(date, 'yyyy-MM-dd');
+  const hier = useMemo(() => subDays(new Date(new Date().setHours(0, 0, 0, 0)), 1), []);
+  const debutSuivi = useMemo(() => new Date(`${DATE_DEBUT_SUIVI}T00:00:00`), []);
+  const joursAControler = useMemo(
+    () => (hier < debutSuivi ? [] : eachDayOfInterval({ start: debutSuivi, end: hier }).map((d) => format(d, 'yyyy-MM-dd'))),
+    [debutSuivi, hier],
+  );
 
   const { data: ventesSumup, isLoading: chargementSumup } = useVentesSumupPeriode(
-    debutJour(date).toISOString(),
-    finJour(date).toISOString(),
+    debutSuivi.toISOString(),
+    finJourDe(joursAControler[joursAControler.length - 1] ?? DATE_DEBUT_SUIVI).toISOString(),
   );
   const { data: ventesEspeces, isLoading: chargementEspeces } = useVentesEspecesPeriode(
-    debutJour(date).toISOString(),
-    finJour(date).toISOString(),
+    debutSuivi.toISOString(),
+    finJourDe(joursAControler[joursAControler.length - 1] ?? DATE_DEBUT_SUIVI).toISOString(),
   );
-  const { data: personnelJour, isLoading: chargementPersonnel } = usePersonnelJour(popUpId, dateIso);
   const { data: trous, isLoading: chargementTrous } = useTrousCaisse();
-  const { ajouter, supprimer } = useGererTrouCaisse();
+  const { data: ignores, isLoading: chargementIgnores } = useTrousCaisseIgnores();
+  const { ajouter, supprimer, ignorer } = useGererTrouCaisse();
 
-  const [personneFermetureId, setPersonneFermetureId] = useState<string>('');
-  const [personnesCochees, setPersonnesCochees] = useState<Set<string>>(new Set());
-  const [montantCompte, setMontantCompte] = useState('');
-  const [note, setNote] = useState('');
+  const chargement = chargementPopUps || chargementSumup || chargementEspeces || chargementTrous || chargementIgnores;
+
+  // Montant attendu par pop-up et par jour (clé "popUpId|dateIso") — un seul passage sur toute la
+  // période plutôt qu'une requête par case en attente.
+  const attenduParCle = useMemo(() => {
+    const carte = new Map<string, number>();
+    for (const v of ventesSumup ?? []) {
+      if (v.statut !== 'SUCCESSFUL' || v.moyen_paiement !== 'CASH' || !v.pop_up_id) continue;
+      const jour = format(new Date(v.horodatage), 'yyyy-MM-dd');
+      const cle = `${v.pop_up_id}|${jour}`;
+      carte.set(cle, (carte.get(cle) ?? 0) + v.montant);
+    }
+    for (const v of ventesEspeces ?? []) {
+      if (v.statut !== 'confirmee') continue;
+      const jour = format(new Date(v.created_at), 'yyyy-MM-dd');
+      const cle = `${v.pop_up_id}|${jour}`;
+      carte.set(cle, (carte.get(cle) ?? 0) + v.montant);
+    }
+    return carte;
+  }, [ventesSumup, ventesEspeces]);
+
+  const clesRemplies = useMemo(() => new Set((trous ?? []).map((t) => `${t.popUpId}|${t.date}`)), [trous]);
+  const clesIgnorees = useMemo(() => new Set((ignores ?? []).map((i) => `${i.popUpId}|${i.date}`)), [ignores]);
+
+  const casesEnAttente = useMemo(() => {
+    const liste: CasePendante[] = [];
+    for (const jour of joursAControler) {
+      for (const p of popUps as PopUp[]) {
+        if (p.date_debut && jour < p.date_debut) continue;
+        if (p.date_fin && jour > p.date_fin) continue;
+        const cle = `${p.id}|${jour}`;
+        if (clesRemplies.has(cle) || clesIgnorees.has(cle)) continue;
+        liste.push({ popUpId: p.id, popUpNom: p.nom, popUpCouleur: p.couleur, dateIso: jour, montantAttendu: attenduParCle.get(cle) ?? 0 });
+      }
+    }
+    return liste;
+  }, [joursAControler, popUps, clesRemplies, clesIgnorees, attenduParCle]);
+
   const [erreur, setErreur] = useState<string | null>(null);
 
-  // Pré-remplissage automatique depuis le planning dès que pop-up + date sont choisis — reste
-  // modifiable ensuite avant d'enregistrer (même principe que Hub > Trou).
-  useEffect(() => {
-    if (!personnelJour) return;
-    setPersonneFermetureId(personnelJour.fermetureSuggereeId ?? '');
-    setPersonnesCochees(new Set(personnelJour.personnesPresentes.map((p) => p.id)));
-  }, [personnelJour]);
-
-  const montantAttendu = useMemo(() => {
-    const sumupCash = (ventesSumup ?? [])
-      .filter((v) => v.pop_up_id === popUpId && v.statut === 'SUCCESSFUL' && v.moyen_paiement === 'CASH')
-      .reduce((s, v) => s + v.montant, 0);
-    const especeAppli = (ventesEspeces ?? [])
-      .filter((v) => v.pop_up_id === popUpId && v.statut === 'confirmee')
-      .reduce((s, v) => s + v.montant, 0);
-    return sumupCash + especeAppli;
-  }, [ventesSumup, ventesEspeces, popUpId]);
-
-  const chargementAttendu = chargementSumup || chargementEspeces;
-  const montantCompteNombre = Number(montantCompte.replace(',', '.'));
-  const montantCompteValide = montantCompte.trim() !== '' && Number.isFinite(montantCompteNombre);
-  const ecart = montantCompteValide ? montantCompteNombre - montantAttendu : null;
-
-  const basculerPersonne = (id: string) => {
-    setPersonnesCochees((s) => {
-      const suivant = new Set(s);
-      if (suivant.has(id)) suivant.delete(id);
-      else suivant.add(id);
-      return suivant;
+  const validerCase = async (cas: CasePendante, montantCompte: number) => {
+    if (!profile) return;
+    setErreur(null);
+    const personnel = await fetchPersonnelJour(cas.popUpId, cas.dateIso).catch(() => ({ personnesPresentes: [], fermetureSuggereeId: null }));
+    await ajouter.mutateAsync({
+      popUpId: cas.popUpId,
+      date: cas.dateIso,
+      montantCompte,
+      montantAttendu: cas.montantAttendu,
+      personneFermetureId: personnel.fermetureSuggereeId,
+      personnesPresentesIds: personnel.personnesPresentes.map((p) => p.id),
+      note: '',
+      profileId: profile.id,
     });
   };
 
-  const peutValider = !!profile && !!popUpId && montantCompteValide && !chargementAttendu;
-
-  const valider = () => {
-    if (!peutValider || !profile) return;
-    setErreur(null);
-    ajouter.mutate(
-      {
-        popUpId,
-        date: dateIso,
-        montantCompte: montantCompteNombre,
-        montantAttendu,
-        personneFermetureId: personneFermetureId || null,
-        personnesPresentesIds: Array.from(personnesCochees),
-        note,
-        profileId: profile.id,
-      },
-      {
-        onSuccess: () => {
-          setMontantCompte('');
-          setNote('');
-        },
-        onError: (e) => setErreur(e instanceof Error ? e.message : "Échec de l'enregistrement."),
-      },
+  const ignorerCase = (cas: CasePendante) => {
+    if (!profile) return;
+    ignorer.mutate(
+      { popUpId: cas.popUpId, date: cas.dateIso, profileId: profile.id },
+      { onError: (e) => setErreur(e instanceof Error ? e.message : "Échec de l'ignorance.") },
     );
   };
 
@@ -185,103 +228,24 @@ export function TrouCaisseEcran({ onRetour }: { onRetour: () => void }) {
     <View style={styles.ecran}>
       <EnteteRetour titre="Trou de caisse" onRetour={onRetour} />
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-        <Text style={styles.titreSection}>Pop-up et jour</Text>
-        <View style={styles.carte}>
-          <Text style={styles.champLabel}>Pop-up</Text>
-          <Dropdown
-            value={popUpId || undefined}
-            options={popUps.map((p) => ({ value: p.id, label: p.nom, couleur: p.couleur }))}
-            onChange={setPopUpId}
-          />
-          <Text style={[styles.champLabel, { marginTop: 12 }]}>Jour</Text>
-          <ChampDate valeur={date} onChange={setDate} />
-        </View>
-
-        <Text style={styles.titreSection}>Montant attendu</Text>
-        <View style={styles.tuile}>
-          {chargementAttendu ? (
-            <ActivityIndicator color="#6366F1" style={{ marginTop: 6 }} />
-          ) : (
-            <Text style={styles.tuileValeur}>{formatMontant(montantAttendu)}</Text>
-          )}
-          <Text style={styles.tuileSousTexte}>SumUp espèce + espèces appli de ce pop-up ce jour-là.</Text>
-        </View>
-
-        <Text style={styles.titreSection}>Montant compté dans l&apos;enveloppe</Text>
-        <View style={styles.carte}>
-          <TextInput
-            value={montantCompte}
-            onChangeText={setMontantCompte}
-            placeholder="0,00 €"
-            keyboardType="decimal-pad"
-            style={styles.inputMontant}
-          />
-          {ecart !== null && (
-            <View style={[styles.tuileEcart, Math.abs(ecart) < 0.01 ? styles.tuileEcartOk : styles.tuileEcartKo]}>
-              <Text style={styles.tuileEcartLabel}>Écart</Text>
-              <Text
-                style={[
-                  styles.tuileEcartValeur,
-                  Math.abs(ecart) < 0.01 ? styles.tuileEcartValeurOk : styles.tuileEcartValeurKo,
-                ]}
-              >
-                {ecart > 0 ? '+' : ''}
-                {formatMontant(ecart)}
-              </Text>
-            </View>
-          )}
-        </View>
-
         <Text style={styles.titreSection}>
-          Personnel présent {chargementPersonnel && '(chargement…)'}
+          En attente {casesEnAttente.length > 0 && `(${casesEnAttente.length})`}
         </Text>
-        {!personnelJour || personnelJour.personnesPresentes.length === 0 ? (
-          <Text style={styles.texteAide}>Aucun créneau trouvé pour ce pop-up à cette date.</Text>
-        ) : (
-          <View style={styles.ligneChips}>
-            {personnelJour.personnesPresentes.map((p) => (
-              <Pressable
-                key={p.id}
-                onPress={() => basculerPersonne(p.id)}
-                style={[styles.chip, personnesCochees.has(p.id) && styles.chipActive]}
-              >
-                <Text style={[styles.chipTexte, personnesCochees.has(p.id) && styles.chipTexteActive]}>
-                  {p.nomComplet}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        )}
-
-        <Text style={[styles.champLabel, { marginTop: 14 }]}>Qui a clôturé</Text>
-        <Dropdown
-          value={personneFermetureId || undefined}
-          options={(personnelJour?.personnesPresentes ?? []).map((p) => ({ value: p.id, label: p.nomComplet }))}
-          onChange={setPersonneFermetureId}
-          placeholder="—"
-        />
-
-        <Text style={[styles.champLabel, { marginTop: 14 }]}>Note (optionnel)</Text>
-        <TextInput
-          value={note}
-          onChangeText={setNote}
-          placeholder="Contexte, hypothèse sur la cause…"
-          multiline
-          numberOfLines={2}
-          style={styles.inputNote}
-        />
-
         {erreur && <Text style={styles.texteErreur}>{erreur}</Text>}
-
-        <Pressable
-          onPress={valider}
-          disabled={!peutValider || ajouter.isPending}
-          style={[styles.boutonValider, !peutValider && styles.boutonValiderDesactive]}
-        >
-          <Text style={[styles.boutonValiderTexte, !peutValider && styles.boutonValiderTexteDesactive]}>
-            {ajouter.isPending ? 'Enregistrement…' : 'Enregistrer'}
-          </Text>
-        </Pressable>
+        {chargement ? (
+          <ActivityIndicator color="#6366F1" />
+        ) : casesEnAttente.length === 0 ? (
+          <Text style={styles.texteAide}>Rien en attente — tout est à jour depuis le {formatDateCourte(DATE_DEBUT_SUIVI)}.</Text>
+        ) : (
+          casesEnAttente.map((cas) => (
+            <LignePendante
+              key={`${cas.popUpId}-${cas.dateIso}`}
+              cas={cas}
+              onValider={(montant) => validerCase(cas, montant)}
+              onIgnorer={() => ignorerCase(cas)}
+            />
+          ))
+        )}
 
         <Text style={styles.titreSection}>Historique</Text>
         {chargementTrous ? (
@@ -337,46 +301,20 @@ export function TrouCaisseEcran({ onRetour }: { onRetour: () => void }) {
 
 const styles = StyleSheet.create({
   ecran: { flex: 1, backgroundColor: '#F8FAFC' },
-  champLabel: { marginBottom: 6, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', color: '#94A3B8' },
-  inputDateWeb: {
-    width: '100%',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    fontSize: 13,
-    color: '#1E293B',
-  },
-  boutonDateNatif: { borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: 'white', paddingHorizontal: 14, paddingVertical: 10, alignSelf: 'flex-start' },
-  boutonDateNatifTexte: { fontSize: 13, fontWeight: '600', color: '#1E293B', textTransform: 'capitalize' },
-  boutonOk: { alignItems: 'center', marginTop: 4 },
-  boutonOkTexte: { fontSize: 15, fontWeight: '700', color: '#4F46E5' },
   texteAide: { marginTop: 4, marginBottom: 8, fontSize: 12, color: '#94A3B8' },
+  texteErreur: { marginBottom: 8, fontSize: 12, color: '#DC2626' },
   titreSection: { marginBottom: 8, marginTop: 20, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', color: '#94A3B8' },
-  tuile: { borderRadius: 16, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: 'white', padding: 16 },
-  tuileValeur: { fontSize: 26, fontWeight: 'bold', color: '#0F172A' },
-  tuileSousTexte: { marginTop: 6, fontSize: 12, color: '#94A3B8' },
-  carte: { borderRadius: 16, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: 'white', padding: 16 },
-  inputMontant: { borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: 'white', paddingHorizontal: 14, paddingVertical: 12, fontSize: 18, fontWeight: '700', color: '#0F172A' },
-  tuileEcart: { marginTop: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderRadius: 12, padding: 12 },
-  tuileEcartOk: { backgroundColor: '#ECFDF5' },
-  tuileEcartKo: { backgroundColor: '#FEF2F2' },
-  tuileEcartLabel: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', color: '#94A3B8' },
-  tuileEcartValeur: { fontSize: 18, fontWeight: '800' },
-  tuileEcartValeurOk: { color: '#059669' },
-  tuileEcartValeurKo: { color: '#DC2626' },
-  ligneChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
-  chip: { borderRadius: 999, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', paddingHorizontal: 12, paddingVertical: 6 },
-  chipActive: { borderColor: '#818CF8', backgroundColor: '#EEF2FF' },
-  chipTexte: { fontSize: 12, fontWeight: '600', color: '#64748B' },
-  chipTexteActive: { color: '#4338CA' },
-  inputNote: { borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: 'white', paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, color: '#0F172A', textAlignVertical: 'top', minHeight: 60 },
-  texteErreur: { marginTop: 10, fontSize: 12, color: '#DC2626' },
-  boutonValider: { marginTop: 16, alignItems: 'center', borderRadius: 12, backgroundColor: '#4F46E5', paddingVertical: 14 },
-  boutonValiderDesactive: { backgroundColor: '#E2E8F0' },
-  boutonValiderTexte: { fontSize: 14, fontWeight: '700', color: 'white' },
-  boutonValiderTexteDesactive: { color: '#94A3B8' },
+  puceCouleur: { height: 8, width: 8, borderRadius: 4 },
+  lignePendante: { marginBottom: 8, borderRadius: 14, borderWidth: 1, borderColor: '#FDE68A', backgroundColor: '#FFFBEB', padding: 12 },
+  lignePendanteTitre: { fontSize: 14, fontWeight: '700', color: '#0F172A' },
+  lignePendanteAttendu: { marginTop: 4, fontSize: 12, color: '#92400E' },
+  lignePendanteEcart: { marginTop: 6, fontSize: 12, fontWeight: '700', color: '#DC2626' },
+  inputMontantPendant: { flex: 1, borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: 'white', paddingHorizontal: 12, paddingVertical: 9, fontSize: 15, fontWeight: '700', color: '#0F172A' },
+  boutonOkPendant: { alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#059669', paddingHorizontal: 18, paddingVertical: 10 },
+  boutonOkPendantDesactive: { backgroundColor: '#E2E8F0' },
+  boutonOkPendantTexte: { fontSize: 13, fontWeight: '700', color: 'white' },
+  boutonOkPendantTexteDesactive: { color: '#94A3B8' },
+  lienIgnorer: { fontSize: 15, fontWeight: '700', color: '#94A3B8', paddingHorizontal: 4 },
   ligneHistorique: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 8, borderRadius: 14, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: 'white', padding: 12 },
   ligneHistoriqueTitre: { fontSize: 14, fontWeight: '700', color: '#0F172A' },
   ligneHistoriqueSousTexte: { marginTop: 3, fontSize: 11, color: '#94A3B8' },

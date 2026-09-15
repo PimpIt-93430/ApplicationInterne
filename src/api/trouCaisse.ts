@@ -145,3 +145,24 @@ export async function supprimerTrouCaisse(id: string): Promise<void> {
   if (error) throw error;
   if (!data || data.length === 0) throw new Error('Suppression bloquée (droits insuffisants ?)');
 }
+
+/** Cases (pop-up, jour) délibérément ignorées — cf. retour utilisateur du 2026-09-15 : "si le 11
+ * Val d'Europe je ne veux pas remplir, j'ai la possibilité de supprimer la case" — pour qu'elles ne
+ * réapparaissent jamais dans la liste d'attente, sans créer de faux trou de caisse. */
+export interface TrouCaisseIgnore {
+  popUpId: string;
+  date: string;
+}
+
+export async function fetchTrousCaisseIgnores(): Promise<TrouCaisseIgnore[]> {
+  const { data, error } = await supabase.from('trous_caisse_ignores').select('pop_up_id, date');
+  if (error) throw error;
+  return (data ?? []).map((l) => ({ popUpId: l.pop_up_id, date: l.date }));
+}
+
+export async function ignorerTrouCaisse(popUpId: string, date: string, profileId: string): Promise<void> {
+  const { error } = await supabase
+    .from('trous_caisse_ignores')
+    .insert({ pop_up_id: popUpId, date, ignore_par: profileId });
+  if (error) throw error;
+}

@@ -1,9 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { creerTrouCaisse, fetchPersonnelJour, fetchTrousCaisse, supprimerTrouCaisse } from '@/api/trouCaisse';
+import {
+  creerTrouCaisse,
+  fetchPersonnelJour,
+  fetchTrousCaisse,
+  fetchTrousCaisseIgnores,
+  ignorerTrouCaisse,
+  supprimerTrouCaisse,
+} from '@/api/trouCaisse';
 
 export function useTrousCaisse() {
   return useQuery({ queryKey: ['trous-caisse'], queryFn: fetchTrousCaisse });
+}
+
+export function useTrousCaisseIgnores() {
+  return useQuery({ queryKey: ['trous-caisse-ignores'], queryFn: fetchTrousCaisseIgnores });
 }
 
 export function usePersonnelJour(popUpId: string | undefined, date: string | undefined) {
@@ -28,5 +39,11 @@ export function useGererTrouCaisse() {
     onSuccess: invalidate,
   });
 
-  return { ajouter, supprimer };
+  const ignorer = useMutation({
+    mutationFn: (params: { popUpId: string; date: string; profileId: string }) =>
+      ignorerTrouCaisse(params.popUpId, params.date, params.profileId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['trous-caisse-ignores'] }),
+  });
+
+  return { ajouter, supprimer, ignorer };
 }
