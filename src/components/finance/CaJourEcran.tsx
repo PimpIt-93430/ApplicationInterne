@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { EnteteMenu } from '@/components/nav/EnteteMenu';
 import { useCaJourShopify } from '@/hooks/useCaJour';
@@ -48,12 +48,14 @@ function Carte({
   );
 }
 
-/** "CA du jour" — vue d'atterrissage des admins (cf. retour utilisateur du 2026-09-15 : "une vue
- * avec le CA global de la journée, le CA par pop up et sur le site"), même agrégation que le
- * tableau de bord du Hub (SumUp + espèces déclarées côté pop-up, Shopify + TikTok Shop côté site,
- * cf. Pimp It Hub/app/(hub)/page.tsx) — ici passée par la fonction Edge ca-jour-shopify plutôt que
- * l'API Shopify en direct : l'app mobile ne détient jamais les identifiants Shopify. */
-export function CaJourEcran() {
+/** Contenu de "CA du jour" (cartes uniquement, sans en-tête ni ScrollView) — extrait de
+ * `CaJourEcran` pour pouvoir être réutilisé tel quel en tête de l'onglet "Ventes" mobile (cf.
+ * retour utilisateur du 2026-09-15 : "sur téléphone j'aimerais qu'il soit quelque part d'autre...
+ * dans ventes on arrive sur ça et après on peut aller sur le pop up qu'on veut", la vue
+ * d'atterrissage dédiée `/(app)/admin/ca-jour` restant par ailleurs l'écran web). Quand
+ * `onChoisirPopUp` est fourni, chaque carte pop-up devient cliquable (utilisé par VentesEcran pour
+ * présélectionner le pop-up visé dans le sélecteur juste en dessous). */
+export function CaJourContenu({ onChoisirPopUp }: { onChoisirPopUp?: (popUpId: string, popUpNom: string) => void }) {
   const debut = useMemo(() => debutJour(), []);
   const fin = useMemo(() => finJour(), []);
 
@@ -82,7 +84,7 @@ export function CaJourEcran() {
     }
     const chiffresParPopUp = (popUps ?? [])
       .filter((p) => !p.est_local)
-      .map((p) => ({ nom: p.nom, sumup: sumupParPopUp.get(p.id) ?? 0, appli: especesParPopUp.get(p.id) ?? 0 }))
+      .map((p) => ({ id: p.id, nom: p.nom, sumup: sumupParPopUp.get(p.id) ?? 0, appli: especesParPopUp.get(p.id) ?? 0 }))
       .filter((p) => p.sumup > 0 || p.appli > 0);
     const caPopUps = chiffresParPopUp.reduce((s, p) => s + p.sumup + p.appli, 0) + sumupHorsPopUp;
     return { chiffresParPopUp, sumupHorsPopUp, caPopUps };
@@ -91,67 +93,88 @@ export function CaJourEcran() {
   const caSiteTotal = (caSite?.shopify ?? 0) + (caSite?.tiktok ?? 0);
   const caGlobal = caPopUps + caSiteTotal;
 
+  if (chargement) {
+    return <ActivityIndicator size="large" color="#6366F1" style={{ marginTop: 40 }} />;
+  }
+
+  return (
+    <>
+      <Carte titre="CA global de la journée" valeur={formatMontant(caGlobal)} couleurFond="#ECFDF5" couleurTexte="#065F46" grande />
+
+      <Text style={{ fontSize: 12, fontWeight: '700', textTransform: 'uppercase', color: '#94A3B8', marginTop: 4 }}>
+        Par pop-up{onChoisirPopUp ? ' (touchez pour y aller)' : ''}
+      </Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+        {chiffresParPopUp.map((p) => {
+          const carte = (
+            <View style={{ backgroundColor: 'white', borderRadius: 18, padding: 16, flexGrow: 1, minWidth: 160, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, elevation: 1 }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', textTransform: 'uppercase', color: '#94A3B8' }} numberOfLines={1}>
+                {p.nom}
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 16, marginTop: 8 }}>
+                <View>
+                  <Text style={{ fontSize: 10, fontWeight: '700', textTransform: 'uppercase', color: '#94A3B8' }}>SumUp</Text>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: '#0F172A' }}>{formatMontant(p.sumup)}</Text>
+                </View>
+                <View>
+                  <Text style={{ fontSize: 10, fontWeight: '700', textTransform: 'uppercase', color: '#94A3B8' }}>Appli</Text>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: '#0F172A' }}>{formatMontant(p.appli)}</Text>
+                </View>
+              </View>
+            </View>
+          );
+          return onChoisirPopUp ? (
+            <Pressable key={p.id} onPress={() => onChoisirPopUp(p.id, p.nom)} style={{ flexGrow: 1, minWidth: 160 }}>
+              {carte}
+            </Pressable>
+          ) : (
+            <View key={p.id} style={{ flexGrow: 1, minWidth: 160 }}>
+              {carte}
+            </View>
+          );
+        })}
+        {chiffresParPopUp.length === 0 && (
+          <View style={{ backgroundColor: 'white', borderRadius: 18, padding: 16, flexGrow: 1 }}>
+            <Text style={{ fontSize: 13, color: '#94A3B8' }}>Aucune vente pop-up aujourd&apos;hui.</Text>
+          </View>
+        )}
+      </View>
+
+      <Text style={{ fontSize: 12, fontWeight: '700', textTransform: 'uppercase', color: '#94A3B8', marginTop: 8 }}>
+        Sur le site
+      </Text>
+      {chargementSite ? (
+        <ActivityIndicator color="#0EA5E9" />
+      ) : erreurSite ? (
+        <View style={{ backgroundColor: '#FEF2F2', borderRadius: 16, padding: 14 }}>
+          <Text style={{ fontSize: 13, fontWeight: '700', color: '#B91C1C' }}>
+            Chiffres du site indisponibles : {erreurSiteDetail instanceof Error ? erreurSiteDetail.message : 'erreur inconnue'}
+          </Text>
+        </View>
+      ) : (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+          <Carte titre="Shopify" valeur={formatMontant(caSite?.shopify ?? 0)} couleurFond="#F0F9FF" couleurTexte="#0C4A6E" />
+          <Carte titre="TikTok Shop" valeur={formatMontant(caSite?.tiktok ?? 0)} couleurFond="#F5F3FF" couleurTexte="#4C1D95" />
+        </View>
+      )}
+
+      {sumupHorsPopUp > 0 && (
+        <Carte titre="SumUp hors pop-up" valeur={formatMontant(sumupHorsPopUp)} couleurFond="#FFFBEB" couleurTexte="#92400E" />
+      )}
+    </>
+  );
+}
+
+/** "CA du jour" — vue d'atterrissage web des admins (cf. retour utilisateur du 2026-09-15 : "une
+ * vue avec le CA global de la journée, le CA par pop up et sur le site"). Sur mobile, ce même
+ * contenu (`CaJourContenu`) est désormais plutôt affiché en tête de l'onglet "Ventes" (barre du
+ * bas), cet écran dédié restant accessible via le tiroir/lien "CA du jour". */
+export function CaJourEcran() {
   return (
     <View style={{ flex: 1, backgroundColor: '#F8FAFC' }}>
       <EnteteMenu titre="CA du jour" />
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 60, gap: 16 }}>
-        {chargement ? (
-          <ActivityIndicator size="large" color="#6366F1" style={{ marginTop: 40 }} />
-        ) : (
-          <>
-            <Carte titre="CA global de la journée" valeur={formatMontant(caGlobal)} couleurFond="#ECFDF5" couleurTexte="#065F46" grande />
-
-            <Text style={{ fontSize: 12, fontWeight: '700', textTransform: 'uppercase', color: '#94A3B8', marginTop: 4 }}>
-              Par pop-up
-            </Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-              {chiffresParPopUp.map((p) => (
-                <View key={p.nom} style={{ backgroundColor: 'white', borderRadius: 18, padding: 16, flexGrow: 1, minWidth: 160, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, elevation: 1 }}>
-                  <Text style={{ fontSize: 11, fontWeight: '700', textTransform: 'uppercase', color: '#94A3B8' }} numberOfLines={1}>
-                    {p.nom}
-                  </Text>
-                  <View style={{ flexDirection: 'row', gap: 16, marginTop: 8 }}>
-                    <View>
-                      <Text style={{ fontSize: 10, fontWeight: '700', textTransform: 'uppercase', color: '#94A3B8' }}>SumUp</Text>
-                      <Text style={{ fontSize: 18, fontWeight: '800', color: '#0F172A' }}>{formatMontant(p.sumup)}</Text>
-                    </View>
-                    <View>
-                      <Text style={{ fontSize: 10, fontWeight: '700', textTransform: 'uppercase', color: '#94A3B8' }}>Appli</Text>
-                      <Text style={{ fontSize: 18, fontWeight: '800', color: '#0F172A' }}>{formatMontant(p.appli)}</Text>
-                    </View>
-                  </View>
-                </View>
-              ))}
-              {chiffresParPopUp.length === 0 && (
-                <View style={{ backgroundColor: 'white', borderRadius: 18, padding: 16, flexGrow: 1 }}>
-                  <Text style={{ fontSize: 13, color: '#94A3B8' }}>Aucune vente pop-up aujourd&apos;hui.</Text>
-                </View>
-              )}
-            </View>
-
-            <Text style={{ fontSize: 12, fontWeight: '700', textTransform: 'uppercase', color: '#94A3B8', marginTop: 8 }}>
-              Sur le site
-            </Text>
-            {chargementSite ? (
-              <ActivityIndicator color="#0EA5E9" />
-            ) : erreurSite ? (
-              <View style={{ backgroundColor: '#FEF2F2', borderRadius: 16, padding: 14 }}>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: '#B91C1C' }}>
-                  Chiffres du site indisponibles : {erreurSiteDetail instanceof Error ? erreurSiteDetail.message : 'erreur inconnue'}
-                </Text>
-              </View>
-            ) : (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-                <Carte titre="Shopify" valeur={formatMontant(caSite?.shopify ?? 0)} couleurFond="#F0F9FF" couleurTexte="#0C4A6E" />
-                <Carte titre="TikTok Shop" valeur={formatMontant(caSite?.tiktok ?? 0)} couleurFond="#F5F3FF" couleurTexte="#4C1D95" />
-              </View>
-            )}
-
-            {sumupHorsPopUp > 0 && (
-              <Carte titre="SumUp hors pop-up" valeur={formatMontant(sumupHorsPopUp)} couleurFond="#FFFBEB" couleurTexte="#92400E" />
-            )}
-          </>
-        )}
+        <CaJourContenu />
       </ScrollView>
     </View>
   );

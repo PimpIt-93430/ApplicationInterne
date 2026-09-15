@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
+import { CaJourContenu } from '@/components/finance/CaJourEcran';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { usePopUps } from '@/hooks/usePopUps';
 import { useProfilEffectif } from '@/hooks/useProfilEffectif';
@@ -59,7 +60,12 @@ function LigneVente({
  * migration 0048 : verrouillée en base, toujours visible pour l'admin). Un manager n'a en général
  * qu'un lieu (pas de sélecteur) mais pas toujours (ex. Makeda attribuée à Créteil Soleil et
  * Oparinord) — le sélecteur apparaît dès que la personne a plusieurs pop-up, pas seulement pour un
- * admin (même principe que PlanningMobile, qui l'affichait déjà ainsi). */
+ * admin (même principe que PlanningMobile, qui l'affichait déjà ainsi).
+ *
+ * Pour un admin, "CA du jour" (`CaJourContenu`) s'affiche en tête d'écran (cf. retour utilisateur
+ * du 2026-09-15 : sur mobile cet onglet, dans la barre du bas, doit être le point d'entrée facile
+ * — "dans ventes on arrive sur ça et après on peut aller sur le pop up qu'on veut") : toucher une
+ * carte pop-up présélectionne ce pop-up dans le sélecteur juste en dessous. */
 export function VentesEcran() {
   const profile = useProfilEffectif();
   const estAdmin = profile?.role === 'admin';
@@ -165,6 +171,12 @@ export function VentesEcran() {
         <ActivityIndicator color="#6366F1" style={{ marginTop: 24 }} />
       ) : (
         <ScrollView className="flex-1 px-4 pt-2" contentContainerStyle={{ paddingBottom: 40 }}>
+          {estAdmin && (
+            <View style={{ gap: 16, marginBottom: 20 }}>
+              <CaJourContenu onChoisirPopUp={(popUpId) => setPopUpSelectionne(popUpId)} />
+            </View>
+          )}
+
           <View className="mb-5 rounded-2xl bg-slate-50 p-4">
             <Text className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
               Nouvelle vente en espèces
