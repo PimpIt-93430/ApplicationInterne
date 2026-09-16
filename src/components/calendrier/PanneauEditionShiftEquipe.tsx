@@ -6,7 +6,7 @@ import { createElement, useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, CSSProperties } from 'react';
 import { Alert, Animated, PanResponder, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { insererShifts, supprimerShift } from '@/api/planning';
+import { insererShifts, mettreAJourShift, supprimerShift } from '@/api/planning';
 import type { Conge, PlanningShift, PopUp, Profile } from '@/types/database.types';
 import { formatCreneauShift } from '@/utils/dateUtils';
 
@@ -119,16 +119,33 @@ export function PanneauEditionShiftEquipe({
   const [envoiEnCours, setEnvoiEnCours] = useState(false);
   const [suppressionId, setSuppressionId] = useState<string | null>(null);
 
+  // Un seul créneau déjà présent sur cette case = on modifie ses horaires en place plutôt que d'en
+  // proposer un nouveau à côté — cf. retour utilisateur du 2026-09-16 : "pas que je dois supprimer
+  // son créneau, recréer un créneau [...] juste un truc où tu peux changer son créneau ou un bouton
+  // supprimer ce créneau". Avec 0 ou plusieurs créneaux existants, "Ajouter" reste le seul sens
+  // possible (case vide, ou plusieurs personnes/créneaux où "modifier lequel" serait ambigu).
+  const shiftAModifier = shiftsExistants.length === 1 ? shiftsExistants[0] : null;
+
   useEffect(() => {
     if (!visible) return;
-    setHeureDebut(heureVersDate('10:00'));
-    setHeureFin(heureVersDate('19:00'));
-    setHeureDebutPause(heureVersDate('13:00'));
-    setHeureFinPause(heureVersDate('14:00'));
+    if (shiftAModifier) {
+      setHeureDebut(heureVersDate(shiftAModifier.heure_debut.slice(0, 5)));
+      setHeureFin(heureVersDate(shiftAModifier.heure_fin.slice(0, 5)));
+      const auneP = !!(shiftAModifier.pause_debut && shiftAModifier.pause_fin);
+      setHeureDebutPause(heureVersDate((shiftAModifier.pause_debut ?? '13:00:00').slice(0, 5)));
+      setHeureFinPause(heureVersDate((shiftAModifier.pause_fin ?? '14:00:00').slice(0, 5)));
+      setSansPause(!auneP);
+    } else {
+      setHeureDebut(heureVersDate('10:00'));
+      setHeureFin(heureVersDate('19:00'));
+      setHeureDebutPause(heureVersDate('13:00'));
+      setHeureFinPause(heureVersDate('14:00'));
+      setSansPause(false);
+    }
     setPresetActif(null);
-    setSansPause(false);
     setPickerOuvert(null);
-  }, [visible, dateIso, profil?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, dateIso, profil?.id, shiftAModifier?.id]);
 
   const presets = presetsPourPopUp(popUp);
 
@@ -236,6 +253,42 @@ export function PanneauEditionShiftEquipe({
     creer();
   };
 
+  const confirmerModification = async () => {
+    if (!shiftAModifier) return;
+    const hDebut = `${dateVersHeure(heureDebut)}:00`;
+    const hFin = `${dateVersHeure(heureFin)}:00`;
+    if (hFin <= hDebut) {
+      Alert.alert('Heures invalides', "L'heure de fin doit être après l'heure de début.");
+      return;
+    }
+    const hDebutPause = `${dateVersHeure(heureDebutPause)}:00`;
+    const hFinPause = `${dateVersHeure(heureFinPause)}:00`;
+    const aUnePause = !estAdmin && !sansPause && hDebutPause !== hFinPause;
+    if (aUnePause && (hFinPause <= hDebutPause || hDebutPause < hDebut || hFinPause > hFin)) {
+      Alert.alert('Pause invalide', "La pause doit être comprise dans le créneau, heure de fin après l'heure de début.");
+      return;
+    }
+
+    setEnvoiEnCours(true);
+    try {
+      await mettreAJourShift(shiftAModifier.id, {
+        heure_debut: hDebut,
+        heure_fin: hFin,
+        pause_debut: aUnePause ? hDebutPause : null,
+        pause_fin: aUnePause ? hFinPause : null,
+        // Un shift touché à la main ne doit plus être considéré comme un simple brouillon
+        // auto-généré (cf. même règle côté Hub, PanneauCreationShift.tsx) : sinon une régénération
+        // ultérieure depuis l'horaire récurrent pourrait l'écraser.
+        genere_automatiquement: false,
+      });
+      onClose();
+    } catch (error) {
+      Alert.alert('Erreur', error instanceof Error ? error.message : 'Impossible de modifier le créneau.');
+    } finally {
+      setEnvoiEnCours(false);
+    }
+  };
+
   const handleSupprimer = (shift: PlanningShift) => {
     Alert.alert('Supprimer', `Supprimer ce créneau (${shift.heure_debut.slice(0, 5)}-${shift.heure_fin.slice(0, 5)}) ?`, [
       { text: 'Annuler', style: 'cancel' },
@@ -288,7 +341,7 @@ export function PanneauEditionShiftEquipe({
           </View>
         )}
 
-        <Text style={[styles.label, { marginTop: 16 }]}>Ajouter un créneau</Text>
+        <Text style={[styles.label, { marginTop: 16 }]}>{shiftAModifier ? 'Modifier le créneau' : 'Ajouter un créneau'}</Text>
 
         {estAdmin ? (
           <View style={styles.ligneChamps}>
@@ -463,8 +516,14 @@ export function PanneauEditionShiftEquipe({
           <Pressable onPress={onClose} style={styles.boutonAnnuler}>
             <Text style={styles.boutonAnnulerTexte}>Fermer</Text>
           </Pressable>
-          <Pressable onPress={confirmerEtAjouter} style={styles.boutonValider} disabled={envoiEnCours}>
-            <Text style={styles.boutonValiderTexte}>{envoiEnCours ? 'Ajout…' : 'Ajouter'}</Text>
+          <Pressable
+            onPress={shiftAModifier ? confirmerModification : confirmerEtAjouter}
+            style={styles.boutonValider}
+            disabled={envoiEnCours}
+          >
+            <Text style={styles.boutonValiderTexte}>
+              {envoiEnCours ? 'Enregistrement…' : shiftAModifier ? 'Enregistrer les modifications' : 'Ajouter'}
+            </Text>
           </Pressable>
         </View>
       </AnimatedPressable>

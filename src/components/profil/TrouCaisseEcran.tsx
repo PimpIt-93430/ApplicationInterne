@@ -192,6 +192,13 @@ export function TrouCaisseEcran({ onRetour }: { onRetour: () => void }) {
   }, [joursAControler, popUps, clesRemplies, clesIgnorees, attenduParCle]);
 
   const [erreur, setErreur] = useState<string | null>(null);
+  // Cf. retour utilisateur du 2026-09-16 : "dans le trou espèce l'historique rajoute-moi un filtre
+  // par pop up".
+  const [filtreHistoriquePopUpId, setFiltreHistoriquePopUpId] = useState<string>('tous');
+  const trousFiltres = useMemo(
+    () => (trous ?? []).filter((t) => filtreHistoriquePopUpId === 'tous' || t.popUpId === filtreHistoriquePopUpId),
+    [trous, filtreHistoriquePopUpId],
+  );
 
   const validerCase = async (cas: CasePendante, montantCompte: number) => {
     if (!profile) return;
@@ -248,12 +255,33 @@ export function TrouCaisseEcran({ onRetour }: { onRetour: () => void }) {
         )}
 
         <Text style={styles.titreSection}>Historique</Text>
+        <View style={styles.ligneChipsFiltre}>
+          <Pressable
+            onPress={() => setFiltreHistoriquePopUpId('tous')}
+            style={[styles.chipFiltre, filtreHistoriquePopUpId === 'tous' && styles.chipFiltreActif]}
+          >
+            <Text style={[styles.chipFiltreTexte, filtreHistoriquePopUpId === 'tous' && styles.chipFiltreTexteActif]}>
+              Tous
+            </Text>
+          </Pressable>
+          {popUps.map((p) => (
+            <Pressable
+              key={p.id}
+              onPress={() => setFiltreHistoriquePopUpId(p.id)}
+              style={[styles.chipFiltre, filtreHistoriquePopUpId === p.id && styles.chipFiltreActif]}
+            >
+              <Text style={[styles.chipFiltreTexte, filtreHistoriquePopUpId === p.id && styles.chipFiltreTexteActif]}>
+                {p.nom}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
         {chargementTrous ? (
           <ActivityIndicator color="#6366F1" />
-        ) : (trous ?? []).length === 0 ? (
+        ) : trousFiltres.length === 0 ? (
           <Text style={styles.texteAide}>Aucun trou enregistré.</Text>
         ) : (
-          (trous ?? []).map((t) => {
+          trousFiltres.map((t) => {
             const aUnEcart = Math.abs(t.montant) >= 0.01;
             return (
               <View key={t.id} style={styles.ligneHistorique}>
@@ -315,6 +343,11 @@ const styles = StyleSheet.create({
   boutonOkPendantTexte: { fontSize: 13, fontWeight: '700', color: 'white' },
   boutonOkPendantTexteDesactive: { color: '#94A3B8' },
   lienIgnorer: { fontSize: 15, fontWeight: '700', color: '#94A3B8', paddingHorizontal: 4 },
+  ligneChipsFiltre: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
+  chipFiltre: { borderRadius: 999, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', paddingHorizontal: 12, paddingVertical: 6 },
+  chipFiltreActif: { borderColor: '#4F46E5', backgroundColor: '#4F46E5' },
+  chipFiltreTexte: { fontSize: 12, fontWeight: '600', color: '#64748B' },
+  chipFiltreTexteActif: { color: 'white' },
   ligneHistorique: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 8, borderRadius: 14, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: 'white', padding: 12 },
   ligneHistoriqueTitre: { fontSize: 14, fontWeight: '700', color: '#0F172A' },
   ligneHistoriqueSousTexte: { marginTop: 3, fontSize: 11, color: '#94A3B8' },

@@ -31,6 +31,7 @@ import { supabase } from '@/api/supabaseClient';
 import { AxeHeures } from '@/components/calendrier/AxeHeures';
 import { CalendrierPersonnel } from '@/components/calendrier/CalendrierPersonnel';
 import { PanneauCreationShift } from '@/components/calendrier/PanneauCreationShift';
+import { PanneauEditionShiftEquipe } from '@/components/calendrier/PanneauEditionShiftEquipe';
 import { PanneauIndisponibilites } from '@/components/calendrier/PanneauIndisponibilites';
 import { TimelineJour } from '@/components/calendrier/TimelineJour';
 import { VueParEmployes } from '@/components/calendrier/VueParEmployes';
@@ -220,6 +221,16 @@ export default function CalendrierPopUpScreen() {
   // Shift(s) déjà présents sur la cellule cliquée (vide pour une cellule libre) : permet au
   // panneau de proposer un bouton "Supprimer" qui les retire, en plus d'"Ajouter".
   const [panneauShiftsExistants, setPanneauShiftsExistants] = useState<PlanningShift[]>([]);
+
+  // Feuille mobile "Modifier le créneau" (cf. retour utilisateur du 2026-09-16 : "quand une
+  // personne a un créneau et que j'appuie dessus ça me met ces heures directement... pas que je
+  // dois supprimer son créneau, recréer un créneau") — même panneau que PlanningMobile.tsx (équipe
+  // manager), ouvert ici pour la vue équipe agrégée (tous pop-up) de l'admin sur téléphone. Reste
+  // scopée aux cellules déjà remplies (cf. son usage plus bas) : créer un nouveau créneau depuis
+  // cette vue agrégée (pas de pop-up unique connu) reste réservé à l'ordinateur.
+  const [celluleEditeeMobile, setCelluleEditeeMobile] = useState<{ profil: Profile; dateIso: string; shifts: PlanningShift[] } | null>(
+    null,
+  );
 
   // Suppression d'un congé/indisponibilité directement depuis sa cellule rouge dans la vue par
   // employés (cf. VueParEmployes/celluleConge) : cliquer dessus n'a pas de sens pour créer un
@@ -1053,12 +1064,17 @@ export default function CalendrierPopUpScreen() {
           jours={jours}
           profils={profils ?? []}
           shifts={shifts ?? []}
-          // Lecture seule sur téléphone : PanneauCreationShift (édition) reste web-only, cf. son
-          // en-tête — modifier un créneau depuis cette vue agrégée nécessite l'ordinateur pour
-          // l'instant.
-          onPressCellule={() =>
-            Alert.alert('Lecture seule', "Pour modifier un créneau depuis cette vue, passe par l'ordinateur.")
-          }
+          // Cf. retour utilisateur du 2026-09-16 : modifier/supprimer un créneau déjà existant
+          // fonctionne maintenant depuis le téléphone (PanneauEditionShiftEquipe, même panneau que
+          // PlanningMobile.tsx) — créer un NOUVEAU créneau depuis cette vue agrégée (tous pop-up,
+          // aucun lieu unique connu) reste réservé à l'ordinateur (PanneauCreationShift, web-only).
+          onPressCellule={(profilCible, dateIso, shiftsExistants) => {
+            if (shiftsExistants.length === 0) {
+              Alert.alert('Lecture seule', "Pour ajouter un nouveau créneau depuis cette vue, passe par l'ordinateur.");
+              return;
+            }
+            setCelluleEditeeMobile({ profil: profilCible, dateIso, shifts: shiftsExistants });
+          }}
           popUpParId={popUpParId}
           joursEcole={joursEcole ?? []}
           conges={conges ?? []}
@@ -1265,6 +1281,27 @@ export default function CalendrierPopUpScreen() {
           onShiftCree={invalidateShifts}
         />
       )}
+
+      <PanneauEditionShiftEquipe
+        visible={!!celluleEditeeMobile}
+        onClose={() => setCelluleEditeeMobile(null)}
+        profil={celluleEditeeMobile?.profil ?? null}
+        dateIso={celluleEditeeMobile?.dateIso ?? ''}
+        popUpId={celluleEditeeMobile?.shifts[0]?.pop_up_id}
+        popUp={popUpParId.get(celluleEditeeMobile?.shifts[0]?.pop_up_id ?? '')}
+        shiftsExistants={celluleEditeeMobile?.shifts ?? []}
+        conge={
+          celluleEditeeMobile
+            ? (conges ?? []).find(
+                (c) =>
+                  c.profile_id === celluleEditeeMobile.profil.id &&
+                  celluleEditeeMobile.dateIso >= c.date_debut &&
+                  celluleEditeeMobile.dateIso <= c.date_fin,
+              )
+            : undefined
+        }
+        creeParId={profile?.id}
+      />
         </>
       )}
     </View>
