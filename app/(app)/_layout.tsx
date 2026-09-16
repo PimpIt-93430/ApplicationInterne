@@ -1,6 +1,6 @@
 import { Redirect, Slot } from 'expo-router';
 import { useEffect } from 'react';
-import { ActivityIndicator, Platform, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 
 import { BarreNavigationBasse } from '@/components/nav/BarreNavigationBasse';
 import { MenuLateral } from '@/components/nav/MenuLateral';
@@ -28,20 +28,11 @@ export default function AppLayout() {
     return <Redirect href="/(auth)/login" />;
   }
 
-  // Le tiroir latéral (MenuLateral) reste la navigation web dans tous les cas. Sur mobile, tout le
-  // monde a maintenant la barre d'onglets basse façon Combo (Planning/Stock/Ventes/Demande &
-  // RH/Profil) — y compris un admin en "vue admin" : le tiroir reste accessible en plus pour lui
-  // via le ☰ de EnteteMenu sur les écrans admin/* (génération de planning, pop-up, équipe RH
+  // Même barre d'onglets basse façon Combo (Planning/Stock/Ventes/Demande & RH/Profil) sur mobile
+  // et sur web (retour utilisateur du 2026-09-16 : le site web doit être identique à l'appli) — y
+  // compris un admin en "vue admin" : le tiroir latéral (MenuLateral) reste accessible en plus pour
+  // lui via le ☰ de EnteteMenu sur les écrans admin/* (génération de planning, pop-up, équipe RH
   // complète, finance), qui ont besoin de plus que ce que la barre basse peut offrir.
-  if (Platform.OS === 'web') {
-    return (
-      <View style={{ flex: 1 }}>
-        <Slot />
-        <MenuLateral />
-      </View>
-    );
-  }
-
   const estAdminEnVueAdmin = profileReel?.role === 'admin' && !profilPreviewId;
   // Un manager a lui aussi le tiroir sur mobile désormais (Équipe scopée à son pop-up, cf.
   // MenuLateral/liensNavigation) — pas seulement un admin (retour utilisateur du 2026-08-24).

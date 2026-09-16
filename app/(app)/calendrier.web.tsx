@@ -1,9 +1,9 @@
 /** @jsxImportSource react */
 // Web uniquement : si la personne connectée a un droit "calendrier" (cf. onglet Droits dans
 // Équipe, migration 0034), affiche une vue équipe scopée à son/ses pop-up(s) et à leurs employés —
-// sinon retombe sur exactement le même écran "mon planning" que calendrier.tsx (aucun changement
-// pour un employé normal, ni pour un admin qui atterrirait ici par erreur : admin/calendrier.tsx
-// reste sa route).
+// sinon retombe sur PlanningMobile, exactement comme sur téléphone (retour utilisateur du
+// 2026-09-16 : le site web doit être identique à l'appli), aucun changement pour un employé normal
+// ni pour un admin qui atterrirait ici par erreur (admin/calendrier.tsx reste sa route).
 //
 // Pas de réutilisation de admin/calendrier.tsx tel quel : cet écran régénère automatiquement le
 // planning de TOUS les pop-ups à chaque montage, ce qui casserait silencieusement le planning d'un
@@ -13,7 +13,7 @@ import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 
-import { CalendrierPersonnelEcranWeb } from '@/components/calendrier/CalendrierPersonnelEcranWeb';
+import { PlanningMobile } from '@/components/calendrier/PlanningMobile';
 import { PanneauCreationShift } from '@/components/calendrier/PanneauCreationShift';
 import { PanneauIndisponibilites } from '@/components/calendrier/PanneauIndisponibilites';
 import { VueParEmployes } from '@/components/calendrier/VueParEmployes';
@@ -49,7 +49,7 @@ export default function CalendrierScreenWeb() {
 
   const droitsCalendrier = (droits ?? []).filter((d) => d.fonctionnalite === 'calendrier');
   if (!profilEffectif || profilEffectif.role === 'admin' || droitsCalendrier.length === 0) {
-    return <CalendrierPersonnelEcranWeb />;
+    return <PlanningMobile />;
   }
 
   return <CalendrierEquipeScopee droitsCalendrier={droitsCalendrier} profilEffectif={profilEffectif} />;
