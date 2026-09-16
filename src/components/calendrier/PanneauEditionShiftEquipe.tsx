@@ -5,6 +5,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { createElement, useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, CSSProperties } from 'react';
 import { Alert, Animated, PanResponder, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 import { insererShifts, mettreAJourShift, supprimerShift } from '@/api/planning';
 import type { Conge, PlanningShift, PopUp, Profile } from '@/types/database.types';
@@ -299,6 +300,10 @@ export function PanneauEditionShiftEquipe({
           setSuppressionId(shift.id);
           try {
             await supprimerShift(shift.id);
+            // Ferme la feuille après suppression — sinon, en mode "modifier" (un seul créneau),
+            // les champs restent affichés avec les valeurs de l'horaire qui vient d'être supprimé
+            // (le shift passé en props ne se met pas à jour tout seul après coup).
+            onClose();
           } catch (error) {
             Alert.alert('Erreur', error instanceof Error ? error.message : 'Impossible de supprimer le créneau.');
           } finally {
@@ -315,8 +320,21 @@ export function PanneauEditionShiftEquipe({
         <View {...panResponder.panHandlers}>
           <View style={styles.poignee} />
         </View>
-        <Text style={styles.titre}>{nom}</Text>
-        <Text style={styles.sousTitre}>{formatDateAffichee(dateIso)}</Text>
+        <View style={styles.entete}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.titre}>{nom}</Text>
+            <Text style={styles.sousTitre}>{formatDateAffichee(dateIso)}</Text>
+          </View>
+          {/* Cf. retour utilisateur du 2026-09-16 : une petite croix pour fermer, seulement utile
+              ici puisque la version compacte (un seul créneau existant) n'a plus de bouton
+              "Fermer" dans la rangée de boutons du bas (Supprimer/Enregistrer y prennent toute la
+              place). La version "Ajouter" garde son bouton "Fermer" texte habituel. */}
+          {shiftAModifier && (
+            <Pressable onPress={onClose} style={styles.fermerBouton}>
+              <Ionicons name="close" size={20} color="#64748B" />
+            </Pressable>
+          )}
+        </View>
 
         {!!conge && (
           <View style={styles.bandeauConge}>
@@ -324,125 +342,177 @@ export function PanneauEditionShiftEquipe({
           </View>
         )}
 
-        {shiftsExistants.length > 0 && (
-          <View style={{ marginTop: 12 }}>
-            <Text style={styles.label}>Créneaux existants</Text>
-            {shiftsExistants.map((s) => (
-              <View key={s.id} style={styles.ligneShiftExistant}>
-                <Text style={styles.shiftExistantTexte}>
-                  {formatCreneauShift(s)}
-                  {s.etiquette ? ` · ${s.etiquette}` : ''}
-                </Text>
-                <Pressable onPress={() => handleSupprimer(s)} style={{ paddingHorizontal: 8, paddingVertical: 4 }}>
-                  <Text style={styles.croix}>{suppressionId === s.id ? '…' : '✕'}</Text>
+        {shiftAModifier ? (
+          // Cf. retour utilisateur du 2026-09-16 : "quand y'a déjà un créneau [...] tu enlèves
+          // modifier le créneau, matin après-midi etc, tu enlèves créneaux existant, tu trouves un
+          // truc pour que ça prenne moins de place" — version compacte pour le cas le plus courant
+          // (une case déjà remplie) : juste les horaires à ajuster, sans la liste redondante ni les
+          // présets (qui n'ont plus de sens une fois qu'on modifie un créneau précis).
+          <>
+            <View style={[styles.ligneChamps, { marginTop: 12 }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sousLabel}>De</Text>
+                <Pressable onPress={() => setPickerOuvert('debut')} style={styles.champ}>
+                  <Text style={styles.champTexte}>{dateVersHeure(heureDebut)}</Text>
                 </Pressable>
               </View>
-            ))}
-          </View>
-        )}
-
-        <Text style={[styles.label, { marginTop: 16 }]}>{shiftAModifier ? 'Modifier le créneau' : 'Ajouter un créneau'}</Text>
-
-        {estAdmin ? (
-          <View style={styles.ligneChamps}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.sousLabel}>De</Text>
-              <Pressable onPress={() => setPickerOuvert('debut')} style={styles.champ}>
-                <Text style={styles.champTexte}>{dateVersHeure(heureDebut)}</Text>
-              </Pressable>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sousLabel}>À</Text>
+                <Pressable onPress={() => setPickerOuvert('fin')} style={styles.champ}>
+                  <Text style={styles.champTexte}>{dateVersHeure(heureFin)}</Text>
+                </Pressable>
+              </View>
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.sousLabel}>À</Text>
-              <Pressable onPress={() => setPickerOuvert('fin')} style={styles.champ}>
-                <Text style={styles.champTexte}>{dateVersHeure(heureFin)}</Text>
-              </Pressable>
-            </View>
-          </View>
-        ) : (
-          <>
-            <View style={styles.lignePresets}>
-              {(Object.keys(presets) as Exclude<Preset, 'personnalise'>[]).map((preset) => (
-                <Pressable
-                  key={preset}
-                  onPress={() => appliquerPreset(preset)}
-                  style={[styles.chipPreset, presetActif === preset && styles.chipPresetActif]}
-                >
-                  <Text style={[styles.chipPresetTexte, presetActif === preset && styles.chipPresetTexteActif]}>
-                    {presets[preset].label}
+
+            {!estAdmin && (
+              <>
+                {!sansPause && (
+                  <View style={[styles.ligneChamps, { marginTop: 10 }]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.sousLabel}>Pause de</Text>
+                      <Pressable onPress={() => setPickerOuvert('pauseDebut')} style={styles.champ}>
+                        <Text style={styles.champTexte}>{dateVersHeure(heureDebutPause)}</Text>
+                      </Pressable>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.sousLabel}>à</Text>
+                      <Pressable onPress={() => setPickerOuvert('pauseFin')} style={styles.champ}>
+                        <Text style={styles.champTexte}>{dateVersHeure(heureFinPause)}</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                )}
+                <Pressable onPress={() => setSansPause((v) => !v)} style={{ marginTop: 8, alignSelf: 'flex-start' }}>
+                  <Text style={styles.lienPause}>
+                    {sansPause ? '+ Ajouter une pause déjeuner' : '✕ Retirer la pause'}
                   </Text>
                 </Pressable>
-              ))}
-              <Pressable
-                onPress={() => setPresetActif('personnalise')}
-                style={[styles.chipPreset, presetActif === 'personnalise' && styles.chipPresetActif]}
-              >
-                <Text
-                  style={[styles.chipPresetTexte, presetActif === 'personnalise' && styles.chipPresetTexteActif]}
-                >
-                  Personnalisé
-                </Text>
-              </Pressable>
-            </View>
-
-            {sansPause ? (
-              <>
-                <Text style={[styles.sousLabel, { marginTop: 12 }]}>Créneau</Text>
-                <View style={styles.ligneChamps}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.sousLabel}>De</Text>
-                    <Pressable onPress={() => setPickerOuvert('debut')} style={styles.champ}>
-                      <Text style={styles.champTexte}>{dateVersHeure(heureDebut)}</Text>
-                    </Pressable>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.sousLabel}>À</Text>
-                    <Pressable onPress={() => setPickerOuvert('fin')} style={styles.champ}>
-                      <Text style={styles.champTexte}>{dateVersHeure(heureFin)}</Text>
-                    </Pressable>
-                  </View>
-                </View>
-                <Pressable onPress={() => setSansPause(false)} style={{ marginTop: 8, alignSelf: 'flex-start' }}>
-                  <Text style={styles.lienPause}>+ Ajouter une pause déjeuner</Text>
-                </Pressable>
               </>
-            ) : (
-              <>
-                <Text style={[styles.sousLabel, { marginTop: 12 }]}>Avant la pause</Text>
-                <View style={styles.ligneChamps}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.sousLabel}>De</Text>
-                    <Pressable onPress={() => setPickerOuvert('debut')} style={styles.champ}>
-                      <Text style={styles.champTexte}>{dateVersHeure(heureDebut)}</Text>
+            )}
+          </>
+        ) : (
+          <>
+            {shiftsExistants.length > 0 && (
+              <View style={{ marginTop: 12 }}>
+                <Text style={styles.label}>Créneaux existants</Text>
+                {shiftsExistants.map((s) => (
+                  <View key={s.id} style={styles.ligneShiftExistant}>
+                    <Text style={styles.shiftExistantTexte}>
+                      {formatCreneauShift(s)}
+                      {s.etiquette ? ` · ${s.etiquette}` : ''}
+                    </Text>
+                    <Pressable onPress={() => handleSupprimer(s)} style={{ paddingHorizontal: 8, paddingVertical: 4 }}>
+                      <Text style={styles.croix}>{suppressionId === s.id ? '…' : '✕'}</Text>
                     </Pressable>
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.sousLabel}>À</Text>
-                    <Pressable onPress={() => setPickerOuvert('pauseDebut')} style={styles.champ}>
-                      <Text style={styles.champTexte}>{dateVersHeure(heureDebutPause)}</Text>
-                    </Pressable>
-                  </View>
-                </View>
+                ))}
+              </View>
+            )}
 
-                <View style={[styles.ligneLabelAvecLien, { marginTop: 12 }]}>
-                  <Text style={styles.sousLabel}>Après la pause</Text>
-                  <Pressable onPress={() => setSansPause(true)}>
-                    <Text style={styles.lienPause}>✕ Retirer la pause</Text>
+            <Text style={[styles.label, { marginTop: 16 }]}>Ajouter un créneau</Text>
+
+            {estAdmin ? (
+              <View style={styles.ligneChamps}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sousLabel}>De</Text>
+                  <Pressable onPress={() => setPickerOuvert('debut')} style={styles.champ}>
+                    <Text style={styles.champTexte}>{dateVersHeure(heureDebut)}</Text>
                   </Pressable>
                 </View>
-                <View style={styles.ligneChamps}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.sousLabel}>De</Text>
-                    <Pressable onPress={() => setPickerOuvert('pauseFin')} style={styles.champ}>
-                      <Text style={styles.champTexte}>{dateVersHeure(heureFinPause)}</Text>
-                    </Pressable>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.sousLabel}>À</Text>
-                    <Pressable onPress={() => setPickerOuvert('fin')} style={styles.champ}>
-                      <Text style={styles.champTexte}>{dateVersHeure(heureFin)}</Text>
-                    </Pressable>
-                  </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sousLabel}>À</Text>
+                  <Pressable onPress={() => setPickerOuvert('fin')} style={styles.champ}>
+                    <Text style={styles.champTexte}>{dateVersHeure(heureFin)}</Text>
+                  </Pressable>
                 </View>
+              </View>
+            ) : (
+              <>
+                <View style={styles.lignePresets}>
+                  {(Object.keys(presets) as Exclude<Preset, 'personnalise'>[]).map((preset) => (
+                    <Pressable
+                      key={preset}
+                      onPress={() => appliquerPreset(preset)}
+                      style={[styles.chipPreset, presetActif === preset && styles.chipPresetActif]}
+                    >
+                      <Text style={[styles.chipPresetTexte, presetActif === preset && styles.chipPresetTexteActif]}>
+                        {presets[preset].label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                  <Pressable
+                    onPress={() => setPresetActif('personnalise')}
+                    style={[styles.chipPreset, presetActif === 'personnalise' && styles.chipPresetActif]}
+                  >
+                    <Text
+                      style={[styles.chipPresetTexte, presetActif === 'personnalise' && styles.chipPresetTexteActif]}
+                    >
+                      Personnalisé
+                    </Text>
+                  </Pressable>
+                </View>
+
+                {sansPause ? (
+                  <>
+                    <Text style={[styles.sousLabel, { marginTop: 12 }]}>Créneau</Text>
+                    <View style={styles.ligneChamps}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.sousLabel}>De</Text>
+                        <Pressable onPress={() => setPickerOuvert('debut')} style={styles.champ}>
+                          <Text style={styles.champTexte}>{dateVersHeure(heureDebut)}</Text>
+                        </Pressable>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.sousLabel}>À</Text>
+                        <Pressable onPress={() => setPickerOuvert('fin')} style={styles.champ}>
+                          <Text style={styles.champTexte}>{dateVersHeure(heureFin)}</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                    <Pressable onPress={() => setSansPause(false)} style={{ marginTop: 8, alignSelf: 'flex-start' }}>
+                      <Text style={styles.lienPause}>+ Ajouter une pause déjeuner</Text>
+                    </Pressable>
+                  </>
+                ) : (
+                  <>
+                    <Text style={[styles.sousLabel, { marginTop: 12 }]}>Avant la pause</Text>
+                    <View style={styles.ligneChamps}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.sousLabel}>De</Text>
+                        <Pressable onPress={() => setPickerOuvert('debut')} style={styles.champ}>
+                          <Text style={styles.champTexte}>{dateVersHeure(heureDebut)}</Text>
+                        </Pressable>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.sousLabel}>À</Text>
+                        <Pressable onPress={() => setPickerOuvert('pauseDebut')} style={styles.champ}>
+                          <Text style={styles.champTexte}>{dateVersHeure(heureDebutPause)}</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+
+                    <View style={[styles.ligneLabelAvecLien, { marginTop: 12 }]}>
+                      <Text style={styles.sousLabel}>Après la pause</Text>
+                      <Pressable onPress={() => setSansPause(true)}>
+                        <Text style={styles.lienPause}>✕ Retirer la pause</Text>
+                      </Pressable>
+                    </View>
+                    <View style={styles.ligneChamps}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.sousLabel}>De</Text>
+                        <Pressable onPress={() => setPickerOuvert('pauseFin')} style={styles.champ}>
+                          <Text style={styles.champTexte}>{dateVersHeure(heureFinPause)}</Text>
+                        </Pressable>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.sousLabel}>À</Text>
+                        <Pressable onPress={() => setPickerOuvert('fin')} style={styles.champ}>
+                          <Text style={styles.champTexte}>{dateVersHeure(heureFin)}</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  </>
+                )}
               </>
             )}
           </>
@@ -513,16 +583,28 @@ export function PanneauEditionShiftEquipe({
         )}
 
         <View style={styles.ligneBoutons}>
-          <Pressable onPress={onClose} style={styles.boutonAnnuler}>
-            <Text style={styles.boutonAnnulerTexte}>Fermer</Text>
-          </Pressable>
+          {shiftAModifier ? (
+            <Pressable
+              onPress={() => handleSupprimer(shiftAModifier)}
+              style={styles.boutonSupprimerRouge}
+              disabled={suppressionId === shiftAModifier.id}
+            >
+              <Text style={styles.boutonSupprimerRougeTexte}>
+                {suppressionId === shiftAModifier.id ? 'Suppression…' : 'Supprimer'}
+              </Text>
+            </Pressable>
+          ) : (
+            <Pressable onPress={onClose} style={styles.boutonAnnuler}>
+              <Text style={styles.boutonAnnulerTexte}>Fermer</Text>
+            </Pressable>
+          )}
           <Pressable
             onPress={shiftAModifier ? confirmerModification : confirmerEtAjouter}
             style={styles.boutonValider}
             disabled={envoiEnCours}
           >
             <Text style={styles.boutonValiderTexte}>
-              {envoiEnCours ? 'Enregistrement…' : shiftAModifier ? 'Enregistrer les modifications' : 'Ajouter'}
+              {envoiEnCours ? 'Enregistrement…' : shiftAModifier ? 'Enregistrer' : 'Ajouter'}
             </Text>
           </Pressable>
         </View>
@@ -535,6 +617,8 @@ const styles = StyleSheet.create({
   fond: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
   feuille: { borderTopLeftRadius: 24, borderTopRightRadius: 24, backgroundColor: 'white', padding: 20, paddingBottom: 32 },
   poignee: { marginBottom: 16, height: 6, width: 48, alignSelf: 'center', borderRadius: 3, backgroundColor: '#E2E8F0' },
+  entete: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
+  fermerBouton: { padding: 6, borderRadius: 999, backgroundColor: '#F1F5F9' },
   titre: { fontSize: 18, fontWeight: 'bold', color: '#0F172A' },
   sousTitre: { marginTop: 2, fontSize: 14, color: '#94A3B8' },
   bandeauConge: {
@@ -600,4 +684,6 @@ const styles = StyleSheet.create({
   boutonAnnulerTexte: { fontWeight: '600', color: '#475569' },
   boutonValider: { flex: 1, alignItems: 'center', borderRadius: 12, backgroundColor: '#4F46E5', paddingVertical: 12 },
   boutonValiderTexte: { fontWeight: '600', color: 'white' },
+  boutonSupprimerRouge: { flex: 1, alignItems: 'center', borderRadius: 12, backgroundColor: '#DC2626', paddingVertical: 12 },
+  boutonSupprimerRougeTexte: { fontWeight: '600', color: 'white' },
 });
