@@ -6,12 +6,14 @@ import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 
 
 import { CaJourContenu } from '@/components/finance/CaJourEcran';
 import { Dropdown } from '@/components/ui/Dropdown';
+import { useMesDroits } from '@/hooks/useDroits';
 import { usePopUps } from '@/hooks/usePopUps';
 import { useProfilEffectif } from '@/hooks/useProfilEffectif';
 import { useActiveProfiles, useAffectationsPopUp } from '@/hooks/useProfiles';
 import { useGererVentesEspeces, useVentesEspecesPopUp } from '@/hooks/useVentesEspeces';
 import type { VenteEspece } from '@/types/database.types';
 import { construireMapAffectations, popUpsAttribues } from '@/utils/affectations';
+import { aDroit } from '@/utils/permissions';
 
 function formatMontant(montant: number): string {
   return montant.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
@@ -78,10 +80,21 @@ export function VentesEcran() {
     [profils],
   );
   const mapAffectations = useMemo(() => construireMapAffectations(affectations ?? []), [affectations]);
-  const mesPopUps = useMemo(
-    () => (profile ? popUpsAttribues(profile, mapAffectations, popUpsTous ?? []) : []),
-    [profile, mapAffectations, popUpsTous],
-  );
+  const { data: mesDroits } = useMesDroits(profile?.id);
+  // Retour utilisateur du 2026-09-17 : "si Pierre a tous les droits sur Val d'Europe c'est que
+  // c'est le manager, donc dans les ventes tu le mets en premier sinon il peut se tromper" — une
+  // personne affectée à plusieurs pop-ups (ex. Makeda à Créteil Soleil ET Oparinord) voyait le
+  // premier de la liste présélectionné, sans lien avec l'endroit dont elle est réellement
+  // responsable. Un droit "équipe" ou "calendrier" sur un pop-up précis signale qu'elle en est la
+  // responsable désignée (cf. droits_employe, migration 0034) — ce pop-up passe en tête, devant les
+  // autres où elle n'est qu'occasionnellement affectée sans en être responsable.
+  const mesPopUps = useMemo(() => {
+    const base = profile ? popUpsAttribues(profile, mapAffectations, popUpsTous ?? []) : [];
+    if (!mesDroits || mesDroits.length === 0) return base;
+    const estResponsable = (popUpId: string) =>
+      aDroit(mesDroits, 'equipe', popUpId) || aDroit(mesDroits, 'calendrier', popUpId);
+    return [...base].sort((a, b) => Number(estResponsable(b.id)) - Number(estResponsable(a.id)));
+  }, [profile, mapAffectations, popUpsTous, mesDroits]);
 
   const plusieursPopUps = mesPopUps.length > 1;
   const [popUpSelectionne, setPopUpSelectionne] = useState<string | undefined>(undefined);
