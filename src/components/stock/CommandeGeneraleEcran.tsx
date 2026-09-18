@@ -22,8 +22,6 @@ import {
   useVentesSumupLignes,
 } from '@/hooks/useChaussures';
 import { useCoquesInventaires, useCoquesStock, useMappingSumupCoques } from '@/hooks/useCoques';
-import { useLanieresInventaires, useLanieresStock, useMappingSumupLanieres } from '@/hooks/useLanieres';
-import { useSacsInventaires, useSacsStock, useMappingSumupSacs } from '@/hooks/useSacs';
 import {
   useCommandeActiveProduits,
   useCommandeDetailProduits,
@@ -44,10 +42,9 @@ import {
 } from '@/hooks/useStock';
 import { calculerARamener, resoudreVentesSumup } from '@/utils/chaussures';
 import { calculerARamenerCoques, resoudreVentesSumupCoques } from '@/utils/coques';
-import { calculerARamenerLanieres, resoudreVentesSumupLanieres } from '@/utils/lanieres';
-import { calculerARamenerSacs, resoudreVentesSumupSacs } from '@/utils/sacs';
 import { construireMapAffectations, popUpsAttribues } from '@/utils/affectations';
 import { useCommandeQuantitesStore } from '@/store/useCommandeQuantitesStore';
+import { usePanierProduitsStore } from '@/store/usePanierProduitsStore';
 import type { CategorieProduit, Profile, TypeConsommable } from '@/types/database.types';
 
 const LABEL_CATEGORIE: Record<CategorieProduit, string> = {
@@ -67,9 +64,11 @@ interface LigneProduitCandidate {
   quantite: number;
 }
 
-/** Rassemble les "à ramener" des 4 catégories de Produits pour ce pop-up — même calcul que les
- * onglets Réappro de Chaussures/Coques/Sacs/Lanières (calculerARamener*), jusqu'ici seulement
- * affiché à titre indicatif dans chaque écran séparé, jamais relié à un vrai envoi de commande. */
+/** Rassemble les lignes de Produits à commander pour ce pop-up : Chaussures/Coques restent
+ * calculées automatiquement (même calcul que leurs onglets Réappro, calculerARamener*), tandis que
+ * Sacs/Lanières viennent directement du panier manuel (retour utilisateur du 2026-09-18 : "c'est
+ * pas un inventaire qui se décrémente, c'est juste quand ils en veulent... un bouton ajouter à la
+ * commande", cf. usePanierProduitsStore). */
 function useProduitsACommander(popUpId: string | undefined): { lignes: LigneProduitCandidate[]; chargement: boolean } {
   const { data: stockChaussures, isLoading: c1 } = useChaussuresStock();
   const { data: inventairesChaussures, isLoading: c2 } = useChaussuresInventaires(popUpId);
@@ -80,13 +79,7 @@ function useProduitsACommander(popUpId: string | undefined): { lignes: LigneProd
   const { data: inventairesCoques, isLoading: c4 } = useCoquesInventaires(popUpId);
   const { data: mappingCoques } = useMappingSumupCoques();
 
-  const { data: stockSacs, isLoading: c5 } = useSacsStock();
-  const { data: inventairesSacs, isLoading: c6 } = useSacsInventaires(popUpId);
-  const { data: mappingSacs } = useMappingSumupSacs();
-
-  const { data: stockLanieres, isLoading: c7 } = useLanieresStock();
-  const { data: inventairesLanieres, isLoading: c8 } = useLanieresInventaires(popUpId);
-  const { data: mappingLanieres } = useMappingSumupLanieres();
+  const panier = usePanierProduitsStore((s) => s.lignes);
 
   const lignes = useMemo(() => {
     if (!popUpId) return [];
@@ -111,38 +104,15 @@ function useProduitsACommander(popUpId: string | undefined): { lignes: LigneProd
       });
     }
 
-    const ventesSacs = resoudreVentesSumupSacs(ventesLignes ?? [], mappingSacs ?? []);
-    for (const item of calculerARamenerSacs(stockSacs ?? [], inventairesSacs ?? [], ventesSacs)) {
-      if (item.aRamener <= 0) continue;
-      resultat.push({ categorie: 'sacs', produitId: item.id, libelle: `${item.produit} — ${item.couleur}`, quantite: item.aRamener });
-    }
-
-    const ventesLanieres = resoudreVentesSumupLanieres(ventesLignes ?? [], mappingLanieres ?? []);
-    for (const item of calculerARamenerLanieres(stockLanieres ?? [], inventairesLanieres ?? [], ventesLanieres)) {
-      if (item.aRamener <= 0) continue;
-      resultat.push({ categorie: 'lanieres', produitId: item.id, libelle: `${item.couleur} — ${item.taille}`, quantite: item.aRamener });
+    for (const ligne of panier) {
+      resultat.push({ categorie: ligne.categorie, produitId: ligne.produitId, libelle: ligne.libelle, quantite: ligne.quantite });
     }
 
     return resultat;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    popUpId,
-    stockChaussures,
-    inventairesChaussures,
-    ventesLignes,
-    mappingChaussures,
-    stockCoques,
-    inventairesCoques,
-    mappingCoques,
-    stockSacs,
-    inventairesSacs,
-    mappingSacs,
-    stockLanieres,
-    inventairesLanieres,
-    mappingLanieres,
-  ]);
+  }, [popUpId, stockChaussures, inventairesChaussures, ventesLignes, mappingChaussures, stockCoques, inventairesCoques, mappingCoques, panier]);
 
-  return { lignes, chargement: c1 || c2 || c3 || c4 || c5 || c6 || c7 || c8 };
+  return { lignes, chargement: c1 || c2 || c3 || c4 };
 }
 
 function CaseACocher({ coche }: { coche: boolean }) {
@@ -217,6 +187,7 @@ function VueCommandePopUp({ popUpId, popUpNom, profile }: { popUpId: string; pop
   const { data: commandeProduits } = useCommandeActiveProduits(popUpId);
   const { envoyer: envoyerProduits, marquerRecue: marquerRecueProduits } = useGererCommandeProduits(popUpId);
   const [produitsExclus, setProduitsExclus] = useState<Set<string>>(new Set());
+  const retirerDuPanier = usePanierProduitsStore((s) => s.retirer);
 
   // Consommables
   const { data: commandeConsommables } = useCommandeActiveConsommables(popUpId);
@@ -259,6 +230,11 @@ function VueCommandePopUp({ popUpId, popUpNom, profile }: { popUpId: string; pop
           profileId: profile.id,
           lignes: produitsRetenus.map((l) => ({ categorie: l.categorie, produitId: l.produitId, libelle: l.libelle, quantite: l.quantite })),
         });
+        // Vide du panier seulement ce qui vient d'être envoyé — une ligne sacs/lanières décochée
+        // (exclue de cet envoi) doit rester en attente pour la prochaine fois.
+        for (const l of produitsRetenus) {
+          if (l.categorie === 'sacs' || l.categorie === 'lanieres') retirerDuPanier(l.produitId);
+        }
       }
       if (!commandeConsommables && consommablesChoisis.size > 0) {
         await demanderConsommables.mutateAsync({
@@ -374,14 +350,14 @@ function VueCommandePopUp({ popUpId, popUpNom, profile }: { popUpId: string; pop
               <CarteStatutCommande titre="Produits — demandée" texte="En préparation par le local." couleur="amber" />
             )
           ) : produitsCandidats.length === 0 ? (
-            <Text className="mb-4 text-sm text-slate-400">Rien à ramener pour l'instant.</Text>
+            <Text className="mb-4 text-sm text-slate-400">Rien à commander pour l'instant.</Text>
           ) : (
             <View className="mb-4">
               {produitsCandidats.map((l) => (
                 <LigneCheckable
                   key={l.produitId}
                   label={l.libelle}
-                  sousLigne={`${LABEL_CATEGORIE[l.categorie]} — ${l.quantite} à ramener`}
+                  sousLigne={`${LABEL_CATEGORIE[l.categorie]} — quantité ${l.quantite}`}
                   coche={!produitsExclus.has(l.produitId)}
                   onPress={() =>
                     setProduitsExclus((prev) => {

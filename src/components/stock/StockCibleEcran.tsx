@@ -17,30 +17,7 @@ import {
   useMappingSumupCoques,
   useNomsProduitsSumupNonMappesCoques,
 } from '@/hooks/useCoques';
-import {
-  useGererLanieres,
-  useGererMappingSumupLanieres,
-  useLanieresStock,
-  useMappingSumupLanieres,
-  useNomsProduitsSumupNonMappesLanieres,
-} from '@/hooks/useLanieres';
-import {
-  useGererMappingSumupSacs,
-  useGererSacs,
-  useMappingSumupSacs,
-  useNomsProduitsSumupNonMappesSacs,
-  useSacsStock,
-} from '@/hooks/useSacs';
-import type {
-  ChaussureMappingSumup,
-  ChaussureStock,
-  CoqueMappingSumup,
-  CoqueStock,
-  LaniereMappingSumup,
-  LaniereStock,
-  SacMappingSumup,
-  SacStock,
-} from '@/types/database.types';
+import type { ChaussureMappingSumup, ChaussureStock, CoqueMappingSumup, CoqueStock } from '@/types/database.types';
 
 const COULEURS_CHAUSSURES: ChaussureStock['couleur'][] = ['Noir', 'Kaki', 'Rose', 'Gris'];
 const TAILLES_CHAUSSURES: ChaussureStock['taille'][] = ['36-37', '38-39', '40-41', '41-42', '43-44', '45-46'];
@@ -60,10 +37,9 @@ const MODELES_COQUES: CoqueStock['modele'][] = [
   '17 Pro Max',
 ];
 const COULEURS_COQUES_SACS: CoqueStock['couleur'][] = ['Rose', 'Noir'];
-const PRODUITS_SACS: SacStock['produit'][] = ['Grandes Pochettes', 'Petites Pochettes', "Sac Pimp-it + 6 pin's"];
 
 /** Une cellule éditable qui s'enregistre elle-même en quittant le focus — même composant pour les
- * 3 catégories, `sousLabel` porte juste ce qui varie sous le champ (taille/couleur/couleur). */
+ * 2 catégories, `sousLabel` porte juste ce qui varie sous le champ (taille/couleur). */
 function CelluleStockInitial({
   sousLabel,
   quantite,
@@ -194,92 +170,9 @@ function OngletStockCibleCoques() {
   );
 }
 
-function OngletStockCibleSacs() {
-  const { data: stock, isLoading } = useSacsStock();
-  const { definirStock } = useGererSacs(undefined);
-
-  if (isLoading) {
-    return (
-      <View className="flex-1 items-center justify-center">
-        <ActivityIndicator size="large" color="#6366F1" />
-      </View>
-    );
-  }
-
-  return (
-    <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-      <Text className="mb-3 text-xs text-slate-400">
-        Le stock visé par produit et par couleur, commun à tous les pop-ups — sert de référence pour
-        calculer ce qu'il faut ramener après un inventaire (écran Stock &gt; Produits &gt; Sac).
-      </Text>
-      {PRODUITS_SACS.map((produit) => (
-        <View key={produit} className="mb-4 rounded-2xl border border-slate-200 bg-white p-4">
-          <Text className="mb-3 text-base font-bold text-slate-900">{produit}</Text>
-          <View className="flex-row flex-wrap gap-3">
-            {(stock ?? [])
-              .filter((item) => item.produit === produit)
-              .map((item) => (
-                <CelluleStockInitial
-                  key={item.id}
-                  sousLabel={item.couleur}
-                  quantite={item.stock_initial}
-                  onDefinir={(q) => definirStock.mutate({ id: item.id, quantite: q })}
-                />
-              ))}
-          </View>
-        </View>
-      ))}
-    </ScrollView>
-  );
-}
-
-function OngletStockCibleLanieres() {
-  const { data: stock, isLoading } = useLanieresStock();
-  const { definirStock } = useGererLanieres(undefined);
-
-  const parCouleur = new Map<string, LaniereStock[]>();
-  for (const item of stock ?? []) {
-    const liste = parCouleur.get(item.couleur) ?? [];
-    liste.push(item);
-    parCouleur.set(item.couleur, liste);
-  }
-
-  if (isLoading) {
-    return (
-      <View className="flex-1 items-center justify-center">
-        <ActivityIndicator size="large" color="#6366F1" />
-      </View>
-    );
-  }
-
-  return (
-    <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-      <Text className="mb-3 text-xs text-slate-400">
-        Le stock visé par couleur et par taille, commun à tous les pop-ups — sert de référence pour
-        calculer ce qu'il faut ramener après un inventaire (écran Stock &gt; Produits &gt; Lanières).
-      </Text>
-      {COULEURS_CHAUSSURES.map((couleur) => (
-        <View key={couleur} className="mb-4 rounded-2xl border border-slate-200 bg-white p-4">
-          <Text className="mb-3 text-base font-bold text-slate-900">{couleur}</Text>
-          <View className="flex-row flex-wrap gap-3">
-            {(parCouleur.get(couleur) ?? []).map((item) => (
-              <CelluleStockInitial
-                key={item.id}
-                sousLabel={item.taille}
-                quantite={item.stock_initial}
-                onDefinir={(q) => definirStock.mutate({ id: item.id, quantite: q })}
-              />
-            ))}
-          </View>
-        </View>
-      ))}
-    </ScrollView>
-  );
-}
-
 /** Une ligne "à mapper" : nom SumUp vu dans des ventes, pas encore associé — menus déroulants puis
- * "Associer", rien n'est enregistré avant. `champs` décrit les 1 à 3 dimensions à choisir (couleur
- * seule pour un sac, modèle+couleur pour une coque, etc.). */
+ * "Associer", rien n'est enregistré avant. `champs` décrit les 1 à 2 dimensions à choisir
+ * (couleur+taille pour une chaussure, modèle+couleur pour une coque). */
 function LigneAMapper<TValeurs extends Record<string, string>>({
   nomProduit,
   champs,
@@ -460,157 +353,22 @@ function OngletMappingSumupCoques() {
   );
 }
 
-function OngletMappingSumupSacs() {
-  const { data: nomsNonMappes, isLoading: chargementNonMappes } = useNomsProduitsSumupNonMappesSacs();
-  const { data: mapping, isLoading: chargementMapping } = useMappingSumupSacs();
-  const { definirMapping, supprimerMapping } = useGererMappingSumupSacs();
-
-  if (chargementNonMappes || chargementMapping) {
-    return (
-      <View className="flex-1 items-center justify-center">
-        <ActivityIndicator size="large" color="#6366F1" />
-      </View>
-    );
-  }
-
-  return (
-    <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-      <Text className="mb-3 text-xs text-slate-400">
-        Associe chaque nom de produit du catalogue SumUp à un produit/couleur — utile seulement si le
-        nom du produit ne correspond pas exactement à un des 3 sacs/pochettes.
-      </Text>
-
-      {(nomsNonMappes ?? []).length > 0 && (
-        <>
-          <Text className="mb-2 text-xs font-semibold uppercase text-amber-600">À associer</Text>
-          {(nomsNonMappes ?? []).map((nom) => (
-            <LigneAMapper<{ produit: SacMappingSumup['produit']; couleur: SacMappingSumup['couleur'] }>
-              key={nom}
-              nomProduit={nom}
-              champs={[
-                { cle: 'produit', label: 'Produit', options: PRODUITS_SACS },
-                { cle: 'couleur', label: 'Couleur', options: COULEURS_COQUES_SACS },
-              ]}
-              onAssocier={(v) => definirMapping.mutate({ nomProduit: nom, produit: v.produit, couleur: v.couleur })}
-            />
-          ))}
-        </>
-      )}
-
-      <Text className="mb-2 mt-4 text-xs font-semibold uppercase text-slate-400">Déjà associés</Text>
-      {(mapping ?? []).length === 0 ? (
-        <Text className="text-sm text-slate-400">Aucune correspondance pour l'instant.</Text>
-      ) : (
-        (mapping ?? []).map((m) => (
-          <View
-            key={m.id}
-            className="mb-1.5 flex-row items-center justify-between rounded-lg bg-white p-3 shadow-sm"
-          >
-            <View>
-              <Text className="text-sm font-semibold text-slate-800">{m.nom_produit}</Text>
-              <Text className="text-xs text-slate-400">
-                {m.produit} — {m.couleur}
-              </Text>
-            </View>
-            <Pressable
-              onPress={() =>
-                Alert.alert('Retirer la correspondance', `"${m.nom_produit}" ne sera plus rapproché du stock.`, [
-                  { text: 'Annuler', style: 'cancel' },
-                  { text: 'Retirer', style: 'destructive', onPress: () => supprimerMapping.mutate(m.id) },
-                ])
-              }
-            >
-              <Text className="text-sm font-semibold text-red-500">Retirer</Text>
-            </Pressable>
-          </View>
-        ))
-      )}
-    </ScrollView>
-  );
-}
-
-function OngletMappingSumupLanieres() {
-  const { data: nomsNonMappes, isLoading: chargementNonMappes } = useNomsProduitsSumupNonMappesLanieres();
-  const { data: mapping, isLoading: chargementMapping } = useMappingSumupLanieres();
-  const { definirMapping, supprimerMapping } = useGererMappingSumupLanieres();
-
-  if (chargementNonMappes || chargementMapping) {
-    return (
-      <View className="flex-1 items-center justify-center">
-        <ActivityIndicator size="large" color="#6366F1" />
-      </View>
-    );
-  }
-
-  return (
-    <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-      <Text className="mb-3 text-xs text-slate-400">
-        Associe chaque nom de produit du catalogue SumUp à une couleur/taille : ça permet au
-        Réapprovisionnement de déduire automatiquement les ventes depuis le dernier inventaire, sans
-        attendre un recomptage.
-      </Text>
-
-      {(nomsNonMappes ?? []).length > 0 && (
-        <>
-          <Text className="mb-2 text-xs font-semibold uppercase text-amber-600">À associer</Text>
-          {(nomsNonMappes ?? []).map((nom) => (
-            <LigneAMapper<{ couleur: LaniereMappingSumup['couleur']; taille: LaniereMappingSumup['taille'] }>
-              key={nom}
-              nomProduit={nom}
-              champs={[
-                { cle: 'couleur', label: 'Couleur', options: COULEURS_CHAUSSURES },
-                { cle: 'taille', label: 'Taille', options: TAILLES_CHAUSSURES },
-              ]}
-              onAssocier={(v) => definirMapping.mutate({ nomProduit: nom, couleur: v.couleur, taille: v.taille })}
-            />
-          ))}
-        </>
-      )}
-
-      <Text className="mb-2 mt-4 text-xs font-semibold uppercase text-slate-400">Déjà associés</Text>
-      {(mapping ?? []).length === 0 ? (
-        <Text className="text-sm text-slate-400">Aucune correspondance pour l'instant.</Text>
-      ) : (
-        (mapping ?? []).map((m) => (
-          <View key={m.id} className="mb-1.5 flex-row items-center justify-between rounded-lg bg-white p-3 shadow-sm">
-            <View>
-              <Text className="text-sm font-semibold text-slate-800">{m.nom_produit}</Text>
-              <Text className="text-xs text-slate-400">
-                {m.couleur} — {m.taille}
-              </Text>
-            </View>
-            <Pressable
-              onPress={() =>
-                Alert.alert('Retirer la correspondance', `"${m.nom_produit}" ne sera plus rapproché du stock.`, [
-                  { text: 'Annuler', style: 'cancel' },
-                  { text: 'Retirer', style: 'destructive', onPress: () => supprimerMapping.mutate(m.id) },
-                ])
-              }
-            >
-              <Text className="text-sm font-semibold text-red-500">Retirer</Text>
-            </Pressable>
-          </View>
-        ))
-      )}
-    </ScrollView>
-  );
-}
-
-type Categorie = 'chaussures' | 'coques' | 'sacs' | 'lanieres';
+type Categorie = 'chaussures' | 'coques';
 
 const CATEGORIES: { value: Categorie; label: string }[] = [
   { value: 'chaussures', label: 'Chaussures' },
   { value: 'coques', label: 'Coques' },
-  { value: 'sacs', label: 'Sacs & pochettes' },
-  { value: 'lanieres', label: 'Lanières' },
 ];
 
-/** Réglages produits : stock cible (un seul jeu de valeurs par variante, partagé par tous les
- * pop-ups — décision explicite, pas de version par lieu) et correspondance SumUp (pour que le
- * réappro déduise les ventes automatiquement), pour chacune des 4 catégories gérées (chaussures,
- * coques, sacs/pochettes, lanières — cf. ProduitsMenu). Volontairement isolé de l'écran Stock >
- * Produits (qui reste, lui, propre à chaque pop-up pour l'inventaire et le réappro), et
- * volontairement web uniquement (cf. route stock-cible.web.tsx), pas besoin sur le téléphone. */
+/** Réglages produits : stock cible (un seul jeu de valeurs, partagé par tous les pop-ups —
+ * décision explicite, pas de version par lieu) et correspondance SumUp (pour que le réappro
+ * déduise les ventes automatiquement), pour les catégories qui ont encore un vrai suivi de stock
+ * (chaussures, coques). Sacs et lanières n'en ont plus (retour utilisateur du 2026-09-18 : "c'est
+ * pas un inventaire qui se décrémente, c'est juste... un bouton ajouter à la commande") — leur
+ * catalogue reste géré directement dans SacsScreen/LanieresScreen, sans stock visé ni mapping.
+ * Volontairement isolé de l'écran Stock > Produits (qui reste, lui, propre à chaque pop-up pour
+ * l'inventaire et le réappro), et volontairement web uniquement (cf. route stock-cible.web.tsx),
+ * pas besoin sur le téléphone. */
 export function StockCibleEcran() {
   const [categorie, setCategorie] = useState<Categorie>('chaussures');
   const [onglet, setOnglet] = useState<'stock' | 'mapping'>('stock');
@@ -644,21 +402,13 @@ export function StockCibleEcran() {
       {onglet === 'stock' ? (
         categorie === 'chaussures' ? (
           <OngletStockCibleChaussures />
-        ) : categorie === 'coques' ? (
-          <OngletStockCibleCoques />
-        ) : categorie === 'sacs' ? (
-          <OngletStockCibleSacs />
         ) : (
-          <OngletStockCibleLanieres />
+          <OngletStockCibleCoques />
         )
       ) : categorie === 'chaussures' ? (
         <OngletMappingSumupChaussures />
-      ) : categorie === 'coques' ? (
-        <OngletMappingSumupCoques />
-      ) : categorie === 'sacs' ? (
-        <OngletMappingSumupSacs />
       ) : (
-        <OngletMappingSumupLanieres />
+        <OngletMappingSumupCoques />
       )}
     </View>
   );
