@@ -6,7 +6,6 @@ export async function fetchCoquesStock(): Promise<CoqueStock[]> {
     .from('coques_stock')
     .select('*')
     .order('modele', { ascending: true })
-    .order('variante', { ascending: true })
     .order('couleur', { ascending: true });
   if (error) throw error;
   return data;
@@ -32,12 +31,11 @@ export async function fetchCoquesInventaires(popUpId: string): Promise<CoqueInve
   return data;
 }
 
-/** Enregistre un inventaire complet pour un pop-up (une ligne par modèle/variante/couleur comptée)
- * — jamais un update, toujours de nouvelles lignes, pour garder l'historique de chaque comptage. */
+/** Enregistre un inventaire complet pour un pop-up (une ligne par modèle/couleur comptée) — jamais
+ * un update, toujours de nouvelles lignes, pour garder l'historique de chaque comptage. */
 export async function enregistrerInventaireCoques(
   lignes: {
     modele: CoqueInventaire['modele'];
-    variante: CoqueInventaire['variante'];
     couleur: CoqueInventaire['couleur'];
     quantite_comptee: number;
   }[],
@@ -74,13 +72,12 @@ export async function fetchNomsProduitsSumupNonMappesCoques(): Promise<string[]>
 export async function definirMappingSumupCoque(
   nomProduit: string,
   modele: CoqueMappingSumup['modele'],
-  variante: CoqueMappingSumup['variante'],
   couleur: CoqueMappingSumup['couleur'],
 ) {
   const { error } = await supabase
     .from('coques_mapping_sumup')
     .upsert(
-      { nom_produit: nomProduit, modele, variante, couleur, updated_at: new Date().toISOString() },
+      { nom_produit: nomProduit, modele, couleur, updated_at: new Date().toISOString() },
       { onConflict: 'nom_produit' },
     );
   if (error) throw error;

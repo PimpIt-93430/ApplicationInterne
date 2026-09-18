@@ -63,7 +63,7 @@ export function useCoquesInventaires(popUpId: string | undefined) {
   });
 }
 
-/** Table de correspondance nom produit SumUp → modèle/variante/couleur (écran admin "Stock cible"). */
+/** Table de correspondance nom produit SumUp → modèle/couleur (écran admin "Stock cible"). */
 export function useMappingSumupCoques() {
   return useQuery({ queryKey: ['coques-mapping-sumup'], queryFn: fetchMappingSumupCoques });
 }
@@ -86,9 +86,8 @@ export function useGererMappingSumupCoques() {
     mutationFn: (params: {
       nomProduit: string;
       modele: CoqueMappingSumup['modele'];
-      variante: CoqueMappingSumup['variante'];
       couleur: CoqueMappingSumup['couleur'];
-    }) => definirMappingSumupCoque(params.nomProduit, params.modele, params.variante, params.couleur),
+    }) => definirMappingSumupCoque(params.nomProduit, params.modele, params.couleur),
     onSuccess: invalidate,
   });
 
@@ -114,7 +113,6 @@ export function useGererCoques(popUpId: string | undefined) {
     mutationFn: (params: {
       lignes: {
         modele: CoqueInventaire['modele'];
-        variante: CoqueInventaire['variante'];
         couleur: CoqueInventaire['couleur'];
         quantite_comptee: number;
       }[];

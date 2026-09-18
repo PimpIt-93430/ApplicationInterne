@@ -12,9 +12,21 @@ import { useSynchroniserVentesSumup } from '@/hooks/useVentesSumup';
 import { calculerARamenerCoques, resoudreVentesSumupCoques } from '@/utils/coques';
 import type { CoqueStock } from '@/types/database.types';
 
-const MODELES: CoqueStock['modele'][] = ['Iphone 13', 'Iphone 14', 'Iphone 15', 'Iphone 16', 'Iphone 17'];
-const VARIANTES: CoqueStock['variante'][] = ['Normal', 'Pro', 'Pro Max', 'Plus'];
-const COULEURS: CoqueStock['couleur'][] = ['Rose', 'Noir'];
+const MODELES: CoqueStock['modele'][] = [
+  '13/14/15',
+  '13/14 Pro',
+  '13/14 Pro Max',
+  '15 Pro',
+  '15 Pro Max',
+  '15 Plus',
+  '16',
+  '16 Pro',
+  '16 Pro Max',
+  '16 Plus',
+  '17',
+  '17 Pro',
+  '17 Pro Max',
+];
 
 /** Une cellule éditable qui garde sa valeur dans l'état partagé du parent (écran Inventaire) —
  * rien n'est enregistré tant que "Valider l'inventaire" n'a pas été pressé. Même composant que
@@ -99,7 +111,6 @@ export function CoquesScreen({
     if (!profileId || !stock || !popUpId) return;
     const lignes = stock.map((item) => ({
       modele: item.modele,
-      variante: item.variante,
       couleur: item.couleur,
       quantite_comptee: Number(comptage[item.id]) || 0,
     }));
@@ -184,33 +195,31 @@ export function CoquesScreen({
           {onglet === 'inventaire' && !!popUpId && !modeEdition && (
             <>
               <Text className="mb-3 text-xs text-slate-400">
-                Stock estimé en temps réel, par modèle/variante/couleur — dernier comptage moins les
-                ventes SumUp survenues depuis (bouge à chaque vente). "—" si aucun inventaire n'a
-                encore été fait pour cette case. Refais un inventaire de temps en temps pour recaler
-                sur le vrai compte.
+                Stock estimé en temps réel, par modèle/couleur — dernier comptage moins les ventes
+                SumUp survenues depuis (bouge à chaque vente). "—" si aucun inventaire n'a encore été
+                fait pour cette case. Refais un inventaire de temps en temps pour recaler sur le vrai
+                compte.
               </Text>
               {MODELES.map((modele) => (
-                <View key={modele} className="mb-4 rounded-2xl border border-slate-200 bg-white p-4">
-                  <Text className="mb-3 text-base font-bold text-slate-900">{modele}</Text>
-                  {VARIANTES.map((variante) => (
-                    <View key={variante} className="mb-3">
-                      <Text className="mb-1.5 text-xs font-semibold text-slate-500">{variante}</Text>
-                      <View className="flex-row flex-wrap gap-3">
-                        {avecARamener
-                          .filter((item) => item.modele === modele && item.variante === variante)
-                          .map((item) => (
-                            <View key={item.id} className="items-center">
-                              <Text className="mb-1 text-[11px] font-semibold text-slate-400">{item.couleur}</Text>
-                              <View className="h-11 w-14 items-center justify-center rounded-lg border border-slate-200 bg-slate-50">
-                                <Text className="text-sm font-semibold text-slate-700">
-                                  {item.stockEstime !== null ? item.stockEstime : '—'}
-                                </Text>
-                              </View>
-                            </View>
-                          ))}
-                      </View>
-                    </View>
-                  ))}
+                <View
+                  key={modele}
+                  className="mb-3 flex-row items-center justify-between rounded-2xl border border-slate-200 bg-white p-4"
+                >
+                  <Text className="text-base font-bold text-slate-900">{modele}</Text>
+                  <View className="flex-row gap-3">
+                    {avecARamener
+                      .filter((item) => item.modele === modele)
+                      .map((item) => (
+                        <View key={item.id} className="items-center">
+                          <Text className="mb-1 text-[11px] font-semibold text-slate-400">{item.couleur}</Text>
+                          <View className="h-11 w-14 items-center justify-center rounded-lg border border-slate-200 bg-slate-50">
+                            <Text className="text-sm font-semibold text-slate-700">
+                              {item.stockEstime !== null ? item.stockEstime : '—'}
+                            </Text>
+                          </View>
+                        </View>
+                      ))}
+                  </View>
                 </View>
               ))}
               <Pressable
@@ -225,29 +234,25 @@ export function CoquesScreen({
           {onglet === 'inventaire' && !!popUpId && modeEdition && (
             <>
               <Text className="mb-3 text-xs text-slate-400">
-                Compte ce qu'il reste vraiment, par modèle/variante/couleur, puis valide — ça
-                remplace le calcul de ce qu'il faut ramener.
+                Compte ce qu'il reste vraiment, par modèle/couleur, puis valide — ça remplace le
+                calcul de ce qu'il faut ramener.
               </Text>
               {MODELES.map((modele) => (
-                <View key={modele} className="mb-4 rounded-2xl border border-slate-200 bg-white p-4">
-                  <Text className="mb-3 text-base font-bold text-slate-900">{modele}</Text>
-                  {VARIANTES.map((variante) => (
-                    <View key={variante} className="mb-3">
-                      <Text className="mb-1.5 text-xs font-semibold text-slate-500">{variante}</Text>
-                      <View className="flex-row flex-wrap gap-3">
-                        {(parModele.get(modele) ?? [])
-                          .filter((item) => item.variante === variante)
-                          .map((item) => (
-                            <CelluleComptage
-                              key={item.id}
-                              couleur={item.couleur}
-                              valeur={comptage[item.id] ?? ''}
-                              onChange={(texte) => setComptage((prev) => ({ ...prev, [item.id]: texte }))}
-                            />
-                          ))}
-                      </View>
-                    </View>
-                  ))}
+                <View
+                  key={modele}
+                  className="mb-3 flex-row items-center justify-between rounded-2xl border border-slate-200 bg-white p-4"
+                >
+                  <Text className="text-base font-bold text-slate-900">{modele}</Text>
+                  <View className="flex-row gap-3">
+                    {(parModele.get(modele) ?? []).map((item) => (
+                      <CelluleComptage
+                        key={item.id}
+                        couleur={item.couleur}
+                        valeur={comptage[item.id] ?? ''}
+                        onChange={(texte) => setComptage((prev) => ({ ...prev, [item.id]: texte }))}
+                      />
+                    ))}
+                  </View>
                 </View>
               ))}
               <Pressable
@@ -279,7 +284,7 @@ export function CoquesScreen({
                   >
                     <View>
                       <Text className="text-sm text-slate-700">
-                        {item.modele} — {item.variante} — {item.couleur}
+                        {item.modele} — {item.couleur}
                       </Text>
                       {item.venduDepuisInventaire > 0 && (
                         <Text className="text-xs text-slate-400">

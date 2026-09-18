@@ -405,15 +405,28 @@ export interface LaniereMappingSumup {
   updated_at: string;
 }
 
-export type ModeleCoque = 'Iphone 13' | 'Iphone 14' | 'Iphone 15' | 'Iphone 16' | 'Iphone 17';
-export type VarianteCoque = 'Normal' | 'Pro' | 'Pro Max' | 'Plus';
+/** Retour utilisateur du 2026-09-18 : plusieurs générations iPhone partagent la même coque —
+ * regroupement en 13 modèles (remplace l'ancien modele x variante). */
+export type ModeleCoque =
+  | '13/14/15'
+  | '13/14 Pro'
+  | '13/14 Pro Max'
+  | '15 Pro'
+  | '15 Pro Max'
+  | '15 Plus'
+  | '16'
+  | '16 Pro'
+  | '16 Pro Max'
+  | '16 Plus'
+  | '17'
+  | '17 Pro'
+  | '17 Pro Max';
 export type CouleurCoqueSac = 'Rose' | 'Noir';
 
 /** Même principe que ChaussureStock (stock visé, unique et partagé entre pop-ups). */
 export interface CoqueStock {
   id: string;
   modele: ModeleCoque;
-  variante: VarianteCoque;
   couleur: CouleurCoqueSac;
   stock_initial: number;
   updated_at: string;
@@ -424,7 +437,6 @@ export interface CoqueInventaire {
   id: string;
   pop_up_id: string;
   modele: ModeleCoque;
-  variante: VarianteCoque;
   couleur: CouleurCoqueSac;
   quantite_comptee: number;
   profile_id: string;
@@ -436,7 +448,6 @@ export interface CoqueMappingSumup {
   id: string;
   nom_produit: string;
   modele: ModeleCoque;
-  variante: VarianteCoque;
   couleur: CouleurCoqueSac;
   created_at: string;
   updated_at: string;

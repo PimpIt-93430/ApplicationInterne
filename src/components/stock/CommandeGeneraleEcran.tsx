@@ -106,7 +106,7 @@ function useProduitsACommander(popUpId: string | undefined): { lignes: LigneProd
       resultat.push({
         categorie: 'coques',
         produitId: item.id,
-        libelle: `${item.modele} — ${item.variante} — ${item.couleur}`,
+        libelle: `${item.modele} — ${item.couleur}`,
         quantite: item.aRamener,
       });
     }

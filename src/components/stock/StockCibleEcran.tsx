@@ -44,8 +44,21 @@ import type {
 
 const COULEURS_CHAUSSURES: ChaussureStock['couleur'][] = ['Noir', 'Kaki', 'Rose', 'Gris'];
 const TAILLES_CHAUSSURES: ChaussureStock['taille'][] = ['36-37', '38-39', '40-41', '41-42', '43-44', '45-46'];
-const MODELES_COQUES: CoqueStock['modele'][] = ['Iphone 13', 'Iphone 14', 'Iphone 15', 'Iphone 16', 'Iphone 17'];
-const VARIANTES_COQUES: CoqueStock['variante'][] = ['Normal', 'Pro', 'Pro Max', 'Plus'];
+const MODELES_COQUES: CoqueStock['modele'][] = [
+  '13/14/15',
+  '13/14 Pro',
+  '13/14 Pro Max',
+  '15 Pro',
+  '15 Pro Max',
+  '15 Plus',
+  '16',
+  '16 Pro',
+  '16 Pro Max',
+  '16 Plus',
+  '17',
+  '17 Pro',
+  '17 Pro Max',
+];
 const COULEURS_COQUES_SACS: CoqueStock['couleur'][] = ['Rose', 'Noir'];
 const PRODUITS_SACS: SacStock['produit'][] = ['Grandes Pochettes', 'Petites Pochettes', "Sac Pimp-it + 6 pin's"];
 
@@ -157,29 +170,27 @@ function OngletStockCibleCoques() {
   return (
     <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
       <Text className="mb-3 text-xs text-slate-400">
-        Le stock visé par modèle/variante/couleur, commun à tous les pop-ups — sert de référence pour
-        calculer ce qu'il faut ramener après un inventaire (écran Stock &gt; Produits &gt; Coques).
+        Le stock visé par modèle/couleur, commun à tous les pop-ups — sert de référence pour calculer
+        ce qu'il faut ramener après un inventaire (écran Stock &gt; Produits &gt; Coques).
       </Text>
       {MODELES_COQUES.map((modele) => (
-        <View key={modele} className="mb-4 rounded-2xl border border-slate-200 bg-white p-4">
-          <Text className="mb-3 text-base font-bold text-slate-900">{modele}</Text>
-          {VARIANTES_COQUES.map((variante) => (
-            <View key={variante} className="mb-3">
-              <Text className="mb-1.5 text-xs font-semibold text-slate-500">{variante}</Text>
-              <View className="flex-row flex-wrap gap-3">
-                {(stock ?? [])
-                  .filter((item) => item.modele === modele && item.variante === variante)
-                  .map((item) => (
-                    <CelluleStockInitial
-                      key={item.id}
-                      sousLabel={item.couleur}
-                      quantite={item.stock_initial}
-                      onDefinir={(q) => definirStock.mutate({ id: item.id, quantite: q })}
-                    />
-                  ))}
-              </View>
-            </View>
-          ))}
+        <View
+          key={modele}
+          className="mb-3 flex-row items-center justify-between rounded-2xl border border-slate-200 bg-white p-4"
+        >
+          <Text className="text-base font-bold text-slate-900">{modele}</Text>
+          <View className="flex-row gap-3">
+            {(stock ?? [])
+              .filter((item) => item.modele === modele)
+              .map((item) => (
+                <CelluleStockInitial
+                  key={item.id}
+                  sousLabel={item.couleur}
+                  quantite={item.stock_initial}
+                  onDefinir={(q) => definirStock.mutate({ id: item.id, quantite: q })}
+                />
+              ))}
+          </View>
         </View>
       ))}
     </ScrollView>
@@ -271,7 +282,7 @@ function OngletStockCibleLanieres() {
 
 /** Une ligne "à mapper" : nom SumUp vu dans des ventes, pas encore associé — menus déroulants puis
  * "Associer", rien n'est enregistré avant. `champs` décrit les 1 à 3 dimensions à choisir (couleur
- * seule pour un sac, modèle+variante+couleur pour une coque, etc.). */
+ * seule pour un sac, modèle+couleur pour une coque, etc.). */
 function LigneAMapper<TValeurs extends Record<string, string>>({
   nomProduit,
   champs,
@@ -396,8 +407,8 @@ function OngletMappingSumupCoques() {
   return (
     <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
       <Text className="mb-3 text-xs text-slate-400">
-        Associe chaque nom de produit du catalogue SumUp à un modèle/variante/couleur — utile
-        seulement si la description de la vente ne suffit pas à la déduire automatiquement.
+        Associe chaque nom de produit du catalogue SumUp à un modèle/couleur — utile seulement si la
+        description de la vente ne suffit pas à la déduire automatiquement.
       </Text>
 
       {(nomsNonMappes ?? []).length > 0 && (
@@ -406,19 +417,15 @@ function OngletMappingSumupCoques() {
           {(nomsNonMappes ?? []).map((nom) => (
             <LigneAMapper<{
               modele: CoqueMappingSumup['modele'];
-              variante: CoqueMappingSumup['variante'];
               couleur: CoqueMappingSumup['couleur'];
             }>
               key={nom}
               nomProduit={nom}
               champs={[
                 { cle: 'modele', label: 'Modèle', options: MODELES_COQUES },
-                { cle: 'variante', label: 'Variante', options: VARIANTES_COQUES },
                 { cle: 'couleur', label: 'Couleur', options: COULEURS_COQUES_SACS },
               ]}
-              onAssocier={(v) =>
-                definirMapping.mutate({ nomProduit: nom, modele: v.modele, variante: v.variante, couleur: v.couleur })
-              }
+              onAssocier={(v) => definirMapping.mutate({ nomProduit: nom, modele: v.modele, couleur: v.couleur })}
             />
           ))}
         </>
@@ -436,7 +443,7 @@ function OngletMappingSumupCoques() {
             <View>
               <Text className="text-sm font-semibold text-slate-800">{m.nom_produit}</Text>
               <Text className="text-xs text-slate-400">
-                {m.modele} — {m.variante} — {m.couleur}
+                {m.modele} — {m.couleur}
               </Text>
             </View>
             <Pressable
