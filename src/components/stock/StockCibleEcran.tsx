@@ -174,12 +174,9 @@ function OngletStockCibleCoques() {
         ce qu'il faut ramener après un inventaire (écran Stock &gt; Produits &gt; Coques).
       </Text>
       {MODELES_COQUES.map((modele) => (
-        <View
-          key={modele}
-          className="mb-3 flex-row items-center justify-between rounded-2xl border border-slate-200 bg-white p-4"
-        >
-          <Text className="text-base font-bold text-slate-900">{modele}</Text>
-          <View className="flex-row gap-3">
+        <View key={modele} className="mb-4 rounded-2xl border border-slate-200 bg-white p-4">
+          <Text className="mb-3 text-base font-bold text-slate-900">Iphone {modele}</Text>
+          <View className="flex-row flex-wrap gap-3">
             {(stock ?? [])
               .filter((item) => item.modele === modele)
               .map((item) => (
@@ -443,7 +440,7 @@ function OngletMappingSumupCoques() {
             <View>
               <Text className="text-sm font-semibold text-slate-800">{m.nom_produit}</Text>
               <Text className="text-xs text-slate-400">
-                {m.modele} — {m.couleur}
+                Iphone {m.modele} — {m.couleur}
               </Text>
             </View>
             <Pressable

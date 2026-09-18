@@ -201,12 +201,9 @@ export function CoquesScreen({
                 compte.
               </Text>
               {MODELES.map((modele) => (
-                <View
-                  key={modele}
-                  className="mb-3 flex-row items-center justify-between rounded-2xl border border-slate-200 bg-white p-4"
-                >
-                  <Text className="text-base font-bold text-slate-900">{modele}</Text>
-                  <View className="flex-row gap-3">
+                <View key={modele} className="mb-4 rounded-2xl border border-slate-200 bg-white p-4">
+                  <Text className="mb-3 text-base font-bold text-slate-900">Iphone {modele}</Text>
+                  <View className="flex-row flex-wrap gap-3">
                     {avecARamener
                       .filter((item) => item.modele === modele)
                       .map((item) => (
@@ -238,12 +235,9 @@ export function CoquesScreen({
                 calcul de ce qu'il faut ramener.
               </Text>
               {MODELES.map((modele) => (
-                <View
-                  key={modele}
-                  className="mb-3 flex-row items-center justify-between rounded-2xl border border-slate-200 bg-white p-4"
-                >
-                  <Text className="text-base font-bold text-slate-900">{modele}</Text>
-                  <View className="flex-row gap-3">
+                <View key={modele} className="mb-4 rounded-2xl border border-slate-200 bg-white p-4">
+                  <Text className="mb-3 text-base font-bold text-slate-900">Iphone {modele}</Text>
+                  <View className="flex-row flex-wrap gap-3">
                     {(parModele.get(modele) ?? []).map((item) => (
                       <CelluleComptage
                         key={item.id}
@@ -284,7 +278,7 @@ export function CoquesScreen({
                   >
                     <View>
                       <Text className="text-sm text-slate-700">
-                        {item.modele} — {item.couleur}
+                        Iphone {item.modele} — {item.couleur}
                       </Text>
                       {item.venduDepuisInventaire > 0 && (
                         <Text className="text-xs text-slate-400">
