@@ -33,6 +33,11 @@ import {
 import { usePopUps } from '@/hooks/usePopUps';
 import { useAffectationsPopUp } from '@/hooks/useProfiles';
 import {
+  useCommandeRevendeurDetail,
+  useCommandesRevendeursEnAttenteLocal,
+  useGererPreparationCommandeRevendeur,
+} from '@/hooks/useCommandesRevendeurs';
+import {
   useCommandeActivePopUp,
   useCommandesEnAttenteLocal,
   useCommandesTerminees,
@@ -521,7 +526,72 @@ function PanneauConsommablesLocal({ popUpId, profile, onFermer }: { popUpId: str
   );
 }
 
-type CommandeOuverte = { type: 'pins' | 'produits' | 'consommables'; id: string; popUpId: string } | null;
+/** Préparation d'une commande revendeur (ex. espace public /revendeurs) par le local — retour
+ * utilisateur du 2026-09-21 : même workflow que les commandes pop-up/produits (coche pin par pin
+ * trouvé, "Tout cocher", puis marque traitée), pas de popUpId ici (une commande revendeur n'est
+ * pas rattachée à un pop-up). */
+function PanneauPreparationCommandeRevendeur({ commandeId, onFermer }: { commandeId: string; onFermer: () => void }) {
+  const { data } = useCommandeRevendeurDetail(commandeId);
+  const { basculerFait, basculerTout, marquerTraitee } = useGererPreparationCommandeRevendeur();
+
+  if (!data) {
+    return (
+      <FeuilleModale onClose={onFermer}>
+        <ActivityIndicator color="#6366F1" />
+      </FeuilleModale>
+    );
+  }
+
+  const { commande, lignes } = data;
+  const toutCoche = lignes.length > 0 && lignes.every((l) => l.fait);
+
+  return (
+    <FeuilleModale onClose={onFermer}>
+      <Text className="mb-1 text-lg font-bold text-slate-900">Revendeur — {commande.entreprise}</Text>
+      <Text className="mb-3 text-sm text-slate-400">Coche chaque pin trouvé, puis marque la commande comme traitée.</Text>
+
+      <Pressable onPress={() => basculerTout.mutate({ commandeId, fait: !toutCoche })} className="mb-3 self-start">
+        <Text className="text-sm font-semibold text-indigo-600">{toutCoche ? 'Tout décocher' : 'Tout cocher'}</Text>
+      </Pressable>
+
+      <ScrollView style={{ maxHeight: 420 }}>
+        {lignes.map((ligne) => (
+          <Pressable
+            key={ligne.id}
+            onPress={() => basculerFait.mutate({ ligneId: ligne.id, commandeId, fait: !ligne.fait })}
+            className={`mb-2 flex-row items-center justify-between rounded-xl p-3 ${ligne.fait ? 'bg-emerald-50' : 'bg-slate-50'}`}
+          >
+            <View className="flex-1 pr-2">
+              <Text className={`text-sm font-semibold ${ligne.fait ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{ligne.nom}</Text>
+              <Text className="text-xs text-slate-400">
+                {ligne.sku_fournisseur ? `SKU ${ligne.sku_fournisseur} — ` : ''}quantité {ligne.quantite}
+              </Text>
+            </View>
+            <CaseACocher coche={ligne.fait} />
+          </Pressable>
+        ))}
+      </ScrollView>
+
+      {commande.statut === 'nouvelle' && (
+        <Pressable
+          onPress={() => marquerTraitee.mutate(commandeId, { onSuccess: onFermer })}
+          disabled={marquerTraitee.isPending}
+          className="mt-4 items-center rounded-xl bg-emerald-600 py-3.5"
+        >
+          <Text className="text-base font-bold text-white">{marquerTraitee.isPending ? 'Validation…' : 'Marquer comme traitée'}</Text>
+        </Pressable>
+      )}
+      <Pressable onPress={onFermer} className="mt-3 items-center py-2">
+        <Text className="font-semibold text-indigo-600">Fermer</Text>
+      </Pressable>
+    </FeuilleModale>
+  );
+}
+
+type CommandeOuverte =
+  | { type: 'pins' | 'produits' | 'consommables'; id: string; popUpId: string }
+  | { type: 'revendeur'; id: string }
+  | null;
 
 /** "Voir les commandes" côté local : les demandes en attente des 3 catégories, tous pop-ups
  * confondus, en une seule liste — cf. retour utilisateur du 2026-09-07 : jusqu'ici seuls les pin's
@@ -531,9 +601,14 @@ function VueCommandesLocalGenerale({ profile, onOuvrir }: { profile: Profile; on
   const { data: commandesPins, isLoading: l1 } = useCommandesEnAttenteLocal();
   const { data: commandesProduits, isLoading: l2 } = useCommandesEnAttenteLocalProduits();
   const { data: commandesConsommables, isLoading: l3 } = useConsommablesEnAttenteLocal();
-  const chargement = l1 || l2 || l3;
+  const { data: commandesRevendeurs, isLoading: l4 } = useCommandesRevendeursEnAttenteLocal();
+  const chargement = l1 || l2 || l3 || l4;
 
-  const total = (commandesPins?.length ?? 0) + (commandesProduits?.length ?? 0) + (commandesConsommables?.length ?? 0);
+  const total =
+    (commandesPins?.length ?? 0) +
+    (commandesProduits?.length ?? 0) +
+    (commandesConsommables?.length ?? 0) +
+    (commandesRevendeurs?.length ?? 0);
 
   return (
     <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, maxWidth: 960, width: '100%', alignSelf: 'center' }}>
@@ -583,6 +658,19 @@ function VueCommandesLocalGenerale({ profile, onOuvrir }: { profile: Profile; on
               <View className="flex-1">
                 <Text className="text-sm font-semibold text-slate-800">{c.popUpNom} — Consommables</Text>
                 <Text className="mt-0.5 text-xs text-slate-400">{c.nbLignes} type(s) demandé(s)</Text>
+              </View>
+              <Text className="text-lg text-indigo-400">›</Text>
+            </Pressable>
+          ))}
+          {(commandesRevendeurs ?? []).map((c) => (
+            <Pressable
+              key={`revendeur-${c.commande.id}`}
+              onPress={() => onOuvrir({ type: 'revendeur', id: c.commande.id })}
+              className="mb-2 flex-row items-center justify-between rounded-2xl border border-slate-100 bg-white p-4 shadow-sm"
+            >
+              <View className="flex-1">
+                <Text className="text-sm font-semibold text-slate-800">{c.commande.entreprise} — Revendeur</Text>
+                <Text className="mt-0.5 text-xs text-slate-400">{c.nbFaites}/{c.nbLignes} pin(s) prêt(s)</Text>
               </View>
               <Text className="text-lg text-indigo-400">›</Text>
             </Pressable>
@@ -657,6 +745,9 @@ export function CommandeGeneraleEcran({
       )}
       {commandeOuverte?.type === 'consommables' && (
         <PanneauConsommablesLocal popUpId={commandeOuverte.popUpId} profile={profile} onFermer={() => setCommandeOuverte(null)} />
+      )}
+      {commandeOuverte?.type === 'revendeur' && (
+        <PanneauPreparationCommandeRevendeur commandeId={commandeOuverte.id} onFermer={() => setCommandeOuverte(null)} />
       )}
     </View>
   );

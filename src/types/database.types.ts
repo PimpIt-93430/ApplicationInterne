@@ -622,6 +622,34 @@ export interface CommandeProduitLigne {
   created_at: string;
 }
 
+export type StatutCommandeRevendeur = 'nouvelle' | 'traitee';
+
+/** Commande reçue depuis l'espace revendeur public (cf. migration 0115, Hub app/(hub)/
+ * commandes-revendeurs) — retour utilisateur du 2026-09-21 : doit aussi apparaître dans "Voir la
+ * commande" du local sur l'appli, préparée avec le même workflow que CommandePopUp (coche pin par
+ * pin trouvé/pas trouvé, cf. CommandeRevendeurLigne.fait). */
+export interface CommandeRevendeur {
+  id: string;
+  entreprise: string;
+  statut: StatutCommandeRevendeur;
+  sous_total_ht: number | null;
+  remise_pourcentage: number;
+  total_ht: number;
+  created_at: string;
+}
+
+export interface CommandeRevendeurLigne {
+  id: string;
+  commande_id: string;
+  airtable_record_id: string | null;
+  nom: string;
+  sku_fournisseur: string | null;
+  prix_unitaire_ht: number;
+  quantite: number;
+  fait: boolean;
+  created_at: string;
+}
+
 export type StatutVenteSumup = 'SUCCESSFUL' | 'CANCELLED' | 'FAILED' | 'REFUNDED' | 'CHARGE_BACK';
 
 /** Vente SumUp synchronisée chez nous (cf. supabase/functions/sync-ventes-sumup) — pop_up_id et
