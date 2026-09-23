@@ -50,19 +50,8 @@ function ChiffresDuJour({ popUpId, ventesEspeces }: { popUpId: string; ventesEsp
       {isLoading ? (
         <ActivityIndicator color="#059669" style={{ marginTop: 12 }} />
       ) : (
-        <>
-          <Text className="mt-1 text-3xl font-bold text-emerald-900">{formatMontant(sumup + especes)}</Text>
-          <View className="mt-3 flex-row gap-6">
-            <View>
-              <Text className="text-[10px] font-bold uppercase text-emerald-700">SumUp</Text>
-              <Text className="text-base font-bold text-emerald-900">{formatMontant(sumup)}</Text>
-            </View>
-            <View>
-              <Text className="text-[10px] font-bold uppercase text-emerald-700">Espèces appli</Text>
-              <Text className="text-base font-bold text-emerald-900">{formatMontant(especes)}</Text>
-            </View>
-          </View>
-        </>
+        // Total seulement, sans détail SumUp / espèces appli (cf. retour utilisateur du 2026-09-23).
+        <Text className="mt-1 text-3xl font-bold text-emerald-900">{formatMontant(sumup + especes)}</Text>
       )}
     </View>
   );
