@@ -3,7 +3,10 @@ import { router, usePathname } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { usePopUps } from '@/hooks/usePopUps';
 import { useProfilEffectif } from '@/hooks/useProfilEffectif';
+import { useAffectationsPopUp } from '@/hooks/useProfiles';
+import { construireMapAffectations, popUpsVentes } from '@/utils/affectations';
 
 type NomIcone = keyof typeof Ionicons.glyphMap;
 
@@ -51,11 +54,18 @@ export function BarreNavigationBasse() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const profile = useProfilEffectif();
+  const { data: popUps } = usePopUps();
+  const { data: affectations } = useAffectationsPopUp();
 
   // Onglet "Ventes" réservé aux managers et aux admins (cf. écran encaissement espèces, avec
-  // sélecteur de pop-up pour un admin) — inséré juste après Stock, avant Demande & RH.
+  // sélecteur de pop-up pour un admin) — inséré juste après Stock, avant Demande & RH. Un
+  // alternant l'a aussi dès qu'il est attribué à un pop-up où l'admin a coché "Onglet Ventes pour
+  // les alternants" dans le Hub (cf. migration 0123).
+  const alternantAvecVentes =
+    profile?.type_contrat === 'alternant' &&
+    popUpsVentes(profile, construireMapAffectations(affectations ?? []), popUps ?? []).length > 0;
   const onglets =
-    profile?.type_contrat === 'manager' || profile?.role === 'admin'
+    profile?.type_contrat === 'manager' || profile?.role === 'admin' || alternantAvecVentes
       ? [...ONGLETS_BASE.slice(0, 2), ONGLET_VENTES, ...ONGLETS_BASE.slice(2)]
       : ONGLETS_BASE;
 

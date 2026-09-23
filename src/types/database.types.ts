@@ -50,6 +50,9 @@ export interface PopUp {
    * par la déclaration manuelle (écran Ventes) — cf. ObjectifEspecesRH (RH). Nullable tant que
    * l'admin ne l'a pas réglé. */
   objectif_pourcentage_espece_appli: number | null;
+  /** Case cochée dans Hub > Pop-up : les alternants attribués à ce pop-up ont l'onglet "Ventes"
+   * (déclaration d'espèces + chiffres du jour) — cf. migration 0123, aussi vérifié en RLS. */
+  ventes_alternants: boolean;
 }
 
 /** Attribution d'une personne à un lieu où elle peut être planifiée. Une personne peut être

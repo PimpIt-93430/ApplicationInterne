@@ -30,6 +30,19 @@ export function popUpsAttribues(
   return tousLesPopUps.filter((p) => ids.has(p.id));
 }
 
+/** Les lieux où une personne peut déclarer des espèces (écran "Ventes") : ses pop-ups attribués,
+ * restreints pour un alternant à ceux où la case "Onglet Ventes pour les alternants" est cochée
+ * dans le Hub (cf. migration 0123). */
+export function popUpsVentes(
+  profile: Profile,
+  mapAffectations: Map<string, Set<string>>,
+  tousLesPopUps: PopUp[],
+): PopUp[] {
+  const attribues = popUpsAttribues(profile, mapAffectations, tousLesPopUps);
+  if (profile.role === 'admin' || profile.type_contrat !== 'alternant') return attribues;
+  return attribues.filter((p) => p.ventes_alternants);
+}
+
 /** Couleur à utiliser pour une case/pastille qui affiche juste le nom d'un salarié (sans créneau
  * déjà visible à côté, donc sans indication de lieu) : celle du pop-up auquel il est attribué,
  * pour repérer en un coup d'œil où il travaille. `undefined` = rester neutre/blanc, dans deux cas :

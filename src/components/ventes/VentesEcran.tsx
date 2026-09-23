@@ -1,4 +1,4 @@
-import { format } from 'date-fns';
+import { endOfDay, format, isToday, startOfDay } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
@@ -11,12 +11,61 @@ import { usePopUps } from '@/hooks/usePopUps';
 import { useProfilEffectif } from '@/hooks/useProfilEffectif';
 import { useActiveProfiles, useAffectationsPopUp } from '@/hooks/useProfiles';
 import { useGererVentesEspeces, useVentesEspecesPopUp } from '@/hooks/useVentesEspeces';
+import { useSynchroniserVentesSumup, useVentesSumupPeriode } from '@/hooks/useVentesSumup';
 import type { VenteEspece } from '@/types/database.types';
-import { construireMapAffectations, popUpsAttribues } from '@/utils/affectations';
+import { construireMapAffectations, popUpsVentes } from '@/utils/affectations';
 import { aDroit } from '@/utils/permissions';
 
 function formatMontant(montant: number): string {
   return montant.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
+}
+
+/** "Chiffres du jour" d'un pop-up, affichés aux alternants à la place de "Voir tous les chiffres"
+ * (réservé managers/admins) : SumUp + espèces déclarées dans l'appli, aujourd'hui uniquement. Les
+ * espèces viennent de `ventesEspeces` (liste de l'écran, rafraîchie à chaque déclaration) plutôt
+ * que d'une requête à part, pour que le total bouge tout de suite après un "OK". */
+function ChiffresDuJour({ popUpId, ventesEspeces }: { popUpId: string; ventesEspeces: VenteEspece[] }) {
+  const debut = useMemo(() => startOfDay(new Date()).toISOString(), []);
+  const fin = useMemo(() => endOfDay(new Date()).toISOString(), []);
+  const { data: ventesSumup, isLoading } = useVentesSumupPeriode(debut, fin);
+  const synchroniser = useSynchroniserVentesSumup();
+
+  // Même principe que RecapVentesEcran : synchro SumUp à l'arrivée sur l'écran pour que le chiffre
+  // du jour soit à jour sans action supplémentaire.
+  useEffect(() => {
+    synchroniser.mutate(undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const sumup = (ventesSumup ?? [])
+    .filter((v) => v.statut === 'SUCCESSFUL' && v.pop_up_id === popUpId)
+    .reduce((s, v) => s + v.montant, 0);
+  const especes = ventesEspeces
+    .filter((v) => v.statut === 'confirmee' && isToday(new Date(v.created_at)))
+    .reduce((s, v) => s + v.montant, 0);
+
+  return (
+    <View className="mb-5 rounded-2xl bg-emerald-50 p-4">
+      <Text className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Chiffres du jour</Text>
+      {isLoading ? (
+        <ActivityIndicator color="#059669" style={{ marginTop: 12 }} />
+      ) : (
+        <>
+          <Text className="mt-1 text-3xl font-bold text-emerald-900">{formatMontant(sumup + especes)}</Text>
+          <View className="mt-3 flex-row gap-6">
+            <View>
+              <Text className="text-[10px] font-bold uppercase text-emerald-700">SumUp</Text>
+              <Text className="text-base font-bold text-emerald-900">{formatMontant(sumup)}</Text>
+            </View>
+            <View>
+              <Text className="text-[10px] font-bold uppercase text-emerald-700">Espèces appli</Text>
+              <Text className="text-base font-bold text-emerald-900">{formatMontant(especes)}</Text>
+            </View>
+          </View>
+        </>
+      )}
+    </View>
+  );
 }
 
 // Après validation, l'écran de confirmation reste imposé ce nombre de secondes avant de pouvoir
@@ -32,7 +81,8 @@ function LigneVente({
 }: {
   vente: VenteEspece;
   nomVendeur: string | undefined;
-  onAnnuler: () => void;
+  /** Absent = pas de bouton "Annuler" (alternants, cf. migration 0124). */
+  onAnnuler?: () => void;
 }) {
   const annulee = vente.statut === 'annulee';
   return (
@@ -47,7 +97,7 @@ function LigneVente({
           {annulee ? ' · Annulée' : ''}
         </Text>
       </View>
-      {!annulee && (
+      {!annulee && onAnnuler && (
         <Pressable onPress={onAnnuler} className="rounded-lg bg-red-50 px-3 py-1.5">
           <Text className="text-xs font-semibold text-red-600">Annuler</Text>
         </Pressable>
@@ -72,6 +122,7 @@ export function VentesEcran() {
   const profile = useProfilEffectif();
   const estAdmin = profile?.role === 'admin';
   const estManager = profile?.type_contrat === 'manager';
+  const estAlternant = !estAdmin && profile?.type_contrat === 'alternant';
   const { data: popUpsTous } = usePopUps();
   const { data: affectations } = useAffectationsPopUp();
   const { data: profils } = useActiveProfiles();
@@ -89,7 +140,8 @@ export function VentesEcran() {
   // responsable désignée (cf. droits_employe, migration 0034) — ce pop-up passe en tête, devant les
   // autres où elle n'est qu'occasionnellement affectée sans en être responsable.
   const mesPopUps = useMemo(() => {
-    const base = profile ? popUpsAttribues(profile, mapAffectations, popUpsTous ?? []) : [];
+    // Pour un alternant : seulement les pop-ups où l'onglet lui est ouvert (cf. popUpsVentes).
+    const base = profile ? popUpsVentes(profile, mapAffectations, popUpsTous ?? []) : [];
     if (!mesDroits || mesDroits.length === 0) return base;
     const estResponsable = (popUpId: string) =>
       aDroit(mesDroits, 'equipe', popUpId) || aDroit(mesDroits, 'calendrier', popUpId);
@@ -103,6 +155,11 @@ export function VentesEcran() {
 
   const { data: ventes, isLoading } = useVentesEspecesPopUp(popUpActif?.id);
   const { ajouter, annuler } = useGererVentesEspeces(popUpActif?.id);
+  // Un alternant ne voit que l'historique du jour, en lecture seule (pas d'annulation, cf.
+  // migration 0124), pas tout l'historique du pop-up comme un manager.
+  const ventesAffichees = estAlternant
+    ? (ventes ?? []).filter((v) => isToday(new Date(v.created_at)))
+    : (ventes ?? []);
 
   const [montant, setMontant] = useState('');
   // Montant de la vente qui vient d'être enregistrée — remplace tout l'écran par la confirmation
@@ -180,7 +237,11 @@ export function VentesEcran() {
         </View>
       )}
 
-      {!profile || !popUpActif ? (
+      {estAlternant && popUpsTous && affectations && mesPopUps.length === 0 ? (
+        <Text className="px-4 pt-4 text-sm text-slate-400">
+          Les ventes ne sont pas ouvertes aux alternants sur ton pop-up.
+        </Text>
+      ) : !profile || !popUpActif ? (
         <ActivityIndicator color="#6366F1" style={{ marginTop: 24 }} />
       ) : (
         <ScrollView className="flex-1 px-4 pt-2" contentContainerStyle={{ paddingBottom: 40 }}>
@@ -212,6 +273,8 @@ export function VentesEcran() {
             </Pressable>
           </View>
 
+          {estAlternant && <ChiffresDuJour popUpId={popUpActif.id} ventesEspeces={ventes ?? []} />}
+
           {(estAdmin || estManager) && (
             <Pressable
               onPress={() =>
@@ -229,15 +292,17 @@ export function VentesEcran() {
           <Text className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Historique</Text>
           {isLoading ? (
             <ActivityIndicator color="#6366F1" style={{ marginTop: 12 }} />
-          ) : (ventes ?? []).length === 0 ? (
-            <Text className="text-sm text-slate-400">Aucune vente enregistrée.</Text>
+          ) : ventesAffichees.length === 0 ? (
+            <Text className="text-sm text-slate-400">
+              {estAlternant ? "Aucune vente enregistrée aujourd'hui." : 'Aucune vente enregistrée.'}
+            </Text>
           ) : (
-            (ventes ?? []).map((v) => (
+            ventesAffichees.map((v) => (
               <LigneVente
                 key={v.id}
                 vente={v}
                 nomVendeur={nomParProfileId.get(v.profile_id)}
-                onAnnuler={() => annuler.mutate(v.id)}
+                onAnnuler={estAlternant ? undefined : () => annuler.mutate(v.id)}
               />
             ))
           )}
