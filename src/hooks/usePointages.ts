@@ -4,8 +4,8 @@ import { startOfDay } from 'date-fns';
 import {
   ajouterPointageManuel,
   fetchAPointeAujourdhui,
-  definirPositionPopUp,
   fetchPointagesJour,
+  obtenirUrlPhotoPointage,
   pointer,
   supprimerPointage,
 } from '@/api/pointages';
@@ -28,21 +28,21 @@ export function useAPointeAujourdhui(profileId: string | undefined, enabled = tr
   });
 }
 
-export function usePointer() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (params: { code: string; lat: number | null; lon: number | null; positionSimulee: boolean }) =>
-      pointer(params.code, params.lat, params.lon, params.positionSimulee),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['pointages'] }),
+/** URL signée valable 5 min : on la garde 4 min en cache pour ne jamais afficher une URL expirée. */
+export function useUrlPhotoPointage(chemin: string | null | undefined) {
+  return useQuery({
+    queryKey: ['pointage-photo', chemin],
+    queryFn: () => obtenirUrlPhotoPointage(chemin as string),
+    enabled: !!chemin,
+    staleTime: 4 * 60 * 1000,
   });
 }
 
-export function useDefinirPositionPopUp() {
+export function usePointer() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (params: { popUpId: string; lat: number; lon: number }) =>
-      definirPositionPopUp(params.popUpId, params.lat, params.lon),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['pop-ups'] }),
+    mutationFn: pointer,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['pointages'] }),
   });
 }
 

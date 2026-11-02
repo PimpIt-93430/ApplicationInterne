@@ -1,14 +1,13 @@
 import { addDays, format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { EnteteRetour } from '@/components/nav/EnteteRetour';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { useShiftsSemaine } from '@/hooks/usePlanning';
-import { useDefinirPositionPopUp, useGererPointages, usePointagesJour } from '@/hooks/usePointages';
+import { useGererPointages, usePointagesJour, useUrlPhotoPointage } from '@/hooks/usePointages';
 import { usePopUps } from '@/hooks/usePopUps';
 import { useProfilEffectif } from '@/hooks/useProfilEffectif';
 import { useActiveProfiles, useAffectationsPopUp } from '@/hooks/useProfiles';
@@ -30,26 +29,39 @@ function minutesDansLaJournee(iso: string): number {
   return d.getHours() * 60 + d.getMinutes();
 }
 
-// Le GPS ne bloque jamais le pointage (migration 0131) : il est seulement signalé ici, case verte
-// si la position était bonne au scan, rouge sinon — pour que l'admin/le manager repère un pointage
-// fait depuis ailleurs.
-function fondCase(p: Pointage | undefined): string {
-  if (!p) return 'bg-slate-50';
-  if (p.saisi_par || p.gps_ok === null) return 'bg-slate-100';
-  return p.gps_ok ? 'bg-emerald-50' : 'bg-red-50';
-}
-
-function BadgeGps({ pointage }: { pointage: Pointage | undefined }) {
-  if (!pointage) return null;
-  if (pointage.saisi_par) return <Text className="text-[11px] font-semibold text-slate-500">Ajouté à la main</Text>;
-  if (pointage.gps_ok === null) {
-    return <Text className="text-[11px] font-semibold text-slate-500">GPS non vérifié (position du pop-up à enregistrer)</Text>;
-  }
-  if (pointage.gps_ok) return <Text className="text-[11px] font-bold text-emerald-600">✓ GPS OK</Text>;
+/** Case arrivée ou départ : heure pointée + miniature de la photo de la caisse prise au scan (la
+ * preuve que la personne était au pop-up, cf. migration 0133). Pointage ajouté à la main = pas de
+ * photo. */
+function CasePointage({
+  titre,
+  pointage,
+  alerte,
+  couleurAlerte,
+  onVoirPhoto,
+}: {
+  titre: string;
+  pointage: Pointage | undefined;
+  alerte: string | null;
+  couleurAlerte: string;
+  onVoirPhoto: (url: string) => void;
+}) {
+  const { data: urlPhoto } = useUrlPhotoPointage(pointage?.photo_path);
   return (
-    <Text className="text-[11px] font-bold text-red-600">
-      {pointage.distance_m != null ? `⚠ Hors zone (${pointage.distance_m} m)` : '⚠ Sans position GPS'}
-    </Text>
+    <View className={`flex-1 flex-row items-center gap-2 rounded-xl px-3 py-2 ${pointage ? 'bg-emerald-50' : 'bg-slate-50'}`}>
+      <View className="flex-1">
+        <Text className="text-[10px] font-semibold uppercase text-slate-400">{titre}</Text>
+        <Text className={`text-sm font-bold ${pointage ? 'text-slate-900' : 'text-slate-300'}`}>
+          {pointage ? heureDe(pointage.horodatage) : '—'}
+        </Text>
+        {pointage?.saisi_par && <Text className="text-[11px] font-semibold text-slate-500">Ajouté à la main</Text>}
+        {alerte && <Text className={`text-[11px] font-bold ${couleurAlerte}`}>{alerte}</Text>}
+      </View>
+      {urlPhoto && (
+        <Pressable onPress={() => onVoirPhoto(urlPhoto)}>
+          <Image source={{ uri: urlPhoto }} style={{ width: 44, height: 44, borderRadius: 8 }} />
+        </Pressable>
+      )}
+    </View>
   );
 }
 
@@ -62,9 +74,8 @@ function dateAvecHeure(jour: Date, heure: string): Date {
 }
 
 /** Suivi des pointages d'un pop-up, jour par jour (admin + manager du pop-up, cf. migration 0130) :
- * prévu au planning vs arrivée/départ réels, retards signalés, correction à la main en cas d'oubli
- * — et "Enregistrer la position du pop-up ici", à faire une fois sur place pour activer le
- * contrôle GPS. */
+ * prévu au planning vs arrivée/départ réels avec la photo de la caisse prise au scan, retards
+ * signalés, correction à la main en cas d'oubli. Seuls les pop-ups avec le pointage activé. */
 export default function PointagesScreen() {
   const profile = useProfilEffectif();
   const profileReel = useAuthStore((s) => s.profile);
@@ -84,7 +95,6 @@ export default function PointagesScreen() {
 
   const [popUpChoisi, setPopUpChoisi] = useState<string | undefined>(undefined);
   const popUpId = popUpChoisi ?? mesPopUps[0]?.id;
-  const popUp = mesPopUps.find((p) => p.id === popUpId);
 
   const [jour, setJour] = useState(() => {
     const d = new Date();
@@ -94,8 +104,8 @@ export default function PointagesScreen() {
   const jourIso = dateEnISO(jour);
   const { data: shiftsJour, isLoading: chargementShifts } = useShiftsSemaine(jourIso, jourIso);
   const { data: pointages, isLoading: chargementPointages } = usePointagesJour(popUpId, jour, addDays(jour, 1));
-  const definirPosition = useDefinirPositionPopUp();
   const { ajouter, supprimer } = useGererPointages();
+  const [photoAgrandie, setPhotoAgrandie] = useState<string | null>(null);
 
   // Une ligne par personne : planifiée ici ce jour-là, ou qui a pointé ici sans être planifiée.
   const lignes = useMemo(() => {
@@ -118,35 +128,6 @@ export default function PointagesScreen() {
       </View>
     );
   }
-
-  const enregistrerPosition = () => {
-    if (!popUp) return;
-    Alert.alert(
-      'Position du pop-up',
-      `Tu dois être physiquement à ${popUp.nom}. Ta position actuelle deviendra celle du pop-up pour vérifier les pointages.`,
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Enregistrer',
-          onPress: async () => {
-            try {
-              const { status } = await Location.requestForegroundPermissionsAsync();
-              if (status !== 'granted') throw new Error("Autorise l'accès à ta position.");
-              const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
-              await definirPosition.mutateAsync({
-                popUpId: popUp.id,
-                lat: pos.coords.latitude,
-                lon: pos.coords.longitude,
-              });
-              Alert.alert('Position enregistrée', `Précision : ~${Math.round(pos.coords.accuracy ?? 0)} m.`);
-            } catch (e) {
-              Alert.alert('Erreur', e instanceof Error ? e.message : "Impossible d'enregistrer la position.");
-            }
-          },
-        },
-      ],
-    );
-  };
 
   const corriger = (profileId: string, shifts: PlanningShift[], pointagesPersonne: Pointage[]) => {
     if (!popUpId || !profileReel) return;
@@ -211,16 +192,6 @@ export default function PointagesScreen() {
           </Pressable>
         </View>
 
-        {popUp && (popUp.lat == null || popUp.lon == null) && (
-          <View className="mb-3 rounded-2xl bg-amber-50 px-4 py-3">
-            <Text className="text-sm font-semibold text-amber-700">Position du pop-up pas encore enregistrée</Text>
-            <Text className="mt-0.5 text-xs text-amber-600">
-              Les pointages de {popUp.nom} sont enregistrés mais le GPS ne peut pas être vérifié tant qu’elle n’est
-              pas faite. Sur place, appuie sur le bouton ci-dessous.
-            </Text>
-          </View>
-        )}
-
         {chargementShifts || chargementPointages ? (
           <ActivityIndicator color="#6366F1" style={{ marginTop: 24 }} />
         ) : lignes.length === 0 ? (
@@ -254,28 +225,20 @@ export default function PointagesScreen() {
                   </Text>
                 </View>
                 <View className="mt-2 flex-row gap-2">
-                  <View className={`flex-1 rounded-xl px-3 py-2 ${fondCase(arrivee)}`}>
-                    <Text className="text-[10px] font-semibold uppercase text-slate-400">Arrivée</Text>
-                    <Text className={`text-sm font-bold ${arrivee ? 'text-slate-900' : 'text-slate-300'}`}>
-                      {arrivee ? heureDe(arrivee.horodatage) : '—'}
-                      {arrivee?.saisi_par ? ' ✎' : ''}
-                    </Text>
-                    <BadgeGps pointage={arrivee} />
-                    {retardMin > TOLERANCE_MIN && (
-                      <Text className="text-[11px] font-bold text-red-600">Retard {retardMin} min</Text>
-                    )}
-                  </View>
-                  <View className={`flex-1 rounded-xl px-3 py-2 ${fondCase(depart)}`}>
-                    <Text className="text-[10px] font-semibold uppercase text-slate-400">Départ</Text>
-                    <Text className={`text-sm font-bold ${depart ? 'text-slate-900' : 'text-slate-300'}`}>
-                      {depart ? heureDe(depart.horodatage) : '—'}
-                      {depart?.saisi_par ? ' ✎' : ''}
-                    </Text>
-                    <BadgeGps pointage={depart} />
-                    {partiTotMin > TOLERANCE_MIN && (
-                      <Text className="text-[11px] font-bold text-amber-600">Parti {partiTotMin} min plus tôt</Text>
-                    )}
-                  </View>
+                  <CasePointage
+                    titre="Arrivée"
+                    pointage={arrivee}
+                    alerte={retardMin > TOLERANCE_MIN ? `Retard ${retardMin} min` : null}
+                    couleurAlerte="text-red-600"
+                    onVoirPhoto={setPhotoAgrandie}
+                  />
+                  <CasePointage
+                    titre="Départ"
+                    pointage={depart}
+                    alerte={partiTotMin > TOLERANCE_MIN ? `Parti ${partiTotMin} min plus tôt` : null}
+                    couleurAlerte="text-amber-600"
+                    onVoirPhoto={setPhotoAgrandie}
+                  />
                 </View>
               </Pressable>
             );
@@ -283,25 +246,18 @@ export default function PointagesScreen() {
         )}
 
         <Text className="mt-2 text-center text-[11px] text-slate-400">
-          Touche une personne pour corriger un oubli. Vert = GPS OK, rouge = pointé hors du pop-up.
+          Touche une personne pour corriger un oubli. Touche une photo pour l’agrandir.
         </Text>
-
-        {popUp && (
-          <Pressable
-            onPress={enregistrerPosition}
-            disabled={definirPosition.isPending}
-            className="mt-6 items-center rounded-2xl border border-slate-200 bg-white py-3.5"
-          >
-            <Text className="text-sm font-semibold text-slate-700">
-              {definirPosition.isPending
-                ? 'Enregistrement…'
-                : popUp.lat == null
-                  ? `Enregistrer la position de ${popUp.nom} ici`
-                  : `Mettre à jour la position de ${popUp.nom} ici`}
-            </Text>
-          </Pressable>
-        )}
       </ScrollView>
+
+      <Modal visible={!!photoAgrandie} transparent animationType="fade" onRequestClose={() => setPhotoAgrandie(null)}>
+        <Pressable onPress={() => setPhotoAgrandie(null)} className="flex-1 items-center justify-center bg-black/90 p-4">
+          {photoAgrandie && (
+            <Image source={{ uri: photoAgrandie }} style={{ width: '100%', height: '80%' }} resizeMode="contain" />
+          )}
+          <Text className="mt-4 text-sm font-semibold text-white">Toucher pour fermer</Text>
+        </Pressable>
+      </Modal>
     </View>
   );
 }

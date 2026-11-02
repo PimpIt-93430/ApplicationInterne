@@ -17,7 +17,6 @@
     "expo-constants": "~57.0.17",
     "expo-image-picker": "~57.0.16",
     "expo-linking": "~57.0.9",
-    "expo-location": "~57.0.22",
     "expo-router": "~57.0.19",
     "expo-sharing": "~57.0.24",
     "expo-status-bar": "~57.0.1",

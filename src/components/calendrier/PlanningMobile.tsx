@@ -193,9 +193,9 @@ export function PlanningMobile() {
     <View className="flex-1 bg-white">
       <View className="flex-row items-center justify-between px-4 pb-2 pt-14">
         <Text className="text-2xl font-bold text-slate-900">Planning</Text>
-        {/* Pointage QR + GPS (migration 0130) : "Pointer" pour tout le monde, "Pointages" (suivi
-            prévu/réel, corrections, position du pop-up) pour le manager et l'admin — seulement si un
-            de ses pop-ups a le pointage activé (case Hub > Pointage, migration 0132). */}
+        {/* Pointage QR + photo de la caisse (migrations 0130-0133) : "Pointer" pour tout le monde,
+            "Pointages" (suivi prévu/réel, photos, corrections) pour le manager et l'admin — seulement
+            si un de ses pop-ups a le pointage activé (case Hub > Pop up, migration 0132). */}
         {pointageActif && (
           <View className="flex-row gap-2">
             {(estManager || estAdmin) && (

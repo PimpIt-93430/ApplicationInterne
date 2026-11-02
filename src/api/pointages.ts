@@ -1,36 +1,38 @@
+import { decode } from 'base64-arraybuffer';
+
 import { supabase } from './supabaseClient';
 import type { Pointage, TypePointage } from '@/types/database.types';
+
+const BUCKET_PHOTOS = 'pointages-photos';
 
 export interface ResultatPointage {
   type: TypePointage;
   horodatage: string;
   pop_up_nom: string;
-  /** Scan en double (moins de 2 min) : rien de nouveau enregistré, on renvoie le pointage existant. */
+  /** Envoi en double (moins de 2 min) : rien de nouveau enregistré, on renvoie le pointage existant. */
   deja_fait: boolean;
 }
 
-/** Vérification QR + GPS + heure entièrement côté serveur (cf. migrations 0130-0131, fonction
- * pointer) — jamais refusé pour le GPS, juste marqué gps_ok pour l'écran Pointages. Seul un QR
- * inconnu est refusé, avec un message déjà rédigé pour être affiché tel quel. */
-export async function pointer(
-  code: string,
-  lat: number | null,
-  lon: number | null,
-  positionSimulee: boolean,
-): Promise<ResultatPointage> {
-  const { data, error } = await supabase.rpc('pointer', {
-    p_code: code,
-    p_lat: lat,
-    p_lon: lon,
-    p_position_simulee: positionSimulee,
-  });
+/** Envoie la photo de la caisse dans le dossier de la personne (bucket privé, cf. migration 0133)
+ * puis enregistre le pointage — le serveur vérifie le code du QR et déduit arrivée/départ. Seuls un
+ * QR inconnu ou un pop-up sans pointage activé sont refusés, avec un message prêt à afficher. */
+export async function pointer(params: { code: string; profileId: string; photoBase64: string }): Promise<ResultatPointage> {
+  const chemin = `${params.profileId}/${Date.now()}.jpg`;
+  const { error: erreurUpload } = await supabase.storage
+    .from(BUCKET_PHOTOS)
+    .upload(chemin, decode(params.photoBase64), { contentType: 'image/jpeg' });
+  if (erreurUpload) throw new Error(erreurUpload.message);
+
+  const { data, error } = await supabase.rpc('pointer', { p_code: params.code, p_photo_path: chemin });
   if (error) throw new Error(error.message);
   return data as ResultatPointage;
 }
 
-export async function definirPositionPopUp(popUpId: string, lat: number, lon: number) {
-  const { error } = await supabase.rpc('definir_position_popup', { p_pop_up_id: popUpId, p_lat: lat, p_lon: lon });
-  if (error) throw new Error(error.message);
+/** URL temporaire (5 min) pour afficher la photo de la caisse dans l'écran Pointages. */
+export async function obtenirUrlPhotoPointage(chemin: string): Promise<string> {
+  const { data, error } = await supabase.storage.from(BUCKET_PHOTOS).createSignedUrl(chemin, 300);
+  if (error) throw error;
+  return data.signedUrl;
 }
 
 /** Pointages d'un pop-up sur une journée (bornes en heure locale du téléphone = heure de Paris). */

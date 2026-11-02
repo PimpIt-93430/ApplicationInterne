@@ -37,7 +37,7 @@ export interface PopUp {
    * SumUp par proximité (cf. src/api/ventesSumup.ts), aucun autre champ fiable pour ça. */
   lat: number | null;
   lon: number | null;
-  /** Pointage QR + GPS activé pour ce pop-up (case Hub > Pointage, migration 0132). */
+  /** Pointage QR + photo de la caisse activé pour ce pop-up (case Hub > Pop up, migration 0132). */
   pointage_actif: boolean;
   /** Créneaux matin/après-midi prédéfinis pour ce lieu (indépendants du jour de la semaine,
    * contrairement à regles_horaires_ouverture) — nullable tant que l'admin ne les a pas réglés. */
@@ -60,11 +60,9 @@ export interface PopUp {
   ventes_alternants: boolean;
 }
 
-/** Attribution d'une personne à un lieu où elle peut être planifiée. Une personne peut être
- * attribuée à plusieurs lieux. Les admins n'ont pas besoin d'y figurer : ils sont considérés
- * attribués à tous les lieux (vérifié via profile.role === 'admin'). */
-/** Pointage arrivée/départ (cf. migration 0130) — créé par la fonction serveur pointer() après
- * vérification QR + GPS, ou à la main par un admin/manager (saisi_par renseigné). */
+/** Pointage arrivée/départ (cf. migrations 0130-0133) — créé par la fonction serveur pointer()
+ * après scan du QR du pop-up + photo de la caisse, ou à la main par un admin/manager (saisi_par
+ * renseigné, pas de photo). */
 export type TypePointage = 'arrivee' | 'depart';
 
 export interface Pointage {
@@ -73,15 +71,15 @@ export interface Pointage {
   pop_up_id: string;
   type: TypePointage;
   horodatage: string;
-  lat: number | null;
-  lon: number | null;
-  distance_m: number | null;
-  /** true = position bonne au scan, false = trop loin / pas de position / simulée, null = pop-up sans
-   * position enregistrée (cf. migration 0131). */
-  gps_ok: boolean | null;
+  /** Chemin dans le bucket privé "pointages-photos" (photo de la caisse prise au scan). */
+  photo_path: string | null;
   saisi_par: string | null;
   created_at: string;
 }
+
+/** Attribution d'une personne à un lieu où elle peut être planifiée. Une personne peut être
+ * attribuée à plusieurs lieux. Les admins n'ont pas besoin d'y figurer : ils sont considérés
+ * attribués à tous les lieux (vérifié via profile.role === 'admin'). */
 
 export interface ProfilPopUp {
   id: string;
