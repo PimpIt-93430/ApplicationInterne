@@ -87,6 +87,7 @@ const LIBELLE_SUPPRESSION_CONGE: Record<Conge['type'], string> = {
   indisponibilite: "l'indisponibilité",
   absence: "l'absence",
   repos: 'le repos',
+  maladie: "l'absence maladie",
 };
 
 // Sélecteur de vue desktop (web uniquement) : remplace la grille semaine unique par plusieurs vues

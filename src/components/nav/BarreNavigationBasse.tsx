@@ -65,7 +65,10 @@ export function BarreNavigationBasse() {
     profile?.type_contrat === 'alternant' &&
     popUpsVentes(profile, construireMapAffectations(affectations ?? []), popUps ?? []).length > 0;
   const onglets =
-    profile?.type_contrat === 'manager' || profile?.role === 'admin' || alternantAvecVentes
+    profile?.type_contrat === 'manager' ||
+    profile?.role === 'admin' ||
+    alternantAvecVentes ||
+    !!profile?.voir_chiffres_tous_popups
       ? [...ONGLETS_BASE.slice(0, 2), ONGLET_VENTES, ...ONGLETS_BASE.slice(2)]
       : ONGLETS_BASE;
 

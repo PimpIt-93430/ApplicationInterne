@@ -1,7 +1,7 @@
 export type Role = 'admin' | 'employe';
 export type TypeContrat = 'manager' | 'employe' | 'alternant';
 export type StatutShift = 'brouillon' | 'valide' | 'publie';
-export type TypeConge = 'conge' | 'indisponibilite' | 'absence' | 'repos';
+export type TypeConge = 'conge' | 'indisponibilite' | 'absence' | 'repos' | 'maladie';
 export type StatutConge = 'en_attente' | 'validee' | 'refusee';
 // Finance reste strictement réservé aux admins (décision explicite, migration 0035) : pas de droit
 // pour ça, uniquement "calendrier" peut être accordé à un non-admin.
@@ -17,6 +17,9 @@ export interface Profile {
   couleur: string;
   heures_max_semaine: number | null;
   actif: boolean;
+  /** Droit coché par un admin dans le Hub : lecture des ventes de tous les pop-ups (migration 0128),
+   * sans rien ouvrir d'autre. */
+  voir_chiffres_tous_popups?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -34,6 +37,8 @@ export interface PopUp {
    * SumUp par proximité (cf. src/api/ventesSumup.ts), aucun autre champ fiable pour ça. */
   lat: number | null;
   lon: number | null;
+  /** Pointage QR + GPS activé pour ce pop-up (case Hub > Pointage, migration 0132). */
+  pointage_actif: boolean;
   /** Créneaux matin/après-midi prédéfinis pour ce lieu (indépendants du jour de la semaine,
    * contrairement à regles_horaires_ouverture) — nullable tant que l'admin ne les a pas réglés. */
   matin_debut: string | null;
@@ -58,6 +63,26 @@ export interface PopUp {
 /** Attribution d'une personne à un lieu où elle peut être planifiée. Une personne peut être
  * attribuée à plusieurs lieux. Les admins n'ont pas besoin d'y figurer : ils sont considérés
  * attribués à tous les lieux (vérifié via profile.role === 'admin'). */
+/** Pointage arrivée/départ (cf. migration 0130) — créé par la fonction serveur pointer() après
+ * vérification QR + GPS, ou à la main par un admin/manager (saisi_par renseigné). */
+export type TypePointage = 'arrivee' | 'depart';
+
+export interface Pointage {
+  id: string;
+  profile_id: string;
+  pop_up_id: string;
+  type: TypePointage;
+  horodatage: string;
+  lat: number | null;
+  lon: number | null;
+  distance_m: number | null;
+  /** true = position bonne au scan, false = trop loin / pas de position / simulée, null = pop-up sans
+   * position enregistrée (cf. migration 0131). */
+  gps_ok: boolean | null;
+  saisi_par: string | null;
+  created_at: string;
+}
+
 export interface ProfilPopUp {
   id: string;
   profile_id: string;
@@ -594,6 +619,23 @@ export interface CommandeConsommableLigne {
 
 export type StatutCommandeProduits = 'demandee' | 'envoyee' | 'recue';
 export type CategorieProduit = 'chaussures' | 'coques' | 'sacs' | 'lanieres';
+
+/** Catégorie saisie depuis la colonne de l'onglet Stock (migration 0125) — les 4 produits + les
+ * consommables (les pin's ont leur propre circuit : remplissage des boîtes). */
+export type CategorieSaisieStock = CategorieProduit | 'consommables';
+
+/** Brouillon validé de la prochaine commande pour un pop-up et une catégorie (migration 0125) :
+ * sa présence rend la catégorie "verte", supprimé une fois la commande envoyée. `quantites` est
+ * indexé par id de variante (produits) ou par type de consommable. */
+export interface StockSaisieCommande {
+  id: string;
+  pop_up_id: string;
+  categorie: CategorieSaisieStock;
+  quantites: Record<string, number>;
+  description_autre: string | null;
+  validee_par: string | null;
+  validee_at: string;
+}
 
 /** Cycle de vie d'une commande de Produits (chaussures/coques/sacs/lanières) : demandée (par le pop-up) →
  * envoyée (par le local, une fois préparée) → reçue (par le pop-up) — même principe que

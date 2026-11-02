@@ -1,9 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { CarteShiftJournee } from './CarteShiftJournee';
 import { PanneauEditionShiftEquipe } from './PanneauEditionShiftEquipe';
+import { PanneauPartagePlanning } from './PanneauPartagePlanning';
 import { SelecteurSemaineCombo } from './SelecteurSemaineCombo';
 import { VueParEmployes } from './VueParEmployes';
 import { BarreOnglets } from '@/components/ui/BarreOnglets';
@@ -58,12 +60,14 @@ const LIBELLE_CONGE_JOUR: Record<Conge['type'], string> = {
   indisponibilite: 'Indisponible',
   absence: 'Absence',
   repos: 'Repos',
+  maladie: 'Maladie',
 };
 const COULEUR_CONGE_JOUR: Record<Conge['type'], string> = {
   conge: '#F87171',
   indisponibilite: '#F87171',
   absence: '#F87171',
   repos: '#CBD5E1',
+  maladie: '#F87171',
 };
 
 /** Écran "Planning" mobile façon Combo (onglet de la barre de navigation basse non-admin) :
@@ -88,6 +92,7 @@ export function PlanningMobile() {
   // Décoché par défaut (cf. commentaire sur profilsEquipe) : ne s'affiche qu'en mode édition, pour
   // pouvoir malgré tout attribuer un admin à un pop-up sans personne d'autre dessus.
   const [voirAdmins, setVoirAdmins] = useState(false);
+  const [partageVisible, setPartageVisible] = useState(false);
   const { dateReference, semaineSuivante, semainePrecedente, revenirAujourdhui } = useSemaineStore();
   const jours = joursDeLaSemaine(dateReference);
   const dateDebut = dateEnISO(jours[0]);
@@ -162,6 +167,18 @@ export function PlanningMobile() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shiftsAffiches, dateDebut, dateFin]);
 
+  // Image partagée : l'équipe du pop-up + toute personne qui y a un créneau cette semaine (renfort
+  // d'un autre lieu, admin qui dépanne) — sinon ses horaires manqueraient sur l'image.
+  const profilsPartage = useMemo(() => {
+    const ids = new Set(profilsEquipe.map((p) => p.id));
+    const renforts = (profils ?? []).filter(
+      (p) => !ids.has(p.id) && shiftsAffiches.some((s) => s.profile_id === p.id),
+    );
+    return [...profilsEquipe, ...renforts];
+  }, [profilsEquipe, profils, shiftsAffiches]);
+
+  const pointageActif = mesPopUps.some((p) => p.pointage_actif);
+
   const chargement = chargementShifts || chargementPopUps;
 
   if (!profile) {
@@ -174,8 +191,30 @@ export function PlanningMobile() {
 
   return (
     <View className="flex-1 bg-white">
-      <View className="px-4 pb-2 pt-14">
+      <View className="flex-row items-center justify-between px-4 pb-2 pt-14">
         <Text className="text-2xl font-bold text-slate-900">Planning</Text>
+        {/* Pointage QR + GPS (migration 0130) : "Pointer" pour tout le monde, "Pointages" (suivi
+            prévu/réel, corrections, position du pop-up) pour le manager et l'admin — seulement si un
+            de ses pop-ups a le pointage activé (case Hub > Pointage, migration 0132). */}
+        {pointageActif && (
+          <View className="flex-row gap-2">
+            {(estManager || estAdmin) && (
+              <Pressable
+                onPress={() => router.push('/(app)/pointages')}
+                className="h-10 w-10 items-center justify-center rounded-full bg-slate-100"
+              >
+                <Ionicons name="time-outline" size={20} color="#4F46E5" />
+              </Pressable>
+            )}
+            <Pressable
+              onPress={() => router.push('/(app)/pointage')}
+              className="flex-row items-center gap-1.5 rounded-full bg-indigo-600 px-4 py-2.5"
+            >
+              <Ionicons name="qr-code-outline" size={16} color="white" />
+              <Text className="text-sm font-bold text-white">Pointer</Text>
+            </Pressable>
+          </View>
+        )}
       </View>
 
       <View className="mx-4 mb-3">
@@ -217,6 +256,14 @@ export function PlanningMobile() {
                 size={18}
                 color={vueEquipe === 'employes' ? 'white' : '#4F46E5'}
               />
+            </Pressable>
+          )}
+          {(estManager || estAdmin) && !modeEdition && (
+            <Pressable
+              onPress={() => setPartageVisible(true)}
+              className="h-9 w-9 items-center justify-center rounded-full bg-slate-100"
+            >
+              <Ionicons name="share-outline" size={18} color="#4F46E5" />
             </Pressable>
           )}
           {(estManager || estAdmin) && (
@@ -403,6 +450,17 @@ export function PlanningMobile() {
             : undefined
         }
         creeParId={profileReel?.id}
+      />
+
+      <PanneauPartagePlanning
+        visible={partageVisible}
+        onClose={() => setPartageVisible(false)}
+        popUp={popUpParId.get(popUpEquipe ?? '')}
+        jours={jours}
+        profils={profilsPartage}
+        shifts={shiftsAffiches}
+        conges={congesEquipe ?? []}
+        joursEcole={joursEcole ?? []}
       />
     </View>
   );

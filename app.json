@@ -36,6 +36,21 @@
         {
           "photosPermission": "Autorise l'accès à tes photos pour choisir une image de pin."
         }
+      ],
+      "expo-sharing",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "La caméra sert à scanner le QR code de pointage du pop-up.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Ta position est vérifiée au moment du pointage, pour confirmer que tu es bien au pop-up."
+        }
       ]
     ],
     "extra": {

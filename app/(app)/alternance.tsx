@@ -53,7 +53,8 @@ export default function AlternanceScreen() {
   const alternants = (profils ?? []).filter((p) => p.type_contrat === 'alternant');
 
   // Équipe d'un manager = alternants attribués au(x) même(s) pop-up(s) que lui (même pattern que
-  // PlanningMobile.tsx pour la vue équipe scopée) — consultation en lecture seule uniquement, la
+  // PlanningMobile.tsx pour la vue équipe scopée) — modification directe comme l'admin (migration
+  // 0129, retour utilisateur du 2026-11-02), la
   // validation des demandes de calendrier école reste 100% admin.
   const { data: popUpsTous } = usePopUps();
   const { data: affectationsToutes } = useAffectationsPopUp();
@@ -108,8 +109,10 @@ export default function AlternanceScreen() {
 
   const handlePressJourAdmin = (dateIso: string) => {
     const existant = joursEcole?.find((j) => j.date === dateIso);
-    if (existant) supprimer.mutate(existant.id);
-    else if (profileCibleId) ajouter.mutate(dateIso);
+    const onError = (e: unknown) =>
+      Alert.alert('Erreur', e instanceof Error ? e.message : 'Modification impossible.');
+    if (existant) supprimer.mutate(existant.id, { onError });
+    else if (profileCibleId) ajouter.mutate(dateIso, { onError });
   };
 
   const handlePressJourBrouillon = (dateIso: string) => {
@@ -178,9 +181,7 @@ export default function AlternanceScreen() {
         <Text className="mb-4 text-sm text-slate-400">
           {modeDemande
             ? 'Touchez un jour pour proposer un changement, puis validez votre demande — l\'admin doit l\'approuver.'
-            : estManager
-              ? 'Consultez le calendrier d\'école des alternants de votre équipe (lecture seule).'
-              : 'Touchez un jour pour le marquer "école" — la personne ne sera jamais planifiée ce jour-là.'}
+            :'Touchez un jour pour le marquer "école" — la personne ne sera jamais planifiée ce jour-là.'}
         </Text>
       </View>
 
@@ -232,9 +233,7 @@ export default function AlternanceScreen() {
               ? demandeEnAttente
                 ? undefined
                 : handlePressJourBrouillon
-              : estManager
-                ? undefined
-                : handlePressJourAdmin
+              : handlePressJourAdmin
           }
         />
       )}

@@ -31,6 +31,7 @@ const LIBELLE_TYPE_CONGE: Record<TypeConge, string> = {
   indisponibilite: 'Indisponibilité',
   absence: 'Absence',
   repos: 'Repos',
+  maladie: 'Maladie',
 };
 
 function formatDateCourte(dateIso: string): string {

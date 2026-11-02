@@ -38,6 +38,7 @@ const COULEUR_CONGE: Record<Conge['type'], { fond: string; texte: string }> = {
   indisponibilite: { fond: '#FEE2E2', texte: '#DC2626' },
   absence: { fond: '#FEE2E2', texte: '#DC2626' },
   repos: { fond: '#F1F5F9', texte: '#64748B' },
+  maladie: { fond: '#FEE2E2', texte: '#DC2626' },
 };
 
 // `nom_complet` est stocké "Prénom Nom" — on n'affiche que le premier mot (retour utilisateur du

@@ -27,6 +27,7 @@ import {
 } from '@/api/stock';
 import { CaseDetailModal } from '@/components/stock/CaseDetailModal';
 import { GrilleCases } from '@/components/stock/GrilleCases';
+import { useStatutsStock } from '@/hooks/useStatutsStock';
 import { ModalePhotoPin } from '@/components/stock/ModalePhotoPin';
 import { EnteteRetour } from '@/components/nav/EnteteRetour';
 import { BarreOnglets } from '@/components/ui/BarreOnglets';
@@ -1581,6 +1582,7 @@ export function StockScreen({
   const { attribuer, basculerCommande, validerRemplissage, supprimerRemplissage } =
     useGererCasesPopUp(popUpActif);
   const { data: derniersRemplissages } = useDerniersRemplissages(popUpActif);
+  const { boitesAFaire } = useStatutsStock(popUpActif);
   const { data: remplissages, isLoading: chargementRapport } = useRemplissages(popUpActif);
   const { data: commandesTerminees, isLoading: chargementHistorique } = useCommandesTerminees(popUpActif);
   const { data: commandeActive } = useCommandeActivePopUp(popUpActif);
@@ -1851,7 +1853,7 @@ export function StockScreen({
                     <ActivityIndicator color="#6366F1" />
                   ) : (
                     <>
-                      <GrilleCases grille={grille ?? []} onPressCase={setCasePositionOuverte} />
+                      <GrilleCases grille={grille ?? []} onPressCase={setCasePositionOuverte} boitesAFaire={boitesAFaire} />
 
                       {popUpActif && (
                         <View className="mt-5">

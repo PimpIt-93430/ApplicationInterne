@@ -73,7 +73,7 @@ export function PanneauHistoriqueRH({ profileId, onFermer }: { profileId: string
     .sort((a, b) => b.date_debut.localeCompare(a.date_debut));
 
   const absencesTries = [...(conges ?? [])]
-    .filter((c) => c.type === 'absence' || c.type === 'indisponibilite')
+    .filter((c) => c.type === 'absence' || c.type === 'indisponibilite' || c.type === 'maladie')
     .sort((a, b) => b.date_debut.localeCompare(a.date_debut));
 
   return (
@@ -119,7 +119,7 @@ export function PanneauHistoriqueRH({ profileId, onFermer }: { profileId: string
                 {c.date_fin !== c.date_debut ? ` → ${formatDate(c.date_fin)}` : ''}
               </Text>
               <Text className="mt-0.5 text-xs text-slate-400">
-                {c.note || (c.type === 'indisponibilite' ? 'Indisponibilité' : 'Autre')}
+                {c.note || (c.type === 'indisponibilite' ? 'Indisponibilité' : c.type === 'maladie' ? 'Absence maladie' : 'Autre')}
               </Text>
             </View>
           ))

@@ -143,7 +143,7 @@ export function TableauRH() {
         if (debut > fin) continue;
         const nbJours = Math.round((new Date(`${fin}T00:00:00`).getTime() - new Date(`${debut}T00:00:00`).getTime()) / 86400000) + 1;
         if (c.type === 'conge' && c.statut === 'validee') joursConge += nbJours;
-        if (c.type === 'absence' || c.type === 'indisponibilite') joursAbsence += nbJours;
+        if (c.type === 'absence' || c.type === 'indisponibilite' || c.type === 'maladie') joursAbsence += nbJours;
       }
 
       // Depuis le début de l'année civile, ou depuis la date de début de contrat si elle tombe

@@ -34,8 +34,10 @@ export async function ajouterJourEcole(profileId: string, date: string) {
 }
 
 export async function supprimerJourEcole(id: string) {
-  const { error } = await supabase.from('jours_ecole_alternant').delete().eq('id', id);
+  // .select() : sans ça une RLS qui bloque la suppression (manager hors équipe) ne remonte rien.
+  const { data, error } = await supabase.from('jours_ecole_alternant').delete().eq('id', id).select('id');
   if (error) throw error;
+  if (!data || data.length === 0) throw new Error('Suppression bloquée (droits insuffisants ?)');
 }
 
 /** Utilisée pour appliquer une demande validée (cf. useTraiterDemandeCalendrierEcole) : on n'a que

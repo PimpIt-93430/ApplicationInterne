@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { endOfDay, format, isToday, startOfDay } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { router } from 'expo-router';
@@ -7,6 +8,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 
 import { CaJourContenu } from '@/components/finance/CaJourEcran';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { useMesDroits } from '@/hooks/useDroits';
+import { useAPointeAujourdhui } from '@/hooks/usePointages';
 import { usePopUps } from '@/hooks/usePopUps';
 import { useProfilEffectif } from '@/hooks/useProfilEffectif';
 import { useActiveProfiles, useAffectationsPopUp } from '@/hooks/useProfiles';
@@ -143,6 +145,10 @@ export function VentesEcran() {
   const popUpActif = mesPopUps.find((p) => p.id === popUpActifId);
 
   const { data: ventes, isLoading } = useVentesEspecesPopUp(popUpActif?.id);
+  const { data: aPointe, isLoading: chargementPointage } = useAPointeAujourdhui(
+    profile?.id,
+    estAlternant && !!popUpActif?.pointage_actif,
+  );
   const { ajouter, annuler } = useGererVentesEspeces(popUpActif?.id);
   // Un alternant ne voit que l'historique du jour, en lecture seule (pas d'annulation, cf.
   // migration 0124), pas tout l'historique du pop-up comme un manager.
@@ -239,6 +245,19 @@ export function VentesEcran() {
               <CaJourContenu onChoisirPopUp={(popUpId) => setPopUpSelectionne(popUpId)} />
             </View>
           )}
+          {/* Droit "voir les chiffres de tous les pop-ups" (retour utilisateur du 2026-11-02, manager
+              de Val d'Europe qui veut comparer) : CA du jour de chaque pop-up, et toucher une carte
+              ouvre ses chiffres détaillés — sans changer le pop-up de saisie, qui reste le sien. */}
+          {!estAdmin && profile.voir_chiffres_tous_popups && (
+            <View style={{ gap: 16, marginBottom: 20 }}>
+              <CaJourContenu
+                avecSite={false}
+                onChoisirPopUp={(popUpId, popUpNom) =>
+                  router.push({ pathname: '/(app)/recap-ventes', params: { popUpId, popUpNom } })
+                }
+              />
+            </View>
+          )}
 
           <View className="mb-5 rounded-2xl bg-slate-50 p-4">
             <Text className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
@@ -262,7 +281,38 @@ export function VentesEcran() {
             </Pressable>
           </View>
 
-          {estAlternant && <ChiffresDuJour popUpId={popUpActif.id} ventesEspeces={ventes ?? []} />}
+          {/* Chiffres du jour débloqués seulement une fois l'arrivée pointée (retour utilisateur du
+              2026-11-02) — la saisie des ventes au-dessus reste toujours possible. */}
+          {estAlternant &&
+            (aPointe || !popUpActif.pointage_actif ? (
+              <ChiffresDuJour popUpId={popUpActif.id} ventesEspeces={ventes ?? []} />
+            ) : (
+              <View className="mb-5 rounded-2xl bg-emerald-50 p-4">
+                <Text className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Chiffres du jour</Text>
+                <Text className="mt-1 text-sm text-emerald-800">
+                  {chargementPointage ? 'Vérification…' : 'Pointe ton arrivée pour voir les chiffres du jour.'}
+                </Text>
+                {!chargementPointage && (
+                  <Pressable
+                    onPress={() => router.push('/(app)/pointage')}
+                    className="mt-3 flex-row items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3"
+                  >
+                    <Ionicons name="qr-code-outline" size={16} color="white" />
+                    <Text className="text-sm font-bold text-white">Pointer mon arrivée</Text>
+                  </Pressable>
+                )}
+              </View>
+            ))}
+
+          {(estAdmin || estManager) && mesPopUps.some((p) => p.pointage_actif) && (
+            <Pressable
+              onPress={() => router.push('/(app)/pointages')}
+              className="mb-3 flex-row items-center justify-center gap-2 rounded-2xl border border-slate-200 py-4"
+            >
+              <Ionicons name="time-outline" size={18} color="#334155" />
+              <Text className="text-base font-bold text-slate-700">Pointages</Text>
+            </Pressable>
+          )}
 
           {(estAdmin || estManager) && (
             <Pressable

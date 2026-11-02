@@ -15,13 +15,9 @@ import {
   useConsommablesEnAttenteLocal,
   useGererCommandeConsommables,
 } from '@/hooks/useConsommables';
-import {
-  useChaussuresInventaires,
-  useChaussuresStock,
-  useMappingSumupChaussures,
-  useVentesSumupLignes,
-} from '@/hooks/useChaussures';
-import { useCoquesInventaires, useCoquesStock, useMappingSumupCoques } from '@/hooks/useCoques';
+import { useCatalogueProduits } from '@/hooks/useCatalogueProduits';
+import { useGererSaisiesCommande } from '@/hooks/useSaisiesCommande';
+import { useStatutsStock, type CategorieColonneStock } from '@/hooks/useStatutsStock';
 import {
   useCommandeActiveProduits,
   useCommandeDetailProduits,
@@ -45,12 +41,18 @@ import {
   useGererPreparationCommande,
   useGrillePopUp,
 } from '@/hooks/useStock';
-import { calculerARamener, resoudreVentesSumup } from '@/utils/chaussures';
-import { calculerARamenerCoques, resoudreVentesSumupCoques } from '@/utils/coques';
 import { construireMapAffectations, popUpsAttribues } from '@/utils/affectations';
 import { useCommandeQuantitesStore } from '@/store/useCommandeQuantitesStore';
-import { usePanierProduitsStore } from '@/store/usePanierProduitsStore';
-import type { CategorieProduit, Profile, TypeConsommable } from '@/types/database.types';
+import type { CategorieProduit, CategorieSaisieStock, Profile, StockSaisieCommande, TypeConsommable } from '@/types/database.types';
+
+const LABEL_COLONNE: Record<CategorieColonneStock, string> = {
+  pins: "Pin's",
+  chaussures: 'Chaussures',
+  coques: 'Coques',
+  sacs: 'Sacs & pochettes',
+  lanieres: 'Lanières',
+  consommables: 'Consommables',
+};
 
 const LABEL_CATEGORIE: Record<CategorieProduit, string> = {
   chaussures: 'Chaussures',
@@ -69,55 +71,29 @@ interface LigneProduitCandidate {
   quantite: number;
 }
 
-/** Rassemble les lignes de Produits à commander pour ce pop-up : Chaussures/Coques restent
- * calculées automatiquement (même calcul que leurs onglets Réappro, calculerARamener*), tandis que
- * Sacs/Lanières viennent directement du panier manuel (retour utilisateur du 2026-09-18 : "c'est
- * pas un inventaire qui se décrémente, c'est juste quand ils en veulent... un bouton ajouter à la
- * commande", cf. usePanierProduitsStore). */
-function useProduitsACommander(popUpId: string | undefined): { lignes: LigneProduitCandidate[]; chargement: boolean } {
-  const { data: stockChaussures, isLoading: c1 } = useChaussuresStock();
-  const { data: inventairesChaussures, isLoading: c2 } = useChaussuresInventaires(popUpId);
-  const { data: ventesLignes } = useVentesSumupLignes(popUpId);
-  const { data: mappingChaussures } = useMappingSumupChaussures();
+const CATEGORIES_PRODUITS: CategorieProduit[] = ['chaussures', 'coques', 'sacs', 'lanieres'];
 
-  const { data: stockCoques, isLoading: c3 } = useCoquesStock();
-  const { data: inventairesCoques, isLoading: c4 } = useCoquesInventaires(popUpId);
-  const { data: mappingCoques } = useMappingSumupCoques();
-
-  const panier = usePanierProduitsStore((s) => s.lignes);
+/** Lignes de Produits à commander pour ce pop-up = les quantités saisies à la main dans chaque
+ * case de la colonne Stock (stock_saisies_commande, migration 0125) — retour utilisateur du
+ * 2026-10-23 : plus aucun calcul inventaire − ventes SumUp. */
+function useProduitsACommander(saisies: StockSaisieCommande[]): { lignes: LigneProduitCandidate[]; chargement: boolean } {
+  const { groupes, chargement } = useCatalogueProduits();
 
   const lignes = useMemo(() => {
-    if (!popUpId) return [];
     const resultat: LigneProduitCandidate[] = [];
-
-    // Chaussures — cf. utils/chaussures.ts resoudreVentesSumup (parsing description en priorité,
-    // repli sur le mapping nom→couleur/taille).
-    const ventesChaussures = resoudreVentesSumup(ventesLignes ?? [], mappingChaussures ?? []);
-    for (const item of calculerARamener(stockChaussures ?? [], inventairesChaussures ?? [], ventesChaussures)) {
-      if (item.aRamener <= 0) continue;
-      resultat.push({ categorie: 'chaussures', produitId: item.id, libelle: `${item.couleur} — ${item.taille}`, quantite: item.aRamener });
+    for (const categorie of CATEGORIES_PRODUITS) {
+      const saisie = saisies.find((s) => s.categorie === categorie);
+      if (!saisie) continue;
+      for (const groupe of groupes[categorie]) {
+        for (const variante of groupe.variantes) {
+          const quantite = saisie.quantites[variante.id] ?? 0;
+          if (quantite > 0) resultat.push({ categorie, produitId: variante.id, libelle: variante.libelleCommande, quantite });
+        }
+      }
     }
-
-    const ventesCoques = resoudreVentesSumupCoques(ventesLignes ?? [], mappingCoques ?? []);
-    for (const item of calculerARamenerCoques(stockCoques ?? [], inventairesCoques ?? [], ventesCoques)) {
-      if (item.aRamener <= 0) continue;
-      resultat.push({
-        categorie: 'coques',
-        produitId: item.id,
-        libelle: `Iphone ${item.modele} — ${item.couleur}`,
-        quantite: item.aRamener,
-      });
-    }
-
-    for (const ligne of panier) {
-      resultat.push({ categorie: ligne.categorie, produitId: ligne.produitId, libelle: ligne.libelle, quantite: ligne.quantite });
-    }
-
     return resultat;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [popUpId, stockChaussures, inventairesChaussures, ventesLignes, mappingChaussures, stockCoques, inventairesCoques, mappingCoques, panier]);
-
-  return { lignes, chargement: c1 || c2 || c3 || c4 };
+  }, [saisies, groupes]);
+  return { lignes, chargement };
 }
 
 function CaseACocher({ coche }: { coche: boolean }) {
@@ -170,7 +146,7 @@ interface HistoriqueItem {
 }
 
 /** "Commande actuelle" + "Historique" côté pop-up : rassemble en une seule composition les pin's
- * signalés "à commander", les Produits calculés en réappro et les consommables cochés à la main —
+ * signalés "à commander", les Produits et consommables saisis dans la colonne Stock —
  * cf. retour utilisateur du 2026-09-07 : "tu check la commande et tu l'envoies" en un seul geste,
  * là où jusqu'ici seuls les pin's avaient un circuit d'envoi complet. */
 function VueCommandePopUp({ popUpId, popUpNom, profile }: { popUpId: string; popUpNom: string; profile: Profile }) {
@@ -187,17 +163,23 @@ function VueCommandePopUp({ popUpId, popUpNom, profile }: { popUpId: string; pop
   const quantites = useCommandeQuantitesStore((s) => s.quantites);
   const reinitialiserQuantites = useCommandeQuantitesStore((s) => s.reinitialiser);
 
+  // Saisies de la colonne Stock (produits + consommables) et cases encore à faire.
+  const { nonVertes, saisies, chargement: chargementStatuts } = useStatutsStock(popUpId);
+  const { supprimer: supprimerSaisies } = useGererSaisiesCommande(popUpId);
+
   // Produits
-  const { lignes: produitsCandidats } = useProduitsACommander(popUpId);
+  const { lignes: produitsCandidats, chargement: chargementCatalogue } = useProduitsACommander(saisies);
   const { data: commandeProduits } = useCommandeActiveProduits(popUpId);
   const { envoyer: envoyerProduits, marquerRecue: marquerRecueProduits } = useGererCommandeProduits(popUpId);
   const [produitsExclus, setProduitsExclus] = useState<Set<string>>(new Set());
-  const retirerDuPanier = usePanierProduitsStore((s) => s.retirer);
 
-  // Consommables
+  // Consommables — ceux cochés dans la case Consommables, décochables ici pour cet envoi.
   const { data: commandeConsommables } = useCommandeActiveConsommables(popUpId);
   const { demander: demanderConsommables, marquerRecue: marquerRecueConsommables } = useGererCommandeConsommables(popUpId);
-  const [consommablesChoisis, setConsommablesChoisis] = useState<Set<TypeConsommable>>(new Set());
+  const saisieConsommables = saisies.find((s) => s.categorie === 'consommables');
+  const consommablesSaisis = Object.keys(saisieConsommables?.quantites ?? {}) as TypeConsommable[];
+  const [consommablesExclus, setConsommablesExclus] = useState<Set<TypeConsommable>>(new Set());
+  const consommablesChoisis = consommablesSaisis.filter((t) => !consommablesExclus.has(t));
 
   // Historique
   const { data: histoPins } = useCommandesTerminees(popUpId);
@@ -216,11 +198,20 @@ function VueCommandePopUp({ popUpId, popUpNom, profile }: { popUpId: string; pop
   const lignesPinsRetenues = lignesPins.filter((l) => !pinsExclus.has(l.pin.id));
   const produitsRetenus = produitsCandidats.filter((l) => !produitsExclus.has(l.produitId));
 
-  const totalRetenu = (commandePins ? 0 : lignesPinsRetenues.length) + (commandeProduits ? 0 : produitsRetenus.length) + (commandeConsommables ? 0 : consommablesChoisis.size);
+  const totalRetenu = (commandePins ? 0 : lignesPinsRetenues.length) + (commandeProduits ? 0 : produitsRetenus.length) + (commandeConsommables ? 0 : consommablesChoisis.length);
+  // Catégories saisies qui partiront avec cet envoi (et seront donc remises "à faire") — y compris
+  // celles validées à 0 ("rien à commander"), du moment que leur famille n'a pas déjà une commande
+  // en vol (sinon la saisie est gardée pour la prochaine fois).
+  const saisiesAEffacer: CategorieSaisieStock[] = saisies
+    .map((s) => s.categorie)
+    .filter((c) => (c === 'consommables' ? !commandeConsommables : !commandeProduits));
+  // Jamais pendant un chargement : sans le catalogue, les saisies produits seraient effacées sans
+  // que leurs lignes partent dans la commande.
+  const peutEnvoyer = !chargementStatuts && !chargementCatalogue && (totalRetenu > 0 || saisiesAEffacer.length > 0);
   const [envoiEnCours, setEnvoiEnCours] = useState(false);
 
   const envoyerTout = async () => {
-    if (!profile || totalRetenu === 0) return;
+    if (!profile || !peutEnvoyer) return;
     setEnvoiEnCours(true);
     try {
       if (!commandePins && lignesPinsRetenues.length > 0) {
@@ -235,21 +226,21 @@ function VueCommandePopUp({ popUpId, popUpNom, profile }: { popUpId: string; pop
           profileId: profile.id,
           lignes: produitsRetenus.map((l) => ({ categorie: l.categorie, produitId: l.produitId, libelle: l.libelle, quantite: l.quantite })),
         });
-        // Vide du panier seulement ce qui vient d'être envoyé — une ligne sacs/lanières décochée
-        // (exclue de cet envoi) doit rester en attente pour la prochaine fois.
-        for (const l of produitsRetenus) {
-          if (l.categorie === 'sacs' || l.categorie === 'lanieres') retirerDuPanier(l.produitId);
-        }
       }
-      if (!commandeConsommables && consommablesChoisis.size > 0) {
+      if (!commandeConsommables && consommablesChoisis.length > 0) {
         await demanderConsommables.mutateAsync({
           profileId: profile.id,
-          lignes: [...consommablesChoisis].map((type) => ({ type, description: null })),
+          lignes: consommablesChoisis.map((type) => ({
+            type,
+            description: type === 'autre' ? (saisieConsommables?.description_autre ?? null) : null,
+          })),
         });
       }
+      // Remet les cases à faire pour la prochaine commande.
+      await supprimerSaisies.mutateAsync(saisiesAEffacer);
       setPinsExclus(new Set());
       setProduitsExclus(new Set());
-      setConsommablesChoisis(new Set());
+      setConsommablesExclus(new Set());
     } catch (e) {
       Alert.alert('Erreur', e instanceof Error ? e.message : "Une partie de la commande n'a pas pu être envoyée.");
     } finally {
@@ -258,9 +249,13 @@ function VueCommandePopUp({ popUpId, popUpNom, profile }: { popUpId: string; pop
   };
 
   const confirmerEnvoi = () => {
-    Alert.alert('Envoyer la commande au local', `Le local va préparer tout ça pour ${popUpNom}.`, [
+    const resteAFaire =
+      nonVertes.length > 0
+        ? `\n\nAttention, pas encore fait : ${nonVertes.map((c) => LABEL_COLONNE[c]).join(', ')}.`
+        : '';
+    Alert.alert('Envoyer la commande au local', `Le local va préparer tout ça pour ${popUpNom}.${resteAFaire}`, [
       { text: 'Annuler', style: 'cancel' },
-      { text: 'Envoyer', onPress: envoyerTout },
+      { text: nonVertes.length > 0 ? 'Envoyer quand même' : 'Envoyer', onPress: envoyerTout },
     ]);
   };
 
@@ -394,18 +389,21 @@ function VueCommandePopUp({ popUpId, popUpNom, profile }: { popUpId: string; pop
             ) : (
               <CarteStatutCommande titre="Consommables — demandés" texte="En préparation par le local." couleur="amber" />
             )
+          ) : consommablesSaisis.length === 0 ? (
+            <Text className="mb-4 text-sm text-slate-400">Rien à commander pour l'instant.</Text>
           ) : (
             <View className="mb-4">
-              {TYPES_CONSOMMABLES.map((t) => (
+              {consommablesSaisis.map((type) => (
                 <LigneCheckable
-                  key={t.valeur}
-                  label={t.label}
-                  coche={consommablesChoisis.has(t.valeur)}
+                  key={type}
+                  label={LABEL_TYPE_CONSOMMABLE[type]}
+                  sousLigne={type === 'autre' ? (saisieConsommables?.description_autre ?? undefined) : undefined}
+                  coche={!consommablesExclus.has(type)}
                   onPress={() =>
-                    setConsommablesChoisis((prev) => {
+                    setConsommablesExclus((prev) => {
                       const next = new Set(prev);
-                      if (next.has(t.valeur)) next.delete(t.valeur);
-                      else next.add(t.valeur);
+                      if (next.has(type)) next.delete(type);
+                      else next.add(type);
                       return next;
                     })
                   }
@@ -414,12 +412,17 @@ function VueCommandePopUp({ popUpId, popUpNom, profile }: { popUpId: string; pop
             </View>
           )}
 
+          {nonVertes.length > 0 && (
+            <Text className="mb-2 text-center text-xs font-semibold text-amber-600">
+              Pas encore fait : {nonVertes.map((c) => LABEL_COLONNE[c]).join(', ')}
+            </Text>
+          )}
           <Pressable
             onPress={confirmerEnvoi}
-            disabled={totalRetenu === 0 || envoiEnCours}
-            className={`mt-2 items-center rounded-2xl py-4 ${totalRetenu === 0 ? 'bg-slate-200' : 'bg-indigo-600'}`}
+            disabled={!peutEnvoyer || envoiEnCours}
+            className={`mt-2 items-center rounded-2xl py-4 ${!peutEnvoyer ? 'bg-slate-200' : 'bg-indigo-600'}`}
           >
-            <Text className={`text-base font-bold ${totalRetenu === 0 ? 'text-slate-500' : 'text-white'}`}>
+            <Text className={`text-base font-bold ${!peutEnvoyer ? 'text-slate-500' : 'text-white'}`}>
               {envoiEnCours ? 'Envoi…' : `Envoyer la commande${totalRetenu > 0 ? ` (${totalRetenu})` : ''}`}
             </Text>
           </Pressable>
@@ -692,7 +695,7 @@ export function CommandeGeneraleEcran({
   profile: Profile;
   onRetour: () => void;
   popUpId: string | undefined;
-  // Non utilisé ici (contrairement à StockScreen/ConsommablesScreen) : le sélecteur de lieu vit
+  // Non utilisé ici (contrairement à StockScreen) : le sélecteur de lieu vit
   // uniquement sur l'écran menu de StockAccueil, cette prop n'existe que pour garder la même
   // signature d'appel que les autres écrans de catégorie.
   onChangePopUpId: (id: string) => void;

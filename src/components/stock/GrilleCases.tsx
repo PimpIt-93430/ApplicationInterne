@@ -14,9 +14,13 @@ const COULEURS_STATUT: Record<StatutBoiteCommande, string> = {
 export function GrilleCases({
   grille,
   onPressCase,
+  boitesAFaire,
 }: {
   grille: CaseGrille[];
   onPressCase: (casePosition: string) => void;
+  /** Boîtes pas encore validées depuis la dernière commande : badge "À faire" (retour utilisateur
+   * du 2026-10-26 — "20/21 faites" sans savoir laquelle manque). */
+  boitesAFaire?: string[];
 }) {
   const parPosition = new Map(grille.map((c) => [c.casePosition, c]));
 
@@ -29,21 +33,31 @@ export function GrilleCases({
             const c = parPosition.get(position);
             const contenus = c?.contenus ?? [];
             const statut = statutBoiteCommande(contenus);
+            const aFaire = !!boitesAFaire?.includes(position);
 
             return (
               <Pressable
                 key={position}
                 onPress={() => onPressCase(position)}
                 style={{ flex: 1 / COLONNES.length }}
-                className={`aspect-square justify-between overflow-hidden rounded-xl border p-1.5 shadow-sm ${
+                className={`aspect-square justify-between overflow-hidden rounded-xl p-1.5 shadow-sm ${
+                  aFaire ? 'border-2 border-amber-400' : 'border'
+                } ${
                   statut === 'a_commander'
-                    ? 'border-red-200 bg-red-50'
+                    ? `${aFaire ? '' : 'border-red-200'} bg-red-50`
                     : contenus.length > 0
-                      ? 'border-slate-100 bg-white'
+                      ? `${aFaire ? '' : 'border-slate-100'} bg-white`
                       : 'border-dashed border-slate-200 bg-slate-50'
                 }`}
               >
-                <Text className="text-[10px] font-semibold text-slate-400">{position}</Text>
+                <View className="flex-row items-center justify-between">
+                  <Text className="text-[10px] font-semibold text-slate-400">{position}</Text>
+                  {aFaire && (
+                    <View className="rounded bg-amber-100 px-1">
+                      <Text className="text-[8px] font-bold text-amber-700">À faire</Text>
+                    </View>
+                  )}
+                </View>
                 {contenus.length > 0 ? (
                   <>
                     <Text numberOfLines={2} className="text-[11px] font-semibold text-slate-800">

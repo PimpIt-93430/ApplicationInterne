@@ -55,7 +55,15 @@ function Carte({
  * d'atterrissage dédiée `/(app)/admin/ca-jour` restant par ailleurs l'écran web). Quand
  * `onChoisirPopUp` est fourni, chaque carte pop-up devient cliquable (utilisé par VentesEcran pour
  * présélectionner le pop-up visé dans le sélecteur juste en dessous). */
-export function CaJourContenu({ onChoisirPopUp }: { onChoisirPopUp?: (popUpId: string, popUpNom: string) => void }) {
+export function CaJourContenu({
+  onChoisirPopUp,
+  avecSite = true,
+}: {
+  onChoisirPopUp?: (popUpId: string, popUpNom: string) => void;
+  /** false pour un non-admin avec le droit "voir les chiffres de tous les pop-ups" : pop-ups
+   * seulement, sans le CA du site (réservé aux admins). */
+  avecSite?: boolean;
+}) {
   const debut = useMemo(() => debutJour(), []);
   const fin = useMemo(() => finJour(), []);
 
@@ -63,7 +71,7 @@ export function CaJourContenu({ onChoisirPopUp }: { onChoisirPopUp?: (popUpId: s
   const { data: ventesEspeces, isLoading: chargementEspeces } = useVentesEspecesPeriode(debut.toISOString(), fin.toISOString());
   const { data: popUps, isLoading: chargementPopUps } = usePopUps();
   const { data: emailsSumUp } = useSumupEmailsPopUp();
-  const { data: caSite, isLoading: chargementSite, isError: erreurSite, error: erreurSiteDetail } = useCaJourShopify();
+  const { data: caSite, isLoading: chargementSite, isError: erreurSite, error: erreurSiteDetail } = useCaJourShopify(avecSite);
 
   const chargement = chargementSumup || chargementEspeces || chargementPopUps;
 
@@ -90,7 +98,7 @@ export function CaJourContenu({ onChoisirPopUp }: { onChoisirPopUp?: (popUpId: s
     return { chiffresParPopUp, sumupHorsPopUp, caPopUps };
   }, [ventesSumup, ventesEspeces, popUps, emailsSumUp]);
 
-  const caSiteTotal = (caSite?.shopify ?? 0) + (caSite?.tiktok ?? 0);
+  const caSiteTotal = avecSite ? (caSite?.shopify ?? 0) + (caSite?.tiktok ?? 0) : 0;
   const caGlobal = caPopUps + caSiteTotal;
 
   if (chargement) {
@@ -99,7 +107,13 @@ export function CaJourContenu({ onChoisirPopUp }: { onChoisirPopUp?: (popUpId: s
 
   return (
     <>
-      <Carte titre="CA global de la journée" valeur={formatMontant(caGlobal)} couleurFond="#ECFDF5" couleurTexte="#065F46" grande />
+      <Carte
+        titre={avecSite ? 'CA global de la journée' : 'CA des pop-ups de la journée'}
+        valeur={formatMontant(caGlobal)}
+        couleurFond="#ECFDF5"
+        couleurTexte="#065F46"
+        grande
+      />
 
       <Text style={{ fontSize: 12, fontWeight: '700', textTransform: 'uppercase', color: '#94A3B8', marginTop: 4 }}>
         Par pop-up{onChoisirPopUp ? ' (touchez pour y aller)' : ''}
@@ -140,10 +154,12 @@ export function CaJourContenu({ onChoisirPopUp }: { onChoisirPopUp?: (popUpId: s
         )}
       </View>
 
-      <Text style={{ fontSize: 12, fontWeight: '700', textTransform: 'uppercase', color: '#94A3B8', marginTop: 8 }}>
-        Sur le site
-      </Text>
-      {chargementSite ? (
+      {avecSite && (
+        <Text style={{ fontSize: 12, fontWeight: '700', textTransform: 'uppercase', color: '#94A3B8', marginTop: 8 }}>
+          Sur le site
+        </Text>
+      )}
+      {!avecSite ? null : chargementSite ? (
         <ActivityIndicator color="#0EA5E9" />
       ) : erreurSite ? (
         <View style={{ backgroundColor: '#FEF2F2', borderRadius: 16, padding: 14 }}>
