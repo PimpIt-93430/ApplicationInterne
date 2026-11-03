@@ -23,6 +23,8 @@ import { useAjouterDroit, useDroitsEmploye, useSupprimerDroit } from '@/hooks/us
 import { construireMapAffectations, popUpsAttribues } from '@/utils/affectations';
 import type { DroitEmploye, Fonctionnalite, PopUp, Profile } from '@/types/database.types';
 
+const FONCTIONNALITES: Fonctionnalite[] = ['calendrier', 'equipe'];
+
 // --- Onglet Droits (Stock suit l'attribution existante ; Calendrier/Équipe sont des droits
 // éventuellement scopés à un seul pop-up — cf. migrations 0034/0038. Finance reste admin-only,
 // migration 0035, pas de section ici) ---
@@ -107,7 +109,11 @@ function OngletDroits({ profil, popUps }: { profil: Profile; popUps: PopUp[] }) 
   );
   const lieuxDisponibles = popUps.filter((p) => !lieuxAttribuesIds.has(p.id));
 
-  const parFonctionnalite = (f: Fonctionnalite) => (droits ?? []).filter((d) => d.fonctionnalite === f);
+  // Droits simplifiés (retour utilisateur du 2026-11-03) : un seul choix "Responsable de pop-up",
+  // qui accorde ensemble les droits calendrier + équipe sur ce pop-up — une puce par pop-up.
+  const responsabilites = (droits ?? []).filter(
+    (d, i, tous) => tous.findIndex((x) => x.pop_up_id === d.pop_up_id) === i,
+  );
 
   return (
     <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
@@ -155,30 +161,26 @@ function OngletDroits({ profil, popUps }: { profil: Profile; popUps: PopUp[] }) 
         )}
       </Section>
 
-      <Section titre="Calendrier">
+      <Section titre="Responsable de pop-up">
         <Text style={stylesBase.texteAlerte}>
-          Donne la gestion complète du planning (créer/modifier/supprimer des shifts, gérer les
-          absences) pour le(s) pop-up choisi(s) — pas juste la consultation.
+          Le responsable a tous les droits sur son pop-up : planning (shifts, congés, absences),
+          équipe (fiches, contrats, documents), calendrier école des alternants, pointages, ventes
+          — et il voit les chiffres des autres pop-ups. Il pointe comme tout le monde.
         </Text>
         <SectionDroit
-          droits={parFonctionnalite('calendrier')}
+          droits={responsabilites}
           popUps={popUps}
-          onAjouter={(popUpId) => ajouterDroit.mutate({ fonctionnalite: 'calendrier', popUpId })}
-          onSupprimer={(id) => supprimerDroit.mutate(id)}
-        />
-      </Section>
-
-      <Section titre="Équipe">
-        <Text style={stylesBase.texteAlerte}>
-          Donne accès à la fiche des membres du/des pop-up choisi(s) : infos générales (hors
-          bancaire/médical, réservés à l'admin), contrat, planification, congés et documents — en
-          lecture et en édition.
-        </Text>
-        <SectionDroit
-          droits={parFonctionnalite('equipe')}
-          popUps={popUps}
-          onAjouter={(popUpId) => ajouterDroit.mutate({ fonctionnalite: 'equipe', popUpId })}
-          onSupprimer={(id) => supprimerDroit.mutate(id)}
+          onAjouter={(popUpId) => {
+            for (const fonctionnalite of FONCTIONNALITES) {
+              if (!(droits ?? []).some((d) => d.fonctionnalite === fonctionnalite && d.pop_up_id === popUpId)) {
+                ajouterDroit.mutate({ fonctionnalite, popUpId });
+              }
+            }
+          }}
+          onSupprimer={(id) => {
+            const popUpId = (droits ?? []).find((d) => d.id === id)?.pop_up_id;
+            for (const d of droits ?? []) if (d.pop_up_id === popUpId) supprimerDroit.mutate(d.id);
+          }}
         />
       </Section>
     </ScrollView>

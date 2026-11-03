@@ -14,11 +14,12 @@ import {
 } from '@/hooks/useDemandesCalendrierEcole';
 import { usePopUps } from '@/hooks/usePopUps';
 import { useProfilEffectif } from '@/hooks/useProfilEffectif';
+import { useResponsable } from '@/hooks/useResponsable';
 import { useActiveProfiles, useAffectationsPopUp } from '@/hooks/useProfiles';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useVueAdminStore } from '@/store/useVueAdminStore';
 import type { ActionJourCalendrierEcole } from '@/types/database.types';
-import { construireMapAffectations, popUpsAttribues, estAttribueA } from '@/utils/affectations';
+import { construireMapAffectations, estAttribueA } from '@/utils/affectations';
 
 const STYLE_ECOLE: StyleJourCalendrier = { fond: '#FFFBEB', texte: '#D97706', bordure: '#FCD34D' };
 const STYLE_NEUTRE: StyleJourCalendrier = { fond: '#F8FAFC', texte: '#475569', bordure: '#E2E8F0' };
@@ -47,7 +48,9 @@ export default function AlternanceScreen() {
   // prévisualisation, l'écran doit se comporter exactement comme ce que voit cette personne, pas
   // comme un admin déguisé (même principe que estAdminEnVueAdmin ailleurs).
   const estAdmin = profileReel?.role === 'admin' && !profilPreviewId;
-  const estManager = profile?.type_contrat === 'manager';
+  // Responsable de pop-up (droits simplifiés, cf. useResponsable) : gère le calendrier école des
+  // alternants de son/ses pop-up(s).
+  const { estResponsable: estManager, responsableDe } = useResponsable();
 
   const { data: profils } = useActiveProfiles();
   const alternants = (profils ?? []).filter((p) => p.type_contrat === 'alternant');
@@ -61,15 +64,16 @@ export default function AlternanceScreen() {
   const mapAffectations = useMemo(() => construireMapAffectations(affectationsToutes ?? []), [affectationsToutes]);
   const alternantsEquipe = useMemo(() => {
     if (!estManager || !profile) return [];
-    const mesPopUps = popUpsAttribues(profile, mapAffectations, popUpsTous ?? []);
+    const mesPopUps = (popUpsTous ?? []).filter((p) => responsableDe(p.id));
     return alternants.filter((a) => mesPopUps.some((popUp) => estAttribueA(a, popUp.id, mapAffectations)));
-  }, [estManager, profile, mapAffectations, popUpsTous, alternants]);
+  }, [estManager, profile, mapAffectations, popUpsTous, alternants, responsableDe]);
 
   const [profileCibleId, setProfileCibleId] = useState<string | undefined>(undefined);
   const [moisReference, setMoisReference] = useState(new Date());
-  // Changements pas encore envoyés, accumulés au fil de la navigation entre mois — remis à zéro à
-  // l'envoi de la demande (cf. handleEnvoyer). Uniquement pertinent pour un alternant qui modifie
-  // son propre calendrier (l'admin qui pique un alternant garde l'ancien comportement immédiat).
+  // Changements pas encore validés, accumulés au fil de la navigation entre mois — remis à zéro à
+  // la validation. Pour tout le monde depuis le retour utilisateur du 2026-11-03 : on touche les
+  // jours (jaune = on retire l'école, sinon on l'ajoute), puis "Valider les modifications" +
+  // confirmation. Alternant → demande envoyée à l'admin ; admin/manager → appliqué directement.
   const [brouillon, setBrouillon] = useState<Map<string, ActionJourCalendrierEcole>>(new Map());
 
   useEffect(() => {
@@ -84,7 +88,7 @@ export default function AlternanceScreen() {
   }, [estAlternant, estAdmin, estManager, profile, alternants, alternantsEquipe, profileCibleId]);
 
   const { data: joursEcole, isLoading } = useJoursEcoleProfile(profileCibleId);
-  const { ajouter, supprimer } = useGererJoursEcole(profileCibleId);
+  const { appliquer } = useGererJoursEcole(profileCibleId);
 
   // Modification directe (admin) vs demande à valider (alternant sur son propre calendrier) — cf.
   // migration 0052 : un alternant n'a plus le droit d'écrire directement sur jours_ecole_alternant.
@@ -107,14 +111,6 @@ export default function AlternanceScreen() {
     return set;
   }, [demandeEnAttente, joursConfirmes]);
 
-  const handlePressJourAdmin = (dateIso: string) => {
-    const existant = joursEcole?.find((j) => j.date === dateIso);
-    const onError = (e: unknown) =>
-      Alert.alert('Erreur', e instanceof Error ? e.message : 'Modification impossible.');
-    if (existant) supprimer.mutate(existant.id, { onError });
-    else if (profileCibleId) ajouter.mutate(dateIso, { onError });
-  };
-
   const handlePressJourBrouillon = (dateIso: string) => {
     setBrouillon((prev) => {
       const next = new Map(prev);
@@ -129,14 +125,38 @@ export default function AlternanceScreen() {
     });
   };
 
-  const handleEnvoyer = () => {
+  const envoyerOuAppliquer = () => {
     const diffs = Array.from(brouillon.entries()).map(([date, action]) => ({ date, action }));
-    envoyerDemande.mutate(diffs, {
+    const options = {
       onSuccess: () => setBrouillon(new Map()),
-      onError: (error) =>
-        Alert.alert('Erreur', error instanceof Error ? error.message : "Impossible d'envoyer la demande."),
-    });
+      onError: (error: unknown) =>
+        Alert.alert('Erreur', error instanceof Error ? error.message : 'Modification impossible.'),
+    };
+    if (modeDemande) {
+      envoyerDemande.mutate(diffs, options);
+    } else {
+      appliquer.mutate(
+        diffs.map((d) => ({ ...d, id: joursEcole?.find((j) => j.date === d.date)?.id })),
+        options,
+      );
+    }
   };
+
+  // Rappel avant d'enregistrer (retour utilisateur du 2026-11-03).
+  const handleValider = () => {
+    const n = brouillon.size;
+    Alert.alert(
+      "Changer le calendrier d'école ?",
+      `Voulez-vous vraiment changer le calendrier d'école (${n} jour${n > 1 ? 's' : ''}) ?` +
+        (modeDemande ? " La demande sera envoyée à l'admin." : ''),
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { text: 'Oui, changer', onPress: envoyerOuAppliquer },
+      ],
+    );
+  };
+
+  const enregistrementEnCours = envoyerDemande.isPending || appliquer.isPending;
 
   if (!estAlternant && !estAdmin && !estManager) {
     return (
@@ -164,13 +184,12 @@ export default function AlternanceScreen() {
   const listeSelectionnable = estAdmin ? alternants : alternantsEquipe;
 
   const styleJour = (dateIso: string): StyleJourCalendrier => {
-    if (modeDemande) {
-      if (joursProposesEnAttente) return joursProposesEnAttente.has(dateIso) ? STYLE_ECOLE : STYLE_NEUTRE;
-      const diff = brouillon.get(dateIso);
-      if (diff === 'ajout') return STYLE_AJOUT_PROPOSE;
-      if (diff === 'suppression') return STYLE_SUPPRESSION_PROPOSEE;
-      return joursConfirmes.has(dateIso) ? STYLE_ECOLE : STYLE_NEUTRE;
+    if (modeDemande && joursProposesEnAttente) {
+      return joursProposesEnAttente.has(dateIso) ? STYLE_ECOLE : STYLE_NEUTRE;
     }
+    const diff = brouillon.get(dateIso);
+    if (diff === 'ajout') return STYLE_AJOUT_PROPOSE;
+    if (diff === 'suppression') return STYLE_SUPPRESSION_PROPOSEE;
     return joursConfirmes.has(dateIso) ? STYLE_ECOLE : STYLE_NEUTRE;
   };
 
@@ -180,8 +199,8 @@ export default function AlternanceScreen() {
       <View className="px-4">
         <Text className="mb-4 text-sm text-slate-400">
           {modeDemande
-            ? 'Touchez un jour pour proposer un changement, puis validez votre demande — l\'admin doit l\'approuver.'
-            :'Touchez un jour pour le marquer "école" — la personne ne sera jamais planifiée ce jour-là.'}
+            ? "Touchez un jour : s'il est en jaune il est retiré de l'école, sinon il est ajouté. Validez ensuite vos modifications — l'admin doit les approuver."
+            : "Touchez un jour : s'il est en jaune il est retiré de l'école, sinon il est ajouté. Validez ensuite les modifications — la personne ne sera jamais planifiée un jour d'école."}
         </Text>
       </View>
 
@@ -191,7 +210,11 @@ export default function AlternanceScreen() {
             {listeSelectionnable.map((a) => (
               <Pressable
                 key={a.id}
-                onPress={() => setProfileCibleId(a.id)}
+                onPress={() => {
+                  // Changer de personne abandonne la sélection en cours (autre calendrier).
+                  if (a.id !== profileCibleId) setBrouillon(new Map());
+                  setProfileCibleId(a.id);
+                }}
                 className={`rounded-full px-3 py-2 ${profileCibleId === a.id ? 'bg-indigo-600' : 'bg-slate-100'}`}
               >
                 <Text className={profileCibleId === a.id ? 'text-sm font-semibold text-white' : 'text-sm text-slate-600'}>
@@ -227,18 +250,12 @@ export default function AlternanceScreen() {
         <CalendrierMoisGrille
           moisReference={moisReference}
           statutJour={styleJour}
-          legende={modeDemande && brouillon.size > 0 ? LEGENDE_BROUILLON : LEGENDE_SIMPLE}
-          onPressJour={
-            modeDemande
-              ? demandeEnAttente
-                ? undefined
-                : handlePressJourBrouillon
-              : handlePressJourAdmin
-          }
+          legende={brouillon.size > 0 ? LEGENDE_BROUILLON : LEGENDE_SIMPLE}
+          onPressJour={modeDemande && demandeEnAttente ? undefined : handlePressJourBrouillon}
         />
       )}
 
-      {modeDemande && !demandeEnAttente && brouillon.size > 0 && (
+      {!(modeDemande && demandeEnAttente) && brouillon.size > 0 && (
         <View className="mx-4 mt-5 flex-row gap-3">
           <Pressable
             onPress={() => setBrouillon(new Map())}
@@ -247,23 +264,23 @@ export default function AlternanceScreen() {
             <Text className="text-sm font-semibold text-slate-600">Annuler</Text>
           </Pressable>
           <Pressable
-            onPress={handleEnvoyer}
-            disabled={envoyerDemande.isPending}
+            onPress={handleValider}
+            disabled={enregistrementEnCours}
             className="flex-1 items-center rounded-2xl bg-indigo-600 py-3.5"
           >
             <Text className="text-sm font-bold text-white">
-              {envoyerDemande.isPending
-                ? 'Envoi…'
-                : `Valider la demande (${brouillon.size} changement${brouillon.size > 1 ? 's' : ''})`}
+              {enregistrementEnCours ? 'Enregistrement…' : `Valider les modifications (${brouillon.size})`}
             </Text>
           </Pressable>
         </View>
       )}
 
-      {estAdmin && (
+      {/* Manager : seulement les demandes des alternants de ses pop-ups (filtré par la RLS,
+          migration 0134 — retour utilisateur du 2026-11-03). */}
+      {(estAdmin || (estManager && !estAlternant)) && (
         <View className="mt-6">
           <Text className="mb-2 px-4 text-xs font-semibold uppercase tracking-wide text-slate-400">
-            Demandes de tous les alternants
+            {estAdmin ? 'Demandes de tous les alternants' : 'Demandes des alternants de mon équipe'}
           </Text>
           <PanneauValidationCalendrierEcole />
         </View>

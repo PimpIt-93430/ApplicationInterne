@@ -3,7 +3,7 @@ import { useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 
-import type { Conge, JourEcoleAlternant, PlanningShift, PopUp, Profile } from '@/types/database.types';
+import type { JourEcoleAlternant, PlanningShift, PopUp, Profile } from '@/types/database.types';
 import {
   dateEnISO,
   formatCreneauShift,
@@ -13,13 +13,6 @@ import {
   totalHeuresSemaineAvecEcole,
 } from '@/utils/dateUtils';
 
-const LIBELLE_CONGE: Record<Conge['type'], string> = {
-  conge: 'Congé',
-  indisponibilite: 'Indispo',
-  absence: 'Absence',
-  repos: 'Repos',
-  maladie: 'Maladie',
-};
 
 /** Planning de la semaine d'un pop-up, mis en page pour être envoyé en image dans la conv de
  * l'équipe (cf. demande du 2026-11-02 : "tous les dimanches les managers font un screen") — un
@@ -33,7 +26,6 @@ export function PanneauPartagePlanning({
   jours,
   profils,
   shifts,
-  conges,
   joursEcole,
 }: {
   visible: boolean;
@@ -42,7 +34,6 @@ export function PanneauPartagePlanning({
   jours: Date[];
   profils: Profile[];
   shifts: PlanningShift[];
-  conges: Conge[];
   joursEcole: JourEcoleAlternant[];
 }) {
   const refCarte = useRef<ScrollView>(null);
@@ -97,41 +88,37 @@ export function PanneauPartagePlanning({
 
             {jours.map((jour) => {
               const dateIso = dateEnISO(jour);
+              // Seulement les personnes qui travaillent au pop-up ce jour-là (retour utilisateur du
+              // 2026-11-03) : école, congé, absence ou repos n'apparaissent plus dans les journées.
+              const presents = profils
+                .map((membre) => ({
+                  membre,
+                  shiftsMembre: shifts
+                    .filter((s) => s.profile_id === membre.id && s.date === dateIso)
+                    .sort((a, b) => a.heure_debut.localeCompare(b.heure_debut)),
+                }))
+                .filter(({ shiftsMembre }) => shiftsMembre.length > 0)
+                .sort((a, b) => a.shiftsMembre[0].heure_debut.localeCompare(b.shiftsMembre[0].heure_debut));
               return (
                 <View key={dateIso} className="mb-3 overflow-hidden rounded-xl border border-slate-200">
                   <View style={{ backgroundColor: couleur }} className="px-3 py-1.5">
                     <Text className="text-xs font-bold uppercase text-white">{libelleJourCourt(jour)}</Text>
                   </View>
-                  {profils.map((membre, index) => {
-                    const shiftsMembre = shifts
-                      .filter((s) => s.profile_id === membre.id && s.date === dateIso)
-                      .sort((a, b) => a.heure_debut.localeCompare(b.heure_debut));
-                    const conge = conges.find(
-                      (c) => c.profile_id === membre.id && dateIso >= c.date_debut && dateIso <= c.date_fin,
-                    );
-                    const ecole = joursEcole.some((j) => j.profile_id === membre.id && j.date === dateIso);
-                    const libelle =
-                      shiftsMembre.length > 0
-                        ? shiftsMembre.map((s) => formatCreneauShift(s)).join(' / ')
-                        : conge
-                          ? LIBELLE_CONGE[conge.type]
-                          : ecole
-                            ? 'École'
-                            : 'Repos';
-                    return (
+                  {presents.length === 0 ? (
+                    <Text className="px-3 py-1.5 text-sm text-slate-400">Personne de prévu</Text>
+                  ) : (
+                    presents.map(({ membre, shiftsMembre }, index) => (
                       <View
                         key={membre.id}
                         className={`flex-row items-center justify-between px-3 py-1.5 ${index > 0 ? 'border-t border-slate-100' : ''}`}
                       >
                         <Text className="text-sm font-semibold text-slate-800">{membre.nom_complet || membre.email}</Text>
-                        <Text
-                          className={`text-sm ${shiftsMembre.length > 0 ? 'font-bold text-slate-900' : 'text-slate-400'}`}
-                        >
-                          {libelle}
+                        <Text className="text-sm font-bold text-slate-900">
+                          {shiftsMembre.map((s) => formatCreneauShift(s)).join(' / ')}
                         </Text>
                       </View>
-                    );
-                  })}
+                    ))
+                  )}
                 </View>
               );
             })}

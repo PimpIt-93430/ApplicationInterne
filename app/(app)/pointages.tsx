@@ -10,6 +10,7 @@ import { useShiftsSemaine } from '@/hooks/usePlanning';
 import { useGererPointages, usePointagesJour, useUrlPhotoPointage } from '@/hooks/usePointages';
 import { usePopUps } from '@/hooks/usePopUps';
 import { useProfilEffectif } from '@/hooks/useProfilEffectif';
+import { useResponsable } from '@/hooks/useResponsable';
 import { useActiveProfiles, useAffectationsPopUp } from '@/hooks/useProfiles';
 import { useAuthStore } from '@/store/useAuthStore';
 import type { PlanningShift, Pointage, TypePointage } from '@/types/database.types';
@@ -80,7 +81,8 @@ export default function PointagesScreen() {
   const profile = useProfilEffectif();
   const profileReel = useAuthStore((s) => s.profile);
   const estAdmin = profile?.role === 'admin';
-  const estManager = profile?.type_contrat === 'manager';
+  // Responsable de pop-up (droits simplifiés, cf. useResponsable) : seulement ses pop-ups.
+  const { estResponsable: estManager, responsableDe } = useResponsable();
 
   const { data: popUpsTous } = usePopUps();
   const { data: affectations } = useAffectationsPopUp();
@@ -88,8 +90,12 @@ export default function PointagesScreen() {
   const mapAffectations = useMemo(() => construireMapAffectations(affectations ?? []), [affectations]);
   const mesPopUps = useMemo(
     () =>
-      profile ? popUpsAttribues(profile, mapAffectations, popUpsTous ?? []).filter((p) => p.pointage_actif) : [],
-    [profile, mapAffectations, popUpsTous],
+      profile
+        ? popUpsAttribues(profile, mapAffectations, popUpsTous ?? []).filter(
+            (p) => p.pointage_actif && responsableDe(p.id),
+          )
+        : [],
+    [profile, mapAffectations, popUpsTous, responsableDe],
   );
   const profilParId = useMemo(() => new Map((profils ?? []).map((p) => [p.id, p])), [profils]);
 

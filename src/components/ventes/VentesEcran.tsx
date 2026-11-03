@@ -11,11 +11,12 @@ import { useMesDroits } from '@/hooks/useDroits';
 import { useAPointeAujourdhui } from '@/hooks/usePointages';
 import { usePopUps } from '@/hooks/usePopUps';
 import { useProfilEffectif } from '@/hooks/useProfilEffectif';
+import { useResponsable } from '@/hooks/useResponsable';
 import { useActiveProfiles, useAffectationsPopUp } from '@/hooks/useProfiles';
 import { useGererVentesEspeces, useVentesEspecesPopUp } from '@/hooks/useVentesEspeces';
 import { useSynchroniserVentesSumup, useVentesSumupPeriode } from '@/hooks/useVentesSumup';
 import type { VenteEspece } from '@/types/database.types';
-import { construireMapAffectations, popUpsVentes } from '@/utils/affectations';
+import { construireMapAffectations, popUpsAttribues, popUpsVentes } from '@/utils/affectations';
 import { aDroit } from '@/utils/permissions';
 
 function formatMontant(montant: number): string {
@@ -112,7 +113,9 @@ function LigneVente({
 export function VentesEcran() {
   const profile = useProfilEffectif();
   const estAdmin = profile?.role === 'admin';
-  const estManager = profile?.type_contrat === 'manager';
+  // Droits simplifiés (cf. useResponsable) : le responsable du pop-up a tout dessus, et voit les
+  // chiffres des autres pop-ups.
+  const { estResponsable, responsableDe } = useResponsable();
   const estAlternant = !estAdmin && profile?.type_contrat === 'alternant';
   const { data: popUpsTous } = usePopUps();
   const { data: affectations } = useAffectationsPopUp();
@@ -144,11 +147,20 @@ export function VentesEcran() {
   const popUpActifId = plusieursPopUps ? (popUpSelectionne ?? mesPopUps[0]?.id) : mesPopUps[0]?.id;
   const popUpActif = mesPopUps.find((p) => p.id === popUpActifId);
 
-  const { data: ventes, isLoading } = useVentesEspecesPopUp(popUpActif?.id);
-  const { data: aPointe, isLoading: chargementPointage } = useAPointeAujourdhui(
-    profile?.id,
-    estAlternant && !!popUpActif?.pointage_actif,
+  // Pointage (retour utilisateur du 2026-11-03) : fait depuis Ventes, premier onglet ouvert, par
+  // tout le monde sauf les admins — sur n'importe lequel de ses pop-ups avec le pointage activé,
+  // y compris un alternant dont le pop-up n'a pas l'onglet Ventes ouvert (il ne voit alors que ça).
+  const popUpsPointage = useMemo(
+    () =>
+      profile && !estAdmin
+        ? popUpsAttribues(profile, mapAffectations, popUpsTous ?? []).filter((p) => p.pointage_actif)
+        : [],
+    [profile, estAdmin, mapAffectations, popUpsTous],
   );
+  const doitPointer = popUpsPointage.length > 0;
+
+  const { data: ventes, isLoading } = useVentesEspecesPopUp(popUpActif?.id);
+  const { data: aPointe, isLoading: chargementPointage } = useAPointeAujourdhui(profile?.id, doitPointer);
   const { ajouter, annuler } = useGererVentesEspeces(popUpActif?.id);
   // Un alternant ne voit que l'historique du jour, en lecture seule (pas d'annulation, cf.
   // migration 0124), pas tout l'historique du pop-up comme un manager.
@@ -232,10 +244,26 @@ export function VentesEcran() {
         </View>
       )}
 
+      {doitPointer && (
+        <View className="px-4 pb-2 pt-1">
+          <Pressable
+            onPress={() => router.push('/(app)/pointage')}
+            className="flex-row items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-4"
+          >
+            <Ionicons name="qr-code-outline" size={20} color="white" />
+            <Text className="text-base font-bold text-white">
+              {chargementPointage ? 'Pointer' : aPointe ? 'Pointer mon départ' : 'Pointer mon arrivée'}
+            </Text>
+          </Pressable>
+        </View>
+      )}
+
       {estAlternant && popUpsTous && affectations && mesPopUps.length === 0 ? (
-        <Text className="px-4 pt-4 text-sm text-slate-400">
-          Les ventes ne sont pas ouvertes aux alternants sur ton pop-up.
-        </Text>
+        doitPointer ? null : (
+          <Text className="px-4 pt-4 text-sm text-slate-400">
+            Les ventes ne sont pas ouvertes aux alternants sur ton pop-up.
+          </Text>
+        )
       ) : !profile || !popUpActif ? (
         <ActivityIndicator color="#6366F1" style={{ marginTop: 24 }} />
       ) : (
@@ -248,7 +276,7 @@ export function VentesEcran() {
           {/* Droit "voir les chiffres de tous les pop-ups" (retour utilisateur du 2026-11-02, manager
               de Val d'Europe qui veut comparer) : CA du jour de chaque pop-up, et toucher une carte
               ouvre ses chiffres détaillés — sans changer le pop-up de saisie, qui reste le sien. */}
-          {!estAdmin && profile.voir_chiffres_tous_popups && (
+          {!estAdmin && (profile.voir_chiffres_tous_popups || estResponsable) && (
             <View style={{ gap: 16, marginBottom: 20 }}>
               <CaJourContenu
                 avecSite={false}
@@ -292,29 +320,10 @@ export function VentesEcran() {
                 <Text className="mt-1 text-sm text-emerald-800">
                   {chargementPointage ? 'Vérification…' : 'Pointe ton arrivée pour voir les chiffres du jour.'}
                 </Text>
-                {!chargementPointage && (
-                  <Pressable
-                    onPress={() => router.push('/(app)/pointage')}
-                    className="mt-3 flex-row items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3"
-                  >
-                    <Ionicons name="qr-code-outline" size={16} color="white" />
-                    <Text className="text-sm font-bold text-white">Pointer mon arrivée</Text>
-                  </Pressable>
-                )}
               </View>
             ))}
 
-          {(estAdmin || estManager) && mesPopUps.some((p) => p.pointage_actif) && (
-            <Pressable
-              onPress={() => router.push('/(app)/pointages')}
-              className="mb-3 flex-row items-center justify-center gap-2 rounded-2xl border border-slate-200 py-4"
-            >
-              <Ionicons name="time-outline" size={18} color="#334155" />
-              <Text className="text-base font-bold text-slate-700">Pointages</Text>
-            </Pressable>
-          )}
-
-          {(estAdmin || estManager) && (
+          {responsableDe(popUpActif.id) && (
             <Pressable
               onPress={() =>
                 router.push({

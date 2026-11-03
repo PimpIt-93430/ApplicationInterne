@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { CarteShiftJournee } from './CarteShiftJournee';
 import { PanneauEditionShiftEquipe } from './PanneauEditionShiftEquipe';
@@ -16,6 +16,7 @@ import { useShiftsSemaine } from '@/hooks/usePlanning';
 import { usePopUps } from '@/hooks/usePopUps';
 import { useAffectationsPopUp, useActiveProfiles } from '@/hooks/useProfiles';
 import { useProfilEffectif } from '@/hooks/useProfilEffectif';
+import { useResponsable } from '@/hooks/useResponsable';
 import { useHorairesOuverture } from '@/hooks/useReglesMetier';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useSemaineStore } from '@/store/useSemaineStore';
@@ -89,9 +90,10 @@ export function PlanningMobile() {
   // Vue "par jour" (façon Combo, historique) par défaut — "par employé" (grille avec École/heures,
   // cf. VueParEmployes) accessible via le bouton dédié, pas affichée d'entrée.
   const [vueEquipe, setVueEquipe] = useState<'jour' | 'employes'>('jour');
-  // Décoché par défaut (cf. commentaire sur profilsEquipe) : ne s'affiche qu'en mode édition, pour
-  // pouvoir malgré tout attribuer un admin à un pop-up sans personne d'autre dessus.
-  const [voirAdmins, setVoirAdmins] = useState(false);
+  // Petit "+" sous chaque journée en mode édition (retour utilisateur du 2026-11-03) : ajouter un
+  // renfort qui n'est pas de l'équipe du pop-up (quelqu'un d'un autre pop-up, un admin) — une ou
+  // deux fois par mois. Contient le jour pour lequel on choisit la personne.
+  const [choixRenfortJour, setChoixRenfortJour] = useState<string | null>(null);
   const [partageVisible, setPartageVisible] = useState(false);
   const { dateReference, semaineSuivante, semainePrecedente, revenirAujourdhui } = useSemaineStore();
   const jours = joursDeLaSemaine(dateReference);
@@ -119,24 +121,25 @@ export function PlanningMobile() {
   const popUpParId = useMemo(() => new Map((popUpsTous ?? []).map((p) => [p.id, p])), [popUpsTous]);
 
   const popUpEquipe = popUpSelectionne ?? mesPopUps[0]?.id;
-  const estManager = profile?.type_contrat === 'manager';
+  // Responsable du pop-up affiché (droits simplifiés, cf. useResponsable) — plus le type de contrat.
+  const { responsableDe } = useResponsable();
+  const estManager = responsableDe(popUpEquipe);
   // Un admin a aussi accès au mode édition de la vue équipe (comme un manager), avec le sélecteur
   // de pop-up déjà fonctionnel puisque `mesPopUps` retourne tous les lieux pour un admin (cf.
   // popUpsAttribues) — pas besoin d'un chemin séparé, juste d'élargir la condition d'affichage.
   const estAdmin = profile?.role === 'admin';
   // Les admins sont considérés "attribués à tous les lieux" (cf. estAttribueA) mais n'ont pas leur
   // place dans l'équipe d'un pop-up au sens planning — le manager veut voir son équipe (3-4
-  // personnes en général), pas la liste de tous les admins de l'app. "Voir les admins" (mode
-  // édition uniquement) les révèle malgré tout, pour pouvoir en attribuer un explicitement à un
-  // pop-up sans personne d'autre dessus (ex. dépanner).
+  // personnes en général), pas la liste de tous les admins de l'app. Un admin ou quelqu'un d'un
+  // autre pop-up qui dépanne s'ajoute via le petit "+" (cf. choixRenfortJour).
   const profilsEquipe = useMemo(
     () =>
       popUpEquipe
         ? (profils ?? []).filter(
-            (p) => (voirAdmins || p.role !== 'admin') && estAttribueA(p, popUpEquipe, mapAffectations),
+            (p) => p.role !== 'admin' && estAttribueA(p, popUpEquipe, mapAffectations),
           )
         : [],
-    [profils, popUpEquipe, mapAffectations, voirAdmins],
+    [profils, popUpEquipe, mapAffectations],
   );
   // Horaires d'ouverture du pop-up affiché — sert uniquement à l'indicateur de couverture de la
   // vue équipe (cf. calculerCouverture) ; `enabled: !!popUpId` dans le hook évite une requête
@@ -177,7 +180,24 @@ export function PlanningMobile() {
     return [...profilsEquipe, ...renforts];
   }, [profilsEquipe, profils, shiftsAffiches]);
 
-  const pointageActif = mesPopUps.some((p) => p.pointage_actif);
+  // Liste du mode édition pour un jour : l'équipe du pop-up + les renforts déjà planifiés ici ce
+  // jour-là (sinon on ne pourrait plus modifier/supprimer leur créneau).
+  const membresEdition = (shiftsJour: PlanningShift[]): Profile[] => {
+    const ids = new Set(profilsEquipe.map((p) => p.id));
+    const renforts = [...new Set(shiftsJour.map((s) => s.profile_id))]
+      .filter((id) => !ids.has(id))
+      .map((id) => profilParId.get(id))
+      .filter((p): p is Profile => !!p);
+    return [...profilsEquipe, ...renforts];
+  };
+  const candidatsRenfort = useMemo(() => {
+    const ids = new Set(profilsEquipe.map((p) => p.id));
+    return (profils ?? [])
+      .filter((p) => !ids.has(p.id))
+      .sort((a, b) => (a.nom_complet || a.email).localeCompare(b.nom_complet || b.email));
+  }, [profils, profilsEquipe]);
+
+  const pointageActif = mesPopUps.some((p) => p.pointage_actif && responsableDe(p.id));
 
   const chargement = chargementShifts || chargementPopUps;
 
@@ -193,27 +213,17 @@ export function PlanningMobile() {
     <View className="flex-1 bg-white">
       <View className="flex-row items-center justify-between px-4 pb-2 pt-14">
         <Text className="text-2xl font-bold text-slate-900">Planning</Text>
-        {/* Pointage QR + photo de la caisse (migrations 0130-0133) : "Pointer" pour tout le monde,
-            "Pointages" (suivi prévu/réel, photos, corrections) pour le manager et l'admin — seulement
-            si un de ses pop-ups a le pointage activé (case Hub > Pop up, migration 0132). */}
+        {/* Consultation des pointages (suivi prévu/réel, photos, corrections) : uniquement ici, pour
+            le manager et l'admin, si un de ses pop-ups a le pointage activé (migration 0132). Le
+            bouton "Pointer" est dans l'onglet Ventes (retour utilisateur du 2026-11-03). */}
         {pointageActif && (
-          <View className="flex-row gap-2">
-            {(estManager || estAdmin) && (
-              <Pressable
-                onPress={() => router.push('/(app)/pointages')}
-                className="h-10 w-10 items-center justify-center rounded-full bg-slate-100"
-              >
-                <Ionicons name="time-outline" size={20} color="#4F46E5" />
-              </Pressable>
-            )}
-            <Pressable
-              onPress={() => router.push('/(app)/pointage')}
-              className="flex-row items-center gap-1.5 rounded-full bg-indigo-600 px-4 py-2.5"
-            >
-              <Ionicons name="qr-code-outline" size={16} color="white" />
-              <Text className="text-sm font-bold text-white">Pointer</Text>
-            </Pressable>
-          </View>
+          <Pressable
+            onPress={() => router.push('/(app)/pointages')}
+            className="flex-row items-center gap-1.5 rounded-full bg-slate-100 px-4 py-2.5"
+          >
+            <Ionicons name="time-outline" size={16} color="#4F46E5" />
+            <Text className="text-sm font-bold text-indigo-600">Pointages</Text>
+          </Pressable>
         )}
       </View>
 
@@ -279,22 +289,6 @@ export function PlanningMobile() {
         </View>
       )}
 
-      {onglet === 'equipe' && (estManager || estAdmin) && modeEdition && (
-        <Pressable
-          onPress={() => setVoirAdmins((v) => !v)}
-          className="mb-3 flex-row items-center gap-1.5 px-4"
-        >
-          <View
-            className={`h-4 w-4 items-center justify-center rounded ${
-              voirAdmins ? 'bg-indigo-600' : 'border border-slate-300'
-            }`}
-          >
-            {voirAdmins && <Text className="text-[10px] font-bold text-white">✓</Text>}
-          </View>
-          <Text className="text-xs font-semibold text-slate-500">Voir les admins</Text>
-        </Pressable>
-      )}
-
       {chargement ? (
         <ActivityIndicator size="large" color="#6366F1" style={{ marginTop: 24 }} />
       ) : onglet === 'equipe' && !modeEdition && vueEquipe === 'employes' ? (
@@ -348,10 +342,11 @@ export function PlanningMobile() {
                 </View>
 
                 {onglet === 'equipe' && (estManager || estAdmin) && modeEdition ? (
-                  profilsEquipe.length === 0 ? (
+                  <>
+                  {membresEdition(shiftsJour).length === 0 ? (
                     <Text className="text-sm text-slate-400">Aucun membre dans cette équipe.</Text>
                   ) : (
-                    profilsEquipe.map((membre) => {
+                    membresEdition(shiftsJour).map((membre) => {
                       const shiftsMembre = shiftsJour.filter((s) => s.profile_id === membre.id);
                       const congeMembre = (congesEquipe ?? []).find(
                         (c) => c.profile_id === membre.id && dateIso >= c.date_debut && dateIso <= c.date_fin,
@@ -386,7 +381,15 @@ export function PlanningMobile() {
                         </Pressable>
                       );
                     })
-                  )
+                  )}
+                  <Pressable
+                    onPress={() => setChoixRenfortJour(dateIso)}
+                    hitSlop={8}
+                    className="h-7 w-7 items-center justify-center self-center rounded-full bg-slate-100"
+                  >
+                    <Ionicons name="add" size={16} color="#64748B" />
+                  </Pressable>
+                  </>
                 ) : shiftsJour.length === 0 ? (
                   onglet === 'mes_shifts' && (
                     <View className="flex-row overflow-hidden rounded-2xl bg-white shadow-sm">
@@ -452,6 +455,37 @@ export function PlanningMobile() {
         creeParId={profileReel?.id}
       />
 
+      <Modal
+        visible={!!choixRenfortJour}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setChoixRenfortJour(null)}
+      >
+        <Pressable onPress={() => setChoixRenfortJour(null)} className="flex-1 justify-end bg-black/40">
+          <Pressable className="max-h-[70%] rounded-t-3xl bg-white px-4 pb-10 pt-4">
+            <Text className="mb-1 text-base font-bold text-slate-900">Ajouter un renfort</Text>
+            <Text className="mb-3 text-xs text-slate-500">Personne d’un autre pop-up ou admin, pour ce jour-là.</Text>
+            <ScrollView>
+              {candidatsRenfort.map((p) => (
+                <Pressable
+                  key={p.id}
+                  onPress={() => {
+                    const dateIso = choixRenfortJour;
+                    setChoixRenfortJour(null);
+                    if (dateIso) setCelluleEditee({ profil: p, dateIso });
+                  }}
+                  className="flex-row items-center gap-2.5 border-b border-slate-100 py-3"
+                >
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.couleur }} />
+                  <Text className="flex-1 text-sm font-semibold text-slate-800">{p.nom_complet || p.email}</Text>
+                  {p.role === 'admin' && <Text className="text-xs text-slate-400">Admin</Text>}
+                </Pressable>
+              ))}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <PanneauPartagePlanning
         visible={partageVisible}
         onClose={() => setPartageVisible(false)}
@@ -459,7 +493,6 @@ export function PlanningMobile() {
         jours={jours}
         profils={profilsPartage}
         shifts={shiftsAffiches}
-        conges={congesEquipe ?? []}
         joursEcole={joursEcole ?? []}
       />
     </View>

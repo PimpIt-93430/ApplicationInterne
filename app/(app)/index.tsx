@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Redirect, router } from 'expo-router';
-import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 
+import { useOngletVentes } from '@/hooks/useOngletVentes';
 import { useProfilEffectif } from '@/hooks/useProfilEffectif';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useMenuStore } from '@/store/useMenuStore';
@@ -68,6 +69,7 @@ export default function AccueilScreen() {
   const profile = useProfilEffectif();
   const profilPreviewId = useVueAdminStore((s) => s.profilPreviewId);
   const ouvrirMenu = useMenuStore((s) => s.ouvrir);
+  const ongletVentes = useOngletVentes();
 
   const estAdmin = profileReel?.role === 'admin' && !profilPreviewId;
   const premierPrenom = (profile?.nom_complet || '').trim().split(' ')[0];
@@ -88,8 +90,18 @@ export default function AccueilScreen() {
   // du bas), qui affiche justement ce même contenu en tête d'écran (cf. CaJourContenu dans
   // VentesEcran), plutôt que sur l'écran dédié /(app)/admin/ca-jour (gardé pour le web et
   // toujours accessible via le tiroir).
+  //
+  // Retour utilisateur du 2026-11-03 : le pointage se fait dans Ventes, qui doit être le premier
+  // onglet ouvert pour tous ceux qui l'ont (cf. useOngletVentes) — Planning sinon.
   if (Platform.OS !== 'web') {
-    return <Redirect href={estAdmin ? '/(app)/ventes' : '/(app)/calendrier'} />;
+    if (!estAdmin && !ongletVentes.pret) {
+      return (
+        <View className="flex-1 items-center justify-center bg-white">
+          <ActivityIndicator size="large" color="#6366F1" />
+        </View>
+      );
+    }
+    return <Redirect href={estAdmin || ongletVentes.aOngletVentes ? '/(app)/ventes' : '/(app)/calendrier'} />;
   }
 
   return (

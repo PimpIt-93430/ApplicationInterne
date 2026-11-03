@@ -9,6 +9,7 @@ import { SectionHeuresRH } from '@/components/demandes/SectionHeuresRH';
 import { TableauRH } from '@/components/demandes/TableauRH';
 import { BarreOnglets } from '@/components/ui/BarreOnglets';
 import { useDemandesCongeEnAttente } from '@/hooks/useConges';
+import { useResponsable } from '@/hooks/useResponsable';
 import { useProfilEffectif } from '@/hooks/useProfilEffectif';
 
 type Onglet = 'conges' | 'absences' | 'equipe' | 'rh';
@@ -32,7 +33,8 @@ export function DemandesEcran() {
   // appelé inconditionnellement (règle des hooks), le résultat n'est juste pas affiché sinon.
   const { data: demandesEnAttente } = useDemandesCongeEnAttente();
   const estAdmin = profile?.role === 'admin';
-  const estManagerOuAdmin = profile?.type_contrat === 'manager' || estAdmin;
+  // Responsable de pop-up (droits simplifiés, cf. useResponsable) ou admin.
+  const { estAdminOuResponsable: estManagerOuAdmin } = useResponsable();
 
   // Un admin n'a pas d'onglet "Congés" (cf. commentaire ci-dessus) — si jamais sélectionné (valeur
   // par défaut au montage, avant que le profil ne soit chargé), on retombe sur "Absences".

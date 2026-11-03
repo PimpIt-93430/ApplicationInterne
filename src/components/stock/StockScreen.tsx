@@ -27,6 +27,7 @@ import {
 } from '@/api/stock';
 import { CaseDetailModal } from '@/components/stock/CaseDetailModal';
 import { GrilleCases } from '@/components/stock/GrilleCases';
+import { useResponsable } from '@/hooks/useResponsable';
 import { useStatutsStock } from '@/hooks/useStatutsStock';
 import { ModalePhotoPin } from '@/components/stock/ModalePhotoPin';
 import { EnteteRetour } from '@/components/nav/EnteteRetour';
@@ -1556,10 +1557,6 @@ export function StockScreen({
   onChangePopUpId: (id: string) => void;
 }) {
   const estAdmin = profile.role === 'admin';
-  // Un remplissage peut être ajouté par erreur (mauvaise boîte, appui accidentel) — un manager
-  // peut le corriger lui-même, pas seulement un admin (cf. migration élargissant la policy RLS
-  // correspondante), contrairement au reste du rapport qui reste en lecture seule pour lui.
-  const peutSupprimerRemplissage = estAdmin || profile.type_contrat === 'manager';
   const { data: popUpsTous, isLoading: chargementPopUps } = usePopUps();
   const { data: affectations } = useAffectationsPopUp();
   const { data: pins, isLoading: chargementPins } = usePins();
@@ -1569,6 +1566,9 @@ export function StockScreen({
   const popUps = estAdmin ? (popUpsTous ?? []) : popUpsAttribues(profile, mapAffectations, popUpsTous ?? []);
 
   const popUpActif = popUpId ?? popUps[0]?.id;
+  // Un remplissage ajouté par erreur peut être supprimé par le responsable du pop-up (ou un admin).
+  const { responsableDe } = useResponsable(profile);
+  const peutSupprimerRemplissage = responsableDe(popUpActif);
 
   const popUpLocal = useMemo(() => popUpsTous?.find((p) => p.est_local), [popUpsTous]);
   const estAuLocal = !!popUpLocal && (mapAffectations.get(profile.id)?.has(popUpLocal.id) ?? false);

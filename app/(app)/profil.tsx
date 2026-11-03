@@ -9,6 +9,7 @@ import type { NomIcone } from '@/components/nav/MenuLateral';
 import { ModalInviterPersonne } from '@/components/profil/ModalInviterPersonne';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { useProfilEffectif } from '@/hooks/useProfilEffectif';
+import { useResponsable } from '@/hooks/useResponsable';
 import { usePopUps } from '@/hooks/usePopUps';
 import { useActiveProfiles, useAffectationsPopUp } from '@/hooks/useProfiles';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -85,7 +86,8 @@ export default function ProfilScreen() {
   const estAdminReel = profileReel?.role === 'admin';
   const estAdminAffiche = profile?.role === 'admin';
   const estAlternant = profile?.type_contrat === 'alternant';
-  const estManager = profile?.type_contrat === 'manager';
+  // Responsable de pop-up (droits simplifiés, cf. useResponsable).
+  const { estResponsable: estManager } = useResponsable();
   const { profilPreviewId, definirProfilPreview } = useVueAdminStore();
   // Comme le reste des actions admin (cf. estAdminEnVueAdmin ailleurs) : masqué quand l'admin
   // est connecté au profil de quelqu'un d'autre, pour rester fidèle à ce que cette personne voit.

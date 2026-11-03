@@ -1,5 +1,6 @@
 import { Pressable, Text, View } from 'react-native';
 
+import { useResponsable } from '@/hooks/useResponsable';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useMenuStore } from '@/store/useMenuStore';
 import { useVueAdminStore } from '@/store/useVueAdminStore';
@@ -13,9 +14,10 @@ export function EnteteMenu({ titre, masquerTitre: _masquerTitre = false }: { tit
   const profilPreviewId = useVueAdminStore((s) => s.profilPreviewId);
 
   const estAdmin = profile?.role === 'admin' && !profilPreviewId;
-  // Un manager a lui aussi accès au tiroir (Équipe scopée à son pop-up, cf. liensNavigation) — pas
+  // Un responsable de pop-up a lui aussi accès au tiroir (Équipe scopée à son pop-up, cf. liensNavigation) — pas
   // seulement un admin, contrairement à avant (retour utilisateur du 2026-08-24).
-  const estManager = profile?.type_contrat === 'manager' && !profilPreviewId;
+  const { estResponsable } = useResponsable(profile ?? null);
+  const estManager = estResponsable && !profilPreviewId;
 
   return (
     <View className="flex-row items-center gap-3 px-4 pb-2 pt-14">

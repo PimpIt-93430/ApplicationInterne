@@ -4,6 +4,7 @@ import { ActivityIndicator, View } from 'react-native';
 
 import { BarreNavigationBasse } from '@/components/nav/BarreNavigationBasse';
 import { MenuLateral } from '@/components/nav/MenuLateral';
+import { useResponsable } from '@/hooks/useResponsable';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useVueAdminStore } from '@/store/useVueAdminStore';
 
@@ -11,6 +12,8 @@ export default function AppLayout() {
   const { session, initializing, init } = useAuthStore();
   const profileReel = useAuthStore((s) => s.profile);
   const profilPreviewId = useVueAdminStore((s) => s.profilPreviewId);
+
+  const { estResponsable } = useResponsable(profileReel ?? null);
 
   useEffect(() => {
     init();
@@ -36,7 +39,7 @@ export default function AppLayout() {
   const estAdminEnVueAdmin = profileReel?.role === 'admin' && !profilPreviewId;
   // Un manager a lui aussi le tiroir sur mobile désormais (Équipe scopée à son pop-up, cf.
   // MenuLateral/liensNavigation) — pas seulement un admin (retour utilisateur du 2026-08-24).
-  const estManagerReel = profileReel?.type_contrat === 'manager' && !profilPreviewId;
+  const estManagerReel = estResponsable && !profilPreviewId;
 
   return (
     <View style={{ flex: 1 }}>
