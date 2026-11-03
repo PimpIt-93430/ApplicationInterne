@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo } from 'react';
 
 import {
   ajouterConge,
@@ -11,6 +12,8 @@ import {
 } from '@/api/conges';
 import { supprimerShiftsProfilChevauchants } from '@/api/planning';
 import { regenererPlanningProfil } from '@/api/regenerationPlanning';
+import { useAffectationsPopUp } from '@/hooks/useProfiles';
+import { useResponsable } from '@/hooks/useResponsable';
 import type { Conge, StatutConge, TypeConge } from '@/types/database.types';
 
 export function useCongesProfile(profileId: string | undefined) {
@@ -105,6 +108,24 @@ export function useDemanderConge(profileId: string | undefined) {
  * celles de son équipe (droit "équipe"/"calendrier") ou tout si admin (cf. fetchDemandesCongeEnAttente). */
 export function useDemandesCongeEnAttente() {
   return useQuery({ queryKey: ['conges-en-attente'], queryFn: fetchDemandesCongeEnAttente });
+}
+
+/** Demandes en attente que le profil effectif peut valider : toutes pour un admin, sinon celles des
+ * personnes affectées à un pop-up dont il est responsable (ex. Charli à Val d'Europe → Pierre
+ * seulement, pas Makeda). La RLS fait déjà ce tri pour le vrai utilisateur, mais un admin en
+ * aperçu "voir en tant que" reçoit tout — d'où ce filtre côté appli (retour du 2026-11-03). */
+export function useDemandesCongeEquipe() {
+  const requete = useDemandesCongeEnAttente();
+  const { estAdmin, responsableDe } = useResponsable();
+  const { data: affectations } = useAffectationsPopUp();
+  const data = useMemo(() => {
+    if (!requete.data) return requete.data;
+    if (estAdmin) return requete.data;
+    return requete.data.filter((c) =>
+      (affectations ?? []).some((a) => a.profile_id === c.profile_id && responsableDe(a.pop_up_id)),
+    );
+  }, [requete.data, estAdmin, responsableDe, affectations]);
+  return { ...requete, data };
 }
 
 /** Validation/refus d'une demande par un manager/admin — `traitePar` doit être l'id du vrai

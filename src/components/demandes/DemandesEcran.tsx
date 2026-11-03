@@ -8,7 +8,7 @@ import { PanneauValidationEquipe } from '@/components/demandes/PanneauValidation
 import { SectionHeuresRH } from '@/components/demandes/SectionHeuresRH';
 import { TableauRH } from '@/components/demandes/TableauRH';
 import { BarreOnglets } from '@/components/ui/BarreOnglets';
-import { useDemandesCongeEnAttente } from '@/hooks/useConges';
+import { useDemandesCongeEquipe } from '@/hooks/useConges';
 import { useResponsable } from '@/hooks/useResponsable';
 import { useProfilEffectif } from '@/hooks/useProfilEffectif';
 
@@ -18,7 +18,7 @@ type Onglet = 'conges' | 'absences' | 'equipe' | 'rh';
  * haut (SectionHeuresRH), puis congés (demande soumise à validation manager/admin), absences
  * (maladie/autre, constat immédiat, auto-service), et pour un manager ou un admin un 3ᵉ onglet
  * "Équipe" pour valider/refuser les demandes de congé — de son équipe pour un manager, de tout le
- * monde pour un admin (RLS renvoie déjà tout pour lui, cf. useDemandesCongeEnAttente). Pas
+ * monde pour un admin (RLS renvoie déjà tout pour lui, cf. useDemandesCongeEquipe). Pas
  * d'onglet "indisponibilités" séparé : une indisponibilité est une absence comme une autre côté RH.
  *
  * Pour un admin (pas un manager) : ni compteur d'heures/congés (il n'est pas suivi comme un
@@ -31,7 +31,7 @@ export function DemandesEcran() {
   const [historiqueOuvert, setHistoriqueOuvert] = useState(false);
   // Réservé aux managers/admins (même condition que l'onglet "Ventes" dans BarreNavigationBasse) —
   // appelé inconditionnellement (règle des hooks), le résultat n'est juste pas affiché sinon.
-  const { data: demandesEnAttente } = useDemandesCongeEnAttente();
+  const { data: demandesEnAttente } = useDemandesCongeEquipe();
   const estAdmin = profile?.role === 'admin';
   // Responsable de pop-up (droits simplifiés, cf. useResponsable) ou admin.
   const { estAdminOuResponsable: estManagerOuAdmin } = useResponsable();

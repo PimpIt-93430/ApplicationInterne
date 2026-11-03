@@ -2,7 +2,7 @@ import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 
-import { useDemandesCongeEnAttente, useTraiterDemandeConge } from '@/hooks/useConges';
+import { useDemandesCongeEquipe, useTraiterDemandeConge } from '@/hooks/useConges';
 import { useActiveProfiles } from '@/hooks/useProfiles';
 import { useAuthStore } from '@/store/useAuthStore';
 
@@ -12,10 +12,10 @@ function formatDate(iso: string): string {
 
 /** Onglet "Équipe" de Demande & RH (manager/admin uniquement) : demandes de congé en attente de
  * validation, tous profils confondus (RLS limite déjà à l'équipe du manager connecté, cf.
- * useDemandesCongeEnAttente). Les absences n'apparaissent jamais ici (auto-service, pas de
+ * useDemandesCongeEquipe). Les absences n'apparaissent jamais ici (auto-service, pas de
  * workflow de validation, cf. PanneauAbsences.tsx). */
 export function PanneauValidationEquipe() {
-  const { data: demandes, isLoading } = useDemandesCongeEnAttente();
+  const { data: demandes, isLoading } = useDemandesCongeEquipe();
   const { data: profils } = useActiveProfiles();
   const profileReel = useAuthStore((s) => s.profile);
   const traiter = useTraiterDemandeConge(profileReel?.id);

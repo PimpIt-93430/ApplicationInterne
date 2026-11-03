@@ -20,6 +20,8 @@ import type { ChangeEvent, CSSProperties } from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { EnteteRetour } from '@/components/nav/EnteteRetour';
+import { Dropdown } from '@/components/ui/Dropdown';
+import { usePopUps } from '@/hooks/usePopUps';
 import { useVentesEspecesPeriode } from '@/hooks/useVentesEspeces';
 import { useSynchroniserVentesSumup, useVentesSumupPeriode } from '@/hooks/useVentesSumup';
 
@@ -67,7 +69,17 @@ function TuileChiffre({ label, valeur }: { label: string; valeur: string }) {
  * (cf. VentesEcran) voyait sinon toujours le cumul de tous les pop-up quel que soit celui
  * sélectionné avant de cliquer "Voir tous les chiffres" — cf. retour utilisateur du 2026-09-01. */
 export function RecapVentesEcran() {
-  const { popUpId, popUpNom } = useLocalSearchParams<{ popUpId?: string; popUpNom?: string }>();
+  const params = useLocalSearchParams<{ popUpId?: string; popUpNom?: string }>();
+  // Sélecteur de pop-up (retour utilisateur du 2026-11-03) : on arrive sur le pop-up de l'écran
+  // Ventes, puis admins et responsables peuvent passer aux chiffres des autres pop-ups (la RLS
+  // ventes_sumup / ventes_especes l'autorise via voit_chiffres_tous_popups, migration 0135).
+  const { data: popUps } = usePopUps();
+  const [popUpChoisi, setPopUpChoisi] = useState<string | undefined>(undefined);
+  const popUpId = popUpChoisi ?? params.popUpId;
+  const optionsPopUps = (popUps ?? [])
+    .filter((p) => !p.est_local || p.id === params.popUpId)
+    .map((p) => ({ value: p.id, label: p.nom, couleur: p.couleur }));
+  const popUpNom = (popUps ?? []).find((p) => p.id === popUpId)?.nom ?? params.popUpNom;
   const [periode, setPeriode] = useState<Periode>('jour');
   const [jourPrecis, setJourPrecis] = useState(new Date());
   const [pickerOuvert, setPickerOuvert] = useState(false);
@@ -114,6 +126,13 @@ export function RecapVentesEcran() {
   return (
     <View style={styles.ecran}>
       <EnteteRetour titre={popUpNom ? `Chiffres — ${popUpNom}` : 'Chiffres'} onRetour={() => router.back()} />
+
+      {optionsPopUps.length > 1 && (
+        <View style={styles.selecteurPopUp}>
+          <Text style={styles.selecteurPopUpLabel}>Pop-up</Text>
+          <Dropdown value={popUpId} options={optionsPopUps} onChange={setPopUpChoisi} />
+        </View>
+      )}
 
       <View style={styles.segment}>
         {PERIODES.map((p) => (
@@ -208,6 +227,8 @@ export function RecapVentesEcran() {
 
 const styles = StyleSheet.create({
   ecran: { flex: 1, backgroundColor: '#F8FAFC' },
+  selecteurPopUp: { paddingHorizontal: 16, paddingTop: 8, zIndex: 30 },
+  selecteurPopUpLabel: { marginBottom: 6, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', color: '#94A3B8' },
   segment: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 16, paddingTop: 8 },
   segmentBouton: { flexGrow: 1, alignItems: 'center', borderRadius: 8, paddingVertical: 10, backgroundColor: '#F1F5F9' },
   segmentBoutonActif: { backgroundColor: '#4F46E5' },

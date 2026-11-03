@@ -115,7 +115,7 @@ export function VentesEcran() {
   const estAdmin = profile?.role === 'admin';
   // Droits simplifiés (cf. useResponsable) : le responsable du pop-up a tout dessus, et voit les
   // chiffres des autres pop-ups.
-  const { estResponsable, responsableDe } = useResponsable();
+  const { responsableDe } = useResponsable();
   const estAlternant = !estAdmin && profile?.type_contrat === 'alternant';
   const { data: popUpsTous } = usePopUps();
   const { data: affectations } = useAffectationsPopUp();
@@ -273,18 +273,10 @@ export function VentesEcran() {
               <CaJourContenu onChoisirPopUp={(popUpId) => setPopUpSelectionne(popUpId)} />
             </View>
           )}
-          {/* Droit "voir les chiffres de tous les pop-ups" (retour utilisateur du 2026-11-02, manager
-              de Val d'Europe qui veut comparer) : CA du jour de chaque pop-up, et toucher une carte
-              ouvre ses chiffres détaillés — sans changer le pop-up de saisie, qui reste le sien. */}
-          {!estAdmin && (profile.voir_chiffres_tous_popups || estResponsable) && (
-            <View style={{ gap: 16, marginBottom: 20 }}>
-              <CaJourContenu
-                avecSite={false}
-                onChoisirPopUp={(popUpId, popUpNom) =>
-                  router.push({ pathname: '/(app)/recap-ventes', params: { popUpId, popUpNom } })
-                }
-              />
-            </View>
+          {/* Responsable (retour utilisateur du 2026-11-03) : ici seulement le chiffre du jour de SON
+              pop-up ; les autres pop-ups se consultent via "Voir tous les chiffres" (sélecteur). */}
+          {!estAdmin && !estAlternant && responsableDe(popUpActif.id) && (
+            <ChiffresDuJour popUpId={popUpActif.id} ventesEspeces={ventes ?? []} />
           )}
 
           <View className="mb-5 rounded-2xl bg-slate-50 p-4">
@@ -323,7 +315,7 @@ export function VentesEcran() {
               </View>
             ))}
 
-          {responsableDe(popUpActif.id) && (
+          {(responsableDe(popUpActif.id) || profile.voir_chiffres_tous_popups) && (
             <Pressable
               onPress={() =>
                 router.push({
