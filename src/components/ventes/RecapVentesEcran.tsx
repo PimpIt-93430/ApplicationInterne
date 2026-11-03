@@ -3,6 +3,9 @@
 // leurs en-têtes) — un <input type="date"> natif sur web, DateTimePicker sur iOS/Android.
 import DateTimePicker from '@react-native-community/datetimepicker';
 import {
+  addMonths,
+  addWeeks,
+  addYears,
   endOfDay,
   endOfMonth,
   endOfWeek,
@@ -22,6 +25,8 @@ import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, V
 import { EnteteRetour } from '@/components/nav/EnteteRetour';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { usePopUps } from '@/hooks/usePopUps';
+import { useProfilEffectif } from '@/hooks/useProfilEffectif';
+import { useResponsable } from '@/hooks/useResponsable';
 import { useVentesEspecesPeriode } from '@/hooks/useVentesEspeces';
 import { useSynchroniserVentesSumup, useVentesSumupPeriode } from '@/hooks/useVentesSumup';
 
@@ -35,13 +40,22 @@ const PERIODES: { value: Periode; label: string }[] = [
   { value: 'jour_precis', label: 'Jour précis' },
 ];
 
-function calculerPeriode(periode: Periode, jourPrecis: Date): { debut: Date; fin: Date } {
+/** `decalage` (≤ 0) : semaines/mois/années précédents, via les flèches ‹ › (retour utilisateur du
+ * 2026-11-03 : pouvoir regarder les mois précédents, pas seulement le mois en cours). */
+function calculerPeriode(periode: Periode, jourPrecis: Date, decalage = 0): { debut: Date; fin: Date } {
   const maintenant = new Date();
   if (periode === 'semaine') {
-    return { debut: startOfWeek(maintenant, { weekStartsOn: 1 }), fin: endOfWeek(maintenant, { weekStartsOn: 1 }) };
+    const ref = addWeeks(maintenant, decalage);
+    return { debut: startOfWeek(ref, { weekStartsOn: 1 }), fin: endOfWeek(ref, { weekStartsOn: 1 }) };
   }
-  if (periode === 'mois') return { debut: startOfMonth(maintenant), fin: endOfMonth(maintenant) };
-  if (periode === 'annee') return { debut: startOfYear(maintenant), fin: endOfYear(maintenant) };
+  if (periode === 'mois') {
+    const ref = addMonths(maintenant, decalage);
+    return { debut: startOfMonth(ref), fin: endOfMonth(ref) };
+  }
+  if (periode === 'annee') {
+    const ref = addYears(maintenant, decalage);
+    return { debut: startOfYear(ref), fin: endOfYear(ref) };
+  }
   if (periode === 'jour_precis') return { debut: startOfDay(jourPrecis), fin: endOfDay(jourPrecis) };
   return { debut: startOfDay(maintenant), fin: endOfDay(maintenant) };
 }
@@ -73,18 +87,30 @@ export function RecapVentesEcran() {
   // Sélecteur de pop-up (retour utilisateur du 2026-11-03) : on arrive sur le pop-up de l'écran
   // Ventes, puis admins et responsables peuvent passer aux chiffres des autres pop-ups (la RLS
   // ventes_sumup / ventes_especes l'autorise via voit_chiffres_tous_popups, migration 0135).
+  // Un alternant n'a que son pop-up (pas de sélecteur).
   const { data: popUps } = usePopUps();
+  const profile = useProfilEffectif();
+  const { estAdminOuResponsable } = useResponsable();
+  const voitTousLesPopUps = estAdminOuResponsable || !!profile?.voir_chiffres_tous_popups;
   const [popUpChoisi, setPopUpChoisi] = useState<string | undefined>(undefined);
   const popUpId = popUpChoisi ?? params.popUpId;
   const optionsPopUps = (popUps ?? [])
-    .filter((p) => !p.est_local || p.id === params.popUpId)
+    .filter((p) => (voitTousLesPopUps ? !p.est_local || p.id === params.popUpId : p.id === params.popUpId))
     .map((p) => ({ value: p.id, label: p.nom, couleur: p.couleur }));
   const popUpNom = (popUps ?? []).find((p) => p.id === popUpId)?.nom ?? params.popUpNom;
   const [periode, setPeriode] = useState<Periode>('jour');
   const [jourPrecis, setJourPrecis] = useState(new Date());
   const [pickerOuvert, setPickerOuvert] = useState(false);
 
-  const { debut, fin } = calculerPeriode(periode, jourPrecis);
+  const [decalage, setDecalage] = useState(0);
+  const { debut, fin } = calculerPeriode(periode, jourPrecis, decalage);
+  const navigable = periode === 'semaine' || periode === 'mois' || periode === 'annee';
+  const libellePeriode =
+    periode === 'mois'
+      ? format(debut, 'MMMM yyyy', { locale: fr })
+      : periode === 'annee'
+        ? format(debut, 'yyyy')
+        : `Du ${format(debut, 'd MMM', { locale: fr })} au ${format(fin, 'd MMM yyyy', { locale: fr })}`;
   const { data: ventes, isLoading } = useVentesSumupPeriode(debut.toISOString(), fin.toISOString());
   const { data: ventesEspeces, isLoading: chargementEspeces } = useVentesEspecesPeriode(
     debut.toISOString(),
@@ -101,6 +127,7 @@ export function RecapVentesEcran() {
 
   const choisirPeriode = (p: Periode) => {
     setPeriode(p);
+    setDecalage(0);
     if (p === 'jour_precis' && Platform.OS !== 'web') setPickerOuvert(true);
   };
 
@@ -145,6 +172,23 @@ export function RecapVentesEcran() {
           </Pressable>
         ))}
       </View>
+
+      {navigable && (
+        <View style={styles.navPeriode}>
+          <Pressable onPress={() => setDecalage((d) => d - 1)} style={styles.navFleche} hitSlop={8}>
+            <Text style={styles.navFlecheTexte}>‹</Text>
+          </Pressable>
+          <Text style={styles.navLibelle}>{libellePeriode}</Text>
+          <Pressable
+            onPress={() => setDecalage((d) => Math.min(0, d + 1))}
+            disabled={decalage === 0}
+            style={[styles.navFleche, decalage === 0 && { opacity: 0.3 }]}
+            hitSlop={8}
+          >
+            <Text style={styles.navFlecheTexte}>›</Text>
+          </Pressable>
+        </View>
+      )}
 
       {periode === 'jour_precis' && (
         <View style={styles.dateChoisieLigne}>
@@ -234,6 +278,10 @@ const styles = StyleSheet.create({
   segmentBoutonActif: { backgroundColor: '#4F46E5' },
   segmentTexte: { fontSize: 13, fontWeight: '600', color: '#475569' },
   segmentTexteActif: { fontSize: 13, fontWeight: '600', color: 'white' },
+  navPeriode: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 10 },
+  navFleche: { height: 36, width: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 18, backgroundColor: '#F1F5F9' },
+  navFlecheTexte: { fontSize: 22, fontWeight: '700', color: '#4F46E5', marginTop: -2 },
+  navLibelle: { fontSize: 15, fontWeight: '700', color: '#1E293B', textTransform: 'capitalize' },
   dateChoisieLigne: { paddingHorizontal: 16, paddingTop: 10 },
   inputDateWeb: {
     borderRadius: 10,

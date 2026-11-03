@@ -315,7 +315,11 @@ export function VentesEcran() {
               </View>
             ))}
 
-          {(responsableDe(popUpActif.id) || profile.voir_chiffres_tous_popups) && (
+          {/* Alternants aussi (retour utilisateur du 2026-11-03), sur leur pop-up seulement (pas de
+              sélecteur dans le récap) et, comme les chiffres du jour, après avoir pointé. */}
+          {(responsableDe(popUpActif.id) ||
+            profile.voir_chiffres_tous_popups ||
+            (estAlternant && (aPointe || !popUpActif.pointage_actif))) && (
             <Pressable
               onPress={() =>
                 router.push({
